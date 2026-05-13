@@ -361,15 +361,39 @@ export type LaunchPlacementInput = {
   campaignName?: string;
   adSetId?: string;
   adSetName?: string;
+  projectType?: string;
+  adText?: string;
+  ctaLink?: string;
+  audience?: string;
+  location?: string;
 };
 
-function cleanPlacement(input?: LaunchPlacementInput) {
+function cleanText(value?: string | null): string | undefined {
+  const cleaned = value?.trim();
+  return cleaned ? cleaned : undefined;
+}
+
+function cleanLaunchInput(input?: LaunchPlacementInput) {
   return {
-    campaignId: input?.campaignId?.trim(),
-    campaignName: input?.campaignName?.trim(),
-    adSetId: input?.adSetId?.trim(),
-    adSetName: input?.adSetName?.trim()
+    campaignId: cleanText(input?.campaignId),
+    campaignName: cleanText(input?.campaignName),
+    adSetId: cleanText(input?.adSetId),
+    adSetName: cleanText(input?.adSetName),
+    projectType: cleanText(input?.projectType),
+    adText: cleanText(input?.adText),
+    ctaLink: cleanText(input?.ctaLink),
+    audience: cleanText(input?.audience),
+    location: cleanText(input?.location)
   };
+}
+
+function isHttpUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
 }
 
 export async function launchCreative(id: number, placementInput?: LaunchPlacementInput, requestId?: string) {
@@ -380,15 +404,27 @@ export async function launchCreative(id: number, placementInput?: LaunchPlacemen
   if (creative.status !== DB_STATUS.READY_TO_LAUNCH) {
     throw new Error(`Creative ${id} is not ready to launch. Current status: ${creative.status}`);
   }
-  if (!creative.asset_id || !creative.asset_type || !creative.ad_text || !creative.cta_link) {
+  if (!creative.asset_id || !creative.asset_type) {
     throw new Error(`Creative ${id} is missing launch data`);
   }
 
-  const placement = cleanPlacement(placementInput);
-  const campaignId = placement.campaignId ?? creative.campaign_id ?? undefined;
-  const adSetId = placement.adSetId ?? creative.adset_id ?? undefined;
+  const launchInput = cleanLaunchInput(placementInput);
+  const campaignId = launchInput.campaignId ?? cleanText(creative.campaign_id);
+  const adSetId = launchInput.adSetId ?? cleanText(creative.adset_id);
   if (!campaignId || !adSetId) {
     throw new Error(`Creative ${id} is missing Meta campaign/ad set selection`);
+  }
+
+  const projectType = launchInput.projectType ?? cleanText(creative.project_type);
+  const adText = launchInput.adText ?? cleanText(creative.ad_text);
+  const ctaLink = launchInput.ctaLink ?? cleanText(creative.cta_link);
+  const audience = launchInput.audience ?? cleanText(creative.audience);
+  const location = launchInput.location ?? cleanText(creative.location);
+  if (!projectType || !adText || !ctaLink || !audience || !location) {
+    throw new Error(`Creative ${id} is missing required launch fields`);
+  }
+  if (!isHttpUrl(ctaLink)) {
+    throw new Error(`Creative ${id} CTA link must be a valid http(s) URL`);
   }
 
   const adSet = await getFacebookAdSet(adSetId, requestId);
@@ -396,14 +432,19 @@ export async function launchCreative(id: number, placementInput?: LaunchPlacemen
     throw new Error(`AdSet ${adSetId} belongs to campaign ${adSet.campaign_id}, not ${campaignId}`);
   }
 
-  const campaignName = placement.campaignName ?? creative.campaign_name ?? undefined;
-  const adSetName = placement.adSetName ?? adSet.name ?? creative.adset_name ?? undefined;
+  const campaignName = launchInput.campaignName ?? cleanText(creative.campaign_name);
+  const adSetName = launchInput.adSetName ?? adSet.name ?? cleanText(creative.adset_name);
 
   await updateCreativeStatus(id, DB_STATUS.LAUNCHING, {
     campaignId,
     campaignName,
     adSetId,
-    adSetName
+    adSetName,
+    projectType,
+    adText,
+    ctaLink,
+    audience,
+    location
   });
   await updateLaunchStarted(creative.notion_task_id);
   await recordEvent({
@@ -419,14 +460,14 @@ export async function launchCreative(id: number, placementInput?: LaunchPlacemen
     const facebookAdId = await createAd({
       name: adName({
         notionTaskId: creative.notion_task_id,
-        projectType: creative.project_type ?? undefined,
+        projectType,
         sourceFileName: creative.source_file_name ?? undefined
       }),
       adSetId,
       assetId: creative.asset_id,
       assetType: creative.asset_type,
-      adText: creative.ad_text,
-      ctaLink: creative.cta_link,
+      adText,
+      ctaLink,
       requestId
     });
 

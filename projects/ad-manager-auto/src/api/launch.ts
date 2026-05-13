@@ -12,13 +12,19 @@ launchRouter.post("/:id", requireAuth, async (req, res, next) => {
       throw new AppError("Invalid creative id", { statusCode: 400, code: "INVALID_CREATIVE_ID" });
     }
     const body = (req.body ?? {}) as Record<string, unknown>;
+    const stringField = (name: string) => (typeof body[name] === "string" ? body[name] : undefined);
     const creative = await launchCreative(
       id,
       {
-        campaignId: typeof body.campaignId === "string" ? body.campaignId : undefined,
-        campaignName: typeof body.campaignName === "string" ? body.campaignName : undefined,
-        adSetId: typeof body.adSetId === "string" ? body.adSetId : undefined,
-        adSetName: typeof body.adSetName === "string" ? body.adSetName : undefined
+        campaignId: stringField("campaignId"),
+        campaignName: stringField("campaignName"),
+        adSetId: stringField("adSetId"),
+        adSetName: stringField("adSetName"),
+        projectType: stringField("projectType"),
+        adText: stringField("adText"),
+        ctaLink: stringField("ctaLink"),
+        audience: stringField("audience"),
+        location: stringField("location")
       },
       req.id as string | undefined
     );

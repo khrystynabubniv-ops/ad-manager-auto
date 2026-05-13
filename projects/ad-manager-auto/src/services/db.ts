@@ -197,6 +197,11 @@ export async function updateCreativeStatus(
       | "campaignName"
       | "adSetId"
       | "adSetName"
+      | "adText"
+      | "ctaLink"
+      | "audience"
+      | "location"
+      | "projectType"
     >
   > = {}
 ): Promise<Creative> {
@@ -213,7 +218,12 @@ export async function updateCreativeStatus(
         campaign_id = COALESCE($9, campaign_id),
         campaign_name = COALESCE($10, campaign_name),
         adset_id = COALESCE($11, adset_id),
-        adset_name = COALESCE($12, adset_name)
+        adset_name = COALESCE($12, adset_name),
+        ad_text = COALESCE($13, ad_text),
+        cta_link = COALESCE($14, cta_link),
+        audience = COALESCE($15, audience),
+        location = COALESCE($16, location),
+        project_type = COALESCE($17, project_type)
       WHERE id = $1
       RETURNING *
     `,
@@ -229,7 +239,12 @@ export async function updateCreativeStatus(
       fields.campaignId ?? null,
       fields.campaignName ?? null,
       fields.adSetId ?? null,
-      fields.adSetName ?? null
+      fields.adSetName ?? null,
+      fields.adText ?? null,
+      fields.ctaLink ?? null,
+      fields.audience ?? null,
+      fields.location ?? null,
+      fields.projectType ?? null
     ]
   );
   return result.rows[0];

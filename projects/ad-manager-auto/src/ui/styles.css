@@ -16,7 +16,10 @@ body {
 }
 
 button,
-a {
+a,
+input,
+select,
+textarea {
   font: inherit;
 }
 
@@ -358,7 +361,7 @@ button:disabled {
 }
 
 .modal {
-  width: min(760px, 100%);
+  width: min(860px, 100%);
   background: #ffffff;
   border-radius: 8px;
   padding: 22px;
@@ -373,34 +376,43 @@ button:disabled {
   margin-bottom: 18px;
 }
 
+.modalHeader > div {
+  min-width: 0;
+}
+
+.modalTitleInput {
+  width: 100%;
+  min-height: 36px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: #1f2933;
+  background: #ffffff;
+  padding: 0 6px;
+  font-size: 22px;
+  font-weight: 800;
+}
+
+.modalTitleInput:focus {
+  outline: none;
+  border-color: #94a3b8;
+  background: #f8fafc;
+}
+
 .modalGrid {
   display: grid;
-  grid-template-columns: 220px 1fr;
+  grid-template-columns: 240px 1fr;
   gap: 18px;
 }
 
 .modalGrid .previewImage,
 .modalGrid .previewFallback {
-  width: 220px;
-  height: 160px;
+  width: 240px;
+  height: 172px;
 }
 
-.detailsList {
-  margin: 0;
+.detailsForm {
   display: grid;
   gap: 12px;
-}
-
-.detailsList dt {
-  color: #697586;
-  font-size: 12px;
-  font-weight: 700;
-  text-transform: uppercase;
-}
-
-.detailsList dd {
-  margin: 3px 0 0;
-  overflow-wrap: anywhere;
 }
 
 .placementPanel {
@@ -422,7 +434,9 @@ button:disabled {
   text-transform: uppercase;
 }
 
-.fieldGroup select {
+.fieldGroup input,
+.fieldGroup select,
+.fieldGroup textarea {
   width: 100%;
   min-height: 42px;
   border: 1px solid #cfd8e3;
@@ -430,6 +444,21 @@ button:disabled {
   color: #1f2933;
   background: #ffffff;
   padding: 0 12px;
+}
+
+.fieldGroup textarea {
+  min-height: 76px;
+  padding: 10px 12px;
+  line-height: 1.4;
+  resize: vertical;
+}
+
+.fieldGroup input:focus,
+.fieldGroup select:focus,
+.fieldGroup textarea:focus {
+  outline: none;
+  border-color: #0b63ce;
+  box-shadow: 0 0 0 3px rgba(11, 99, 206, 0.14);
 }
 
 .modalNotice {

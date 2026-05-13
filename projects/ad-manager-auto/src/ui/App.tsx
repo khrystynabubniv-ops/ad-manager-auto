@@ -4,7 +4,7 @@ import { getOktaAuth, isAuthDisabled } from "./auth";
 import {
   Creative,
   CreativeListKind,
-  LaunchPlacement,
+  LaunchRequest,
   MetaAdSet,
   MetaCampaign,
   fetchAdSets,
@@ -98,8 +98,15 @@ function ConfirmModal({
   creative: Creative;
   loading: boolean;
   onClose: () => void;
-  onConfirm: (placement: LaunchPlacement) => void;
+  onConfirm: (payload: LaunchRequest) => void;
 }) {
+  const [draft, setDraft] = useState({
+    projectType: creative.project_type ?? "",
+    adText: creative.ad_text ?? "",
+    ctaLink: creative.cta_link ?? "",
+    audience: creative.audience ?? "",
+    location: creative.location ?? ""
+  });
   const [campaigns, setCampaigns] = useState<MetaCampaign[]>([]);
   const [adSets, setAdSets] = useState<MetaAdSet[]>([]);
   const [campaignId, setCampaignId] = useState("");
@@ -107,6 +114,16 @@ function ConfirmModal({
   const [campaignsLoading, setCampaignsLoading] = useState(false);
   const [adSetsLoading, setAdSetsLoading] = useState(false);
   const [placementError, setPlacementError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setDraft({
+      projectType: creative.project_type ?? "",
+      adText: creative.ad_text ?? "",
+      ctaLink: creative.cta_link ?? "",
+      audience: creative.audience ?? "",
+      location: creative.location ?? ""
+    });
+  }, [creative]);
 
   useEffect(() => {
     let active = true;
@@ -170,8 +187,20 @@ function ConfirmModal({
   const selectedCampaign = campaigns.find((campaign) => campaign.id === campaignId);
   const selectedAdSet = adSets.find((adSet) => adSet.id === adSetId);
   const placementReady = Boolean(campaignId && adSetId);
+  const detailsReady = Boolean(
+    draft.projectType.trim() &&
+      draft.adText.trim() &&
+      draft.ctaLink.trim() &&
+      draft.audience.trim() &&
+      draft.location.trim()
+  );
 
   function confirmPlacement() {
+    if (!detailsReady) {
+      setPlacementError("Fill in project type, ad text, CTA link, audience, and location before launch.");
+      return;
+    }
+
     if (!campaignId || !adSetId) {
       setPlacementError("Choose a campaign and ad set before launch.");
       return;
@@ -181,8 +210,18 @@ function ConfirmModal({
       campaignId,
       campaignName: selectedCampaign?.name,
       adSetId,
-      adSetName: selectedAdSet?.name
+      adSetName: selectedAdSet?.name,
+      projectType: draft.projectType.trim(),
+      adText: draft.adText.trim(),
+      ctaLink: draft.ctaLink.trim(),
+      audience: draft.audience.trim(),
+      location: draft.location.trim()
     });
+  }
+
+  function updateDraft(field: keyof typeof draft, value: string) {
+    setDraft((current) => ({ ...current, [field]: value }));
+    setPlacementError(null);
   }
 
   return (
@@ -191,7 +230,14 @@ function ConfirmModal({
         <div className="modalHeader">
           <div>
             <p className="eyebrow">Confirm launch</p>
-            <h2>{creative.project_type ?? "Promo ad"}</h2>
+            <input
+              className="modalTitleInput"
+              aria-label="Project type"
+              value={draft.projectType}
+              onChange={(event) => updateDraft("projectType", event.target.value)}
+              placeholder="Project type"
+              disabled={loading}
+            />
           </div>
           <button className="iconButton" onClick={onClose} aria-label="Close" disabled={loading}>
             ×
@@ -200,24 +246,43 @@ function ConfirmModal({
 
         <div className="modalGrid">
           <CreativePreview creative={creative} />
-          <dl className="detailsList">
-            <div>
-              <dt>Ad text</dt>
-              <dd>{creative.ad_text}</dd>
-            </div>
-            <div>
-              <dt>CTA link</dt>
-              <dd>{creative.cta_link}</dd>
-            </div>
-            <div>
-              <dt>Audience</dt>
-              <dd>{creative.audience}</dd>
-            </div>
-            <div>
-              <dt>Location</dt>
-              <dd>{creative.location}</dd>
-            </div>
-          </dl>
+          <div className="detailsForm">
+            <label className="fieldGroup">
+              <span>Ad text</span>
+              <textarea
+                value={draft.adText}
+                onChange={(event) => updateDraft("adText", event.target.value)}
+                rows={3}
+                disabled={loading}
+              />
+            </label>
+            <label className="fieldGroup">
+              <span>CTA link</span>
+              <input
+                type="url"
+                value={draft.ctaLink}
+                onChange={(event) => updateDraft("ctaLink", event.target.value)}
+                disabled={loading}
+              />
+            </label>
+            <label className="fieldGroup">
+              <span>Audience</span>
+              <textarea
+                value={draft.audience}
+                onChange={(event) => updateDraft("audience", event.target.value)}
+                rows={2}
+                disabled={loading}
+              />
+            </label>
+            <label className="fieldGroup">
+              <span>Location</span>
+              <input
+                value={draft.location}
+                onChange={(event) => updateDraft("location", event.target.value)}
+                disabled={loading}
+              />
+            </label>
+          </div>
         </div>
 
         <div className="placementPanel">
@@ -279,7 +344,7 @@ function ConfirmModal({
           <button
             className="primaryButton"
             onClick={confirmPlacement}
-            disabled={loading || campaignsLoading || adSetsLoading || !placementReady}
+            disabled={loading || campaignsLoading || adSetsLoading || !placementReady || !detailsReady}
           >
             {loading ? <Loader2 size={16} className="spin" /> : <Play size={16} />}
             Launch
@@ -396,7 +461,7 @@ export function App() {
     [creatives.length, view]
   );
 
-  async function confirmLaunch(placement: LaunchPlacement) {
+  async function confirmLaunch(placement: LaunchRequest) {
     if (!selected) return;
     setLaunching(true);
     setError(null);

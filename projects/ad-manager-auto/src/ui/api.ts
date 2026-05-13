@@ -58,6 +58,14 @@ export type LaunchPlacement = {
   adSetName?: string;
 };
 
+export type LaunchRequest = LaunchPlacement & {
+  projectType: string;
+  adText: string;
+  ctaLink: string;
+  audience: string;
+  location: string;
+};
+
 async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
   const token = await getAccessToken();
   const headers = new Headers(init.headers);
@@ -91,10 +99,10 @@ export async function fetchCreatives(kind: CreativeListKind): Promise<Creative[]
   return response.creatives;
 }
 
-export async function launchCreative(id: number, placement: LaunchPlacement): Promise<Creative> {
+export async function launchCreative(id: number, payload: LaunchRequest): Promise<Creative> {
   const response = await apiFetch<{ creative: Creative }>(`/api/launch/${id}`, {
     method: "POST",
-    body: JSON.stringify(placement)
+    body: JSON.stringify(payload)
   });
   return response.creative;
 }
