@@ -102,16 +102,16 @@ function ConfirmModal({
 }) {
   const [campaigns, setCampaigns] = useState<MetaCampaign[]>([]);
   const [adSets, setAdSets] = useState<MetaAdSet[]>([]);
-  const [campaignId, setCampaignId] = useState(creative.campaign_id ?? "");
-  const [adSetId, setAdSetId] = useState(creative.adset_id ?? "");
+  const [campaignId, setCampaignId] = useState("");
+  const [adSetId, setAdSetId] = useState("");
   const [campaignsLoading, setCampaignsLoading] = useState(false);
   const [adSetsLoading, setAdSetsLoading] = useState(false);
   const [placementError, setPlacementError] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
-    setCampaignId(creative.campaign_id ?? "");
-    setAdSetId(creative.adset_id ?? "");
+    setCampaignId("");
+    setAdSetId("");
     setCampaignsLoading(true);
     setPlacementError(null);
 
@@ -119,6 +119,10 @@ function ConfirmModal({
       .then((items) => {
         if (!active) return;
         setCampaigns(items);
+        if (creative.campaign_id && items.some((campaign) => campaign.id === creative.campaign_id)) {
+          setCampaignId(creative.campaign_id);
+          setAdSetId(creative.adset_id ?? "");
+        }
       })
       .catch((error) => {
         if (!active) return;
@@ -213,14 +217,6 @@ function ConfirmModal({
               <dt>Location</dt>
               <dd>{creative.location}</dd>
             </div>
-            <div>
-              <dt>Campaign</dt>
-              <dd>{creative.campaign_name ?? creative.campaign_id}</dd>
-            </div>
-            <div>
-              <dt>Ad set</dt>
-              <dd>{creative.adset_name ?? creative.adset_id ?? "Not selected"}</dd>
-            </div>
           </dl>
         </div>
 
@@ -306,7 +302,7 @@ function CreativeRow({ creative, onLaunch }: { creative: Creative; onLaunch?: (c
         {creative.source_file_name ? <p className="creativeFileName">{creative.source_file_name}</p> : null}
         <p className="adText">{creative.ad_text}</p>
         <div className="metaGrid">
-          <span>{creative.campaign_name ?? creative.campaign_id ?? "No campaign"}</span>
+          <span>{creative.adset_id ? (creative.campaign_name ?? creative.campaign_id ?? "No campaign") : "No placement"}</span>
           <span>{creative.adset_name ?? creative.adset_id ?? "No ad set"}</span>
           <span>{creative.location ?? "No location"}</span>
           <span>{creative.audience ?? "No audience"}</span>
