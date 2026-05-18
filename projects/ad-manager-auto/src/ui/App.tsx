@@ -106,6 +106,44 @@ type AdSetFormState = {
   metaStatus: string;
 };
 
+type AdDraftFormState = {
+  name: string;
+  facebookPageId: string;
+  instagramActorId: string;
+  threadsActorId: string;
+  brandedContentSponsorPageId: string;
+  brandIdentitySettings: string;
+  destinationType: string;
+  destinationUrl: string;
+  leadFormId: string;
+  leadFormName: string;
+  instantExperienceId: string;
+  appDeepLinkUrl: string;
+  phoneNumber: string;
+  whatsappPhoneNumber: string;
+  primaryText: string;
+  headline: string;
+  description: string;
+  primaryTextVariants: string;
+  headlineVariants: string;
+  descriptionVariants: string;
+  ctaType: string;
+  ctaLink: string;
+  displayLink: string;
+  urlTags: string;
+  urlParameters: string;
+  metaPixelId: string;
+  conversionEventName: string;
+  trackingSpecs: string;
+  conversionSpecs: string;
+  objectStorySpec: string;
+  assetFeedSpec: string;
+  callToActionValue: string;
+  creativeFeaturesSpec: string;
+  degreesOfFreedomSpec: string;
+  metaStatus: string;
+};
+
 const campaignObjectives = [
   "OUTCOME_TRAFFIC",
   "OUTCOME_ENGAGEMENT",
@@ -169,7 +207,33 @@ const placementModes = [
   { value: "MANUAL", label: "Manual placements" }
 ];
 const pacingTypes = ["", "standard", "day_parting", "no_pacing"];
-const ctaTypes = ["LEARN_MORE", "SIGN_UP", "SHOP_NOW", "APPLY_NOW", "CONTACT_US", "SUBSCRIBE", "DOWNLOAD", "GET_QUOTE"];
+const adDestinationTypes = [
+  "WEBSITE",
+  "LEAD_FORM",
+  "INSTANT_EXPERIENCE",
+  "APP",
+  "MESSENGER",
+  "WHATSAPP",
+  "INSTAGRAM_DIRECT",
+  "PHONE_CALL"
+];
+const ctaTypes = [
+  "LEARN_MORE",
+  "SIGN_UP",
+  "SHOP_NOW",
+  "APPLY_NOW",
+  "CONTACT_US",
+  "SUBSCRIBE",
+  "DOWNLOAD",
+  "GET_QUOTE",
+  "BOOK_TRAVEL",
+  "CALL_NOW",
+  "DONATE",
+  "GET_DIRECTIONS",
+  "MESSAGE_PAGE",
+  "NO_BUTTON",
+  "WHATSAPP_MESSAGE"
+];
 
 const viewConfig: Record<
   CreativeView,
@@ -483,6 +547,91 @@ function buildAdSetPayload(draft: AdSetFormState, campaignBudgetStrategy: string
     frequencyControlSpecs: parseOptionalJsonValue(draft.frequencyControlSpecs, "Frequency control specs"),
     beneficiary: nullableText(draft.beneficiary),
     payor: nullableText(draft.payor),
+    metaStatus: draft.metaStatus
+  };
+}
+
+function adDraftToFormState(ad: AdDraftWithCreative): AdDraftFormState {
+  return {
+    name: ad.name ?? "",
+    facebookPageId: ad.facebook_page_id ?? "",
+    instagramActorId: ad.instagram_actor_id ?? "",
+    threadsActorId: ad.threads_actor_id ?? "",
+    brandedContentSponsorPageId: ad.branded_content_sponsor_page_id ?? "",
+    brandIdentitySettings: JSON.stringify(ad.brand_identity_settings ?? {}, null, 2),
+    destinationType: ad.destination_type || "WEBSITE",
+    destinationUrl: ad.destination_url ?? "",
+    leadFormId: ad.lead_form_id ?? "",
+    leadFormName: ad.lead_form_name ?? "",
+    instantExperienceId: ad.instant_experience_id ?? "",
+    appDeepLinkUrl: ad.app_deep_link_url ?? "",
+    phoneNumber: ad.phone_number ?? "",
+    whatsappPhoneNumber: ad.whatsapp_phone_number ?? "",
+    primaryText: ad.primary_text ?? "",
+    headline: ad.headline ?? "",
+    description: ad.description ?? "",
+    primaryTextVariants: formatCategories(ad.primary_text_variants),
+    headlineVariants: formatCategories(ad.headline_variants),
+    descriptionVariants: formatCategories(ad.description_variants),
+    ctaType: ad.cta_type || "LEARN_MORE",
+    ctaLink: ad.cta_link ?? "",
+    displayLink: ad.display_link ?? "",
+    urlTags: ad.url_tags ?? "",
+    urlParameters: JSON.stringify(ad.url_parameters ?? {}, null, 2),
+    metaPixelId: ad.meta_pixel_id ?? "",
+    conversionEventName: ad.conversion_event_name ?? "",
+    trackingSpecs: formatJsonValue(ad.tracking_specs),
+    conversionSpecs: formatJsonValue(ad.conversion_specs),
+    objectStorySpec: formatJsonValue(ad.object_story_spec),
+    assetFeedSpec: formatJsonValue(ad.asset_feed_spec),
+    callToActionValue: formatJsonValue(ad.call_to_action_value),
+    creativeFeaturesSpec: formatJsonValue(ad.creative_features_spec),
+    degreesOfFreedomSpec: formatJsonValue(ad.degrees_of_freedom_spec),
+    metaStatus: ad.meta_status || "PAUSED"
+  };
+}
+
+function buildAdDraftPayload(draft: AdDraftFormState): AdDraftPayload & { name: string } {
+  const name = draft.name.trim();
+  if (!name) {
+    throw new Error("Ad name is required.");
+  }
+
+  return {
+    name,
+    facebookPageId: nullableText(draft.facebookPageId),
+    instagramActorId: nullableText(draft.instagramActorId),
+    threadsActorId: nullableText(draft.threadsActorId),
+    brandedContentSponsorPageId: nullableText(draft.brandedContentSponsorPageId),
+    brandIdentitySettings: parseJsonObject(draft.brandIdentitySettings, "Brand identity settings"),
+    destinationType: draft.destinationType,
+    destinationUrl: nullableText(draft.destinationUrl),
+    leadFormId: nullableText(draft.leadFormId),
+    leadFormName: nullableText(draft.leadFormName),
+    instantExperienceId: nullableText(draft.instantExperienceId),
+    appDeepLinkUrl: nullableText(draft.appDeepLinkUrl),
+    phoneNumber: nullableText(draft.phoneNumber),
+    whatsappPhoneNumber: nullableText(draft.whatsappPhoneNumber),
+    primaryText: nullableText(draft.primaryText),
+    headline: nullableText(draft.headline),
+    description: nullableText(draft.description),
+    primaryTextVariants: parseCategories(draft.primaryTextVariants),
+    headlineVariants: parseCategories(draft.headlineVariants),
+    descriptionVariants: parseCategories(draft.descriptionVariants),
+    ctaType: draft.ctaType,
+    ctaLink: nullableText(draft.ctaLink),
+    displayLink: nullableText(draft.displayLink),
+    urlTags: nullableText(draft.urlTags),
+    urlParameters: parseJsonObject(draft.urlParameters, "URL parameters"),
+    metaPixelId: nullableText(draft.metaPixelId),
+    conversionEventName: nullableText(draft.conversionEventName),
+    trackingSpecs: parseOptionalJsonValue(draft.trackingSpecs, "Tracking specs"),
+    conversionSpecs: parseOptionalJsonValue(draft.conversionSpecs, "Conversion specs"),
+    objectStorySpec: parseOptionalJsonObject(draft.objectStorySpec, "Object story spec"),
+    assetFeedSpec: parseOptionalJsonObject(draft.assetFeedSpec, "Asset feed spec"),
+    callToActionValue: parseOptionalJsonObject(draft.callToActionValue, "Call to action value"),
+    creativeFeaturesSpec: parseOptionalJsonObject(draft.creativeFeaturesSpec, "Creative features spec"),
+    degreesOfFreedomSpec: parseOptionalJsonObject(draft.degreesOfFreedomSpec, "Degrees of freedom spec"),
     metaStatus: draft.metaStatus
   };
 }
@@ -1324,48 +1473,22 @@ function AdDraftEditor({
   onSave: (id: number, payload: AdDraftPayload) => void;
   onError: (message: string) => void;
 }) {
-  const [draft, setDraft] = useState({
-    name: ad.name ?? "",
-    primaryText: ad.primary_text ?? "",
-    headline: ad.headline ?? "",
-    description: ad.description ?? "",
-    ctaType: ad.cta_type || "LEARN_MORE",
-    ctaLink: ad.cta_link ?? "",
-    displayLink: ad.display_link ?? "",
-    urlTags: ad.url_tags ?? "",
-    metaStatus: ad.meta_status || "PAUSED"
-  });
+  const [draft, setDraft] = useState<AdDraftFormState>(() => adDraftToFormState(ad));
 
   useEffect(() => {
-    setDraft({
-      name: ad.name ?? "",
-      primaryText: ad.primary_text ?? "",
-      headline: ad.headline ?? "",
-      description: ad.description ?? "",
-      ctaType: ad.cta_type || "LEARN_MORE",
-      ctaLink: ad.cta_link ?? "",
-      displayLink: ad.display_link ?? "",
-      urlTags: ad.url_tags ?? "",
-      metaStatus: ad.meta_status || "PAUSED"
-    });
+    setDraft(adDraftToFormState(ad));
   }, [ad]);
 
+  const update = <Key extends keyof AdDraftFormState>(field: Key, value: AdDraftFormState[Key]) => {
+    setDraft((current) => ({ ...current, [field]: value }));
+  };
+
   function save() {
-    if (!draft.name.trim()) {
-      onError("Ad name is required.");
-      return;
+    try {
+      onSave(ad.id, buildAdDraftPayload(draft));
+    } catch (saveError) {
+      onError(saveError instanceof Error ? saveError.message : String(saveError));
     }
-    onSave(ad.id, {
-      name: draft.name.trim(),
-      primaryText: optionalText(draft.primaryText),
-      headline: optionalText(draft.headline),
-      description: optionalText(draft.description),
-      ctaType: draft.ctaType,
-      ctaLink: optionalText(draft.ctaLink),
-      displayLink: optionalText(draft.displayLink),
-      urlTags: optionalText(draft.urlTags),
-      metaStatus: draft.metaStatus
-    });
   }
 
   return (
@@ -1391,95 +1514,306 @@ function AdDraftEditor({
             </button>
           </div>
         </div>
-        <div className="formGrid two">
-          <label className="fieldGroup">
-            <span>Name</span>
-            <input
-              value={draft.name}
-              onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))}
-              disabled={saving}
-            />
-          </label>
-          <label className="fieldGroup">
-            <span>CTA type</span>
-            <select
-              value={draft.ctaType}
-              onChange={(event) => setDraft((current) => ({ ...current, ctaType: event.target.value }))}
-              disabled={saving}
-            >
-              {ctaTypes.map((type) => (
-                <option key={type} value={type}>
-                  {type}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
-        <label className="fieldGroup">
-          <span>Primary text</span>
-          <textarea
-            value={draft.primaryText}
-            onChange={(event) => setDraft((current) => ({ ...current, primaryText: event.target.value }))}
-            rows={3}
-            disabled={saving}
-          />
-        </label>
-        <div className="formGrid two">
-          <label className="fieldGroup">
-            <span>Headline</span>
-            <input
-              value={draft.headline}
-              onChange={(event) => setDraft((current) => ({ ...current, headline: event.target.value }))}
-              disabled={saving}
-            />
-          </label>
-          <label className="fieldGroup">
-            <span>Description</span>
-            <input
-              value={draft.description}
-              onChange={(event) => setDraft((current) => ({ ...current, description: event.target.value }))}
-              disabled={saving}
-            />
-          </label>
-          <label className="fieldGroup">
-            <span>CTA link</span>
-            <input
-              type="url"
-              value={draft.ctaLink}
-              onChange={(event) => setDraft((current) => ({ ...current, ctaLink: event.target.value }))}
-              disabled={saving}
-            />
-          </label>
-          <label className="fieldGroup">
-            <span>Display link</span>
-            <input
-              value={draft.displayLink}
-              onChange={(event) => setDraft((current) => ({ ...current, displayLink: event.target.value }))}
-              disabled={saving}
-            />
-          </label>
-          <label className="fieldGroup">
-            <span>URL tags</span>
-            <input
-              value={draft.urlTags}
-              onChange={(event) => setDraft((current) => ({ ...current, urlTags: event.target.value }))}
-              disabled={saving}
-            />
-          </label>
-          <label className="fieldGroup">
-            <span>Meta status</span>
-            <select
-              value={draft.metaStatus}
-              onChange={(event) => setDraft((current) => ({ ...current, metaStatus: event.target.value }))}
-              disabled={saving}
-            >
-              {metaStatuses.map((status) => (
-                <option key={status} value={status}>
-                  {status}
-                </option>
-              ))}
-            </select>
-          </label>
+
+        <div className="campaignFieldStack">
+          <section className="formSubsection">
+            <div className="subsectionHeader">
+              <h3>Identity</h3>
+            </div>
+            <div className="formGrid two">
+              <label className="fieldGroup">
+                <span>Ad name</span>
+                <input value={draft.name} onChange={(event) => update("name", event.target.value)} disabled={saving} />
+              </label>
+              <label className="fieldGroup">
+                <span>Meta status</span>
+                <select value={draft.metaStatus} onChange={(event) => update("metaStatus", event.target.value)} disabled={saving}>
+                  {metaStatuses.map((status) => (
+                    <option key={status} value={status}>
+                      {status}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="fieldGroup">
+                <span>Facebook page ID</span>
+                <input value={draft.facebookPageId} onChange={(event) => update("facebookPageId", event.target.value)} disabled={saving} />
+              </label>
+              <label className="fieldGroup">
+                <span>Instagram actor ID</span>
+                <input
+                  value={draft.instagramActorId}
+                  onChange={(event) => update("instagramActorId", event.target.value)}
+                  disabled={saving}
+                />
+              </label>
+              <label className="fieldGroup">
+                <span>Threads actor ID</span>
+                <input value={draft.threadsActorId} onChange={(event) => update("threadsActorId", event.target.value)} disabled={saving} />
+              </label>
+              <label className="fieldGroup">
+                <span>Branded content sponsor page ID</span>
+                <input
+                  value={draft.brandedContentSponsorPageId}
+                  onChange={(event) => update("brandedContentSponsorPageId", event.target.value)}
+                  disabled={saving}
+                />
+              </label>
+            </div>
+            <label className="fieldGroup">
+              <span>Brand identity settings JSON</span>
+              <textarea
+                className="codeTextarea"
+                value={draft.brandIdentitySettings}
+                onChange={(event) => update("brandIdentitySettings", event.target.value)}
+                rows={4}
+                disabled={saving}
+              />
+            </label>
+          </section>
+
+          <section className="formSubsection">
+            <div className="subsectionHeader">
+              <h3>Destination</h3>
+            </div>
+            <div className="formGrid two">
+              <label className="fieldGroup">
+                <span>Destination type</span>
+                <select
+                  value={draft.destinationType}
+                  onChange={(event) => update("destinationType", event.target.value)}
+                  disabled={saving}
+                >
+                  {adDestinationTypes.map((type) => (
+                    <option key={type} value={type}>
+                      {type}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="fieldGroup">
+                <span>Destination URL</span>
+                <input
+                  type="url"
+                  value={draft.destinationUrl}
+                  onChange={(event) => update("destinationUrl", event.target.value)}
+                  disabled={saving}
+                />
+              </label>
+              <label className="fieldGroup">
+                <span>Lead form ID</span>
+                <input value={draft.leadFormId} onChange={(event) => update("leadFormId", event.target.value)} disabled={saving} />
+              </label>
+              <label className="fieldGroup">
+                <span>Lead form name</span>
+                <input value={draft.leadFormName} onChange={(event) => update("leadFormName", event.target.value)} disabled={saving} />
+              </label>
+              <label className="fieldGroup">
+                <span>Instant Experience ID</span>
+                <input
+                  value={draft.instantExperienceId}
+                  onChange={(event) => update("instantExperienceId", event.target.value)}
+                  disabled={saving}
+                />
+              </label>
+              <label className="fieldGroup">
+                <span>App deep link URL</span>
+                <input
+                  type="url"
+                  value={draft.appDeepLinkUrl}
+                  onChange={(event) => update("appDeepLinkUrl", event.target.value)}
+                  disabled={saving}
+                />
+              </label>
+              <label className="fieldGroup">
+                <span>Phone number</span>
+                <input value={draft.phoneNumber} onChange={(event) => update("phoneNumber", event.target.value)} disabled={saving} />
+              </label>
+              <label className="fieldGroup">
+                <span>WhatsApp phone number</span>
+                <input
+                  value={draft.whatsappPhoneNumber}
+                  onChange={(event) => update("whatsappPhoneNumber", event.target.value)}
+                  disabled={saving}
+                />
+              </label>
+            </div>
+          </section>
+
+          <section className="formSubsection">
+            <div className="subsectionHeader">
+              <h3>Copy and CTA</h3>
+              <span>Variants are comma-separated</span>
+            </div>
+            <label className="fieldGroup">
+              <span>Primary text</span>
+              <textarea value={draft.primaryText} onChange={(event) => update("primaryText", event.target.value)} rows={3} disabled={saving} />
+            </label>
+            <div className="formGrid two">
+              <label className="fieldGroup">
+                <span>Headline</span>
+                <input value={draft.headline} onChange={(event) => update("headline", event.target.value)} disabled={saving} />
+              </label>
+              <label className="fieldGroup">
+                <span>Description</span>
+                <input value={draft.description} onChange={(event) => update("description", event.target.value)} disabled={saving} />
+              </label>
+              <label className="fieldGroup">
+                <span>CTA type</span>
+                <select value={draft.ctaType} onChange={(event) => update("ctaType", event.target.value)} disabled={saving}>
+                  {ctaTypes.map((type) => (
+                    <option key={type} value={type}>
+                      {type}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="fieldGroup">
+                <span>CTA link</span>
+                <input type="url" value={draft.ctaLink} onChange={(event) => update("ctaLink", event.target.value)} disabled={saving} />
+              </label>
+              <label className="fieldGroup">
+                <span>Display link</span>
+                <input value={draft.displayLink} onChange={(event) => update("displayLink", event.target.value)} disabled={saving} />
+              </label>
+              <label className="fieldGroup">
+                <span>Primary text variants</span>
+                <input
+                  value={draft.primaryTextVariants}
+                  onChange={(event) => update("primaryTextVariants", event.target.value)}
+                  disabled={saving}
+                />
+              </label>
+              <label className="fieldGroup">
+                <span>Headline variants</span>
+                <input
+                  value={draft.headlineVariants}
+                  onChange={(event) => update("headlineVariants", event.target.value)}
+                  disabled={saving}
+                />
+              </label>
+              <label className="fieldGroup">
+                <span>Description variants</span>
+                <input
+                  value={draft.descriptionVariants}
+                  onChange={(event) => update("descriptionVariants", event.target.value)}
+                  disabled={saving}
+                />
+              </label>
+            </div>
+          </section>
+
+          <section className="formSubsection">
+            <div className="subsectionHeader">
+              <h3>Tracking</h3>
+            </div>
+            <div className="formGrid two">
+              <label className="fieldGroup">
+                <span>URL tags</span>
+                <input value={draft.urlTags} onChange={(event) => update("urlTags", event.target.value)} disabled={saving} />
+              </label>
+              <label className="fieldGroup">
+                <span>Meta pixel ID</span>
+                <input value={draft.metaPixelId} onChange={(event) => update("metaPixelId", event.target.value)} disabled={saving} />
+              </label>
+              <label className="fieldGroup">
+                <span>Conversion event name</span>
+                <input
+                  value={draft.conversionEventName}
+                  onChange={(event) => update("conversionEventName", event.target.value)}
+                  disabled={saving}
+                />
+              </label>
+              <label className="fieldGroup">
+                <span>URL parameters JSON</span>
+                <textarea
+                  className="codeTextarea"
+                  value={draft.urlParameters}
+                  onChange={(event) => update("urlParameters", event.target.value)}
+                  rows={4}
+                  disabled={saving}
+                />
+              </label>
+              <label className="fieldGroup">
+                <span>Tracking specs JSON</span>
+                <textarea
+                  className="codeTextarea"
+                  value={draft.trackingSpecs}
+                  onChange={(event) => update("trackingSpecs", event.target.value)}
+                  rows={4}
+                  disabled={saving}
+                />
+              </label>
+              <label className="fieldGroup">
+                <span>Conversion specs JSON</span>
+                <textarea
+                  className="codeTextarea"
+                  value={draft.conversionSpecs}
+                  onChange={(event) => update("conversionSpecs", event.target.value)}
+                  rows={4}
+                  disabled={saving}
+                />
+              </label>
+            </div>
+          </section>
+
+          <section className="formSubsection">
+            <div className="subsectionHeader">
+              <h3>Advanced Meta creative specs</h3>
+            </div>
+            <div className="formGrid two">
+              <label className="fieldGroup">
+                <span>Object story spec JSON</span>
+                <textarea
+                  className="codeTextarea"
+                  value={draft.objectStorySpec}
+                  onChange={(event) => update("objectStorySpec", event.target.value)}
+                  rows={4}
+                  disabled={saving}
+                />
+              </label>
+              <label className="fieldGroup">
+                <span>Asset feed spec JSON</span>
+                <textarea
+                  className="codeTextarea"
+                  value={draft.assetFeedSpec}
+                  onChange={(event) => update("assetFeedSpec", event.target.value)}
+                  rows={4}
+                  disabled={saving}
+                />
+              </label>
+              <label className="fieldGroup">
+                <span>Call to action value JSON</span>
+                <textarea
+                  className="codeTextarea"
+                  value={draft.callToActionValue}
+                  onChange={(event) => update("callToActionValue", event.target.value)}
+                  rows={4}
+                  disabled={saving}
+                />
+              </label>
+              <label className="fieldGroup">
+                <span>Creative features spec JSON</span>
+                <textarea
+                  className="codeTextarea"
+                  value={draft.creativeFeaturesSpec}
+                  onChange={(event) => update("creativeFeaturesSpec", event.target.value)}
+                  rows={4}
+                  disabled={saving}
+                />
+              </label>
+              <label className="fieldGroup">
+                <span>Degrees of freedom spec JSON</span>
+                <textarea
+                  className="codeTextarea"
+                  value={draft.degreesOfFreedomSpec}
+                  onChange={(event) => update("degreesOfFreedomSpec", event.target.value)}
+                  rows={4}
+                  disabled={saving}
+                />
+              </label>
+            </div>
+          </section>
         </div>
       </div>
     </article>

@@ -660,14 +660,40 @@ export async function updateAdSetDraft(id: number, input: UpdateAdSetDraftInput)
 export type CreateAdDraftInput = {
   adSetDraftId: number;
   creativeId: number;
-  name?: string;
-  primaryText?: string;
-  headline?: string;
-  description?: string;
+  name?: string | null;
+  primaryText?: string | null;
+  headline?: string | null;
+  description?: string | null;
   ctaType?: string;
-  ctaLink?: string;
-  displayLink?: string;
-  urlTags?: string;
+  ctaLink?: string | null;
+  displayLink?: string | null;
+  urlTags?: string | null;
+  facebookPageId?: string | null;
+  instagramActorId?: string | null;
+  threadsActorId?: string | null;
+  brandedContentSponsorPageId?: string | null;
+  brandIdentitySettings?: JsonObject;
+  destinationType?: string;
+  destinationUrl?: string | null;
+  leadFormId?: string | null;
+  leadFormName?: string | null;
+  instantExperienceId?: string | null;
+  appDeepLinkUrl?: string | null;
+  phoneNumber?: string | null;
+  whatsappPhoneNumber?: string | null;
+  primaryTextVariants?: string[];
+  headlineVariants?: string[];
+  descriptionVariants?: string[];
+  objectStorySpec?: JsonObject | null;
+  assetFeedSpec?: JsonObject | null;
+  callToActionValue?: JsonObject | null;
+  creativeFeaturesSpec?: JsonObject | null;
+  degreesOfFreedomSpec?: JsonObject | null;
+  trackingSpecs?: JsonInput | null;
+  conversionSpecs?: JsonInput | null;
+  urlParameters?: JsonObject;
+  metaPixelId?: string | null;
+  conversionEventName?: string | null;
   status?: DraftStatus;
   metaStatus?: string;
   sortOrder?: number;
@@ -679,9 +705,21 @@ export async function createAdDraft(input: CreateAdDraftInput): Promise<AdDraft>
     `
       INSERT INTO ad_drafts (
         adset_draft_id, creative_id, name, primary_text, headline, description, cta_type,
-        cta_link, display_link, url_tags, status, meta_status, sort_order, metadata
+        cta_link, display_link, url_tags, facebook_page_id, instagram_actor_id, threads_actor_id,
+        branded_content_sponsor_page_id, brand_identity_settings, destination_type, destination_url,
+        lead_form_id, lead_form_name, instant_experience_id, app_deep_link_url, phone_number,
+        whatsapp_phone_number, primary_text_variants, headline_variants, description_variants,
+        object_story_spec, asset_feed_spec, call_to_action_value, creative_features_spec,
+        degrees_of_freedom_spec, tracking_specs, conversion_specs, url_parameters, meta_pixel_id,
+        conversion_event_name, status, meta_status, sort_order, metadata
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+      VALUES (
+        $1, $2, $3, $4, $5, $6, $7, $8,
+        $9, $10, $11, $12, $13, $14, $15, $16,
+        $17, $18, $19, $20, $21, $22, $23, $24,
+        $25, $26, $27, $28, $29, $30, $31, $32,
+        $33, $34, $35, $36, $37, $38, $39, $40
+      )
       RETURNING *
     `,
     [
@@ -695,6 +733,32 @@ export async function createAdDraft(input: CreateAdDraftInput): Promise<AdDraft>
       input.ctaLink ?? null,
       input.displayLink ?? null,
       input.urlTags ?? null,
+      input.facebookPageId ?? null,
+      input.instagramActorId ?? null,
+      input.threadsActorId ?? null,
+      input.brandedContentSponsorPageId ?? null,
+      JSON.stringify(input.brandIdentitySettings ?? {}),
+      input.destinationType ?? "WEBSITE",
+      input.destinationUrl ?? null,
+      input.leadFormId ?? null,
+      input.leadFormName ?? null,
+      input.instantExperienceId ?? null,
+      input.appDeepLinkUrl ?? null,
+      input.phoneNumber ?? null,
+      input.whatsappPhoneNumber ?? null,
+      input.primaryTextVariants ?? [],
+      input.headlineVariants ?? [],
+      input.descriptionVariants ?? [],
+      input.objectStorySpec ? JSON.stringify(input.objectStorySpec) : null,
+      input.assetFeedSpec ? JSON.stringify(input.assetFeedSpec) : null,
+      input.callToActionValue ? JSON.stringify(input.callToActionValue) : null,
+      input.creativeFeaturesSpec ? JSON.stringify(input.creativeFeaturesSpec) : null,
+      input.degreesOfFreedomSpec ? JSON.stringify(input.degreesOfFreedomSpec) : null,
+      input.trackingSpecs ? JSON.stringify(input.trackingSpecs) : null,
+      input.conversionSpecs ? JSON.stringify(input.conversionSpecs) : null,
+      JSON.stringify(input.urlParameters ?? {}),
+      input.metaPixelId ?? null,
+      input.conversionEventName ?? null,
       input.status ?? "draft",
       input.metaStatus ?? "PAUSED",
       input.sortOrder ?? 0,
@@ -713,17 +777,43 @@ export type UpdateAdDraftInput = Partial<
   Pick<
     CreateAdDraftInput,
     | "name"
-    | "creativeId"
-    | "primaryText"
-    | "headline"
-    | "description"
-    | "ctaType"
-    | "ctaLink"
-    | "displayLink"
-    | "urlTags"
-    | "status"
-    | "metaStatus"
-    | "sortOrder"
+	    | "creativeId"
+	    | "primaryText"
+	    | "headline"
+	    | "description"
+	    | "ctaType"
+	    | "ctaLink"
+	    | "displayLink"
+	    | "urlTags"
+	    | "facebookPageId"
+	    | "instagramActorId"
+	    | "threadsActorId"
+	    | "brandedContentSponsorPageId"
+	    | "brandIdentitySettings"
+	    | "destinationType"
+	    | "destinationUrl"
+	    | "leadFormId"
+	    | "leadFormName"
+	    | "instantExperienceId"
+	    | "appDeepLinkUrl"
+	    | "phoneNumber"
+	    | "whatsappPhoneNumber"
+	    | "primaryTextVariants"
+	    | "headlineVariants"
+	    | "descriptionVariants"
+	    | "objectStorySpec"
+	    | "assetFeedSpec"
+	    | "callToActionValue"
+	    | "creativeFeaturesSpec"
+	    | "degreesOfFreedomSpec"
+	    | "trackingSpecs"
+	    | "conversionSpecs"
+	    | "urlParameters"
+	    | "metaPixelId"
+	    | "conversionEventName"
+	    | "status"
+	    | "metaStatus"
+	    | "sortOrder"
     | "metadata"
   >
 > & {
@@ -734,49 +824,81 @@ export type UpdateAdDraftInput = Partial<
 };
 
 export async function updateAdDraft(id: number, input: UpdateAdDraftInput): Promise<AdDraft | undefined> {
+  const setters: string[] = [];
+  const values: unknown[] = [id];
+
+  function add(field: keyof UpdateAdDraftInput, column: string, value: unknown = input[field]) {
+    if (!Object.prototype.hasOwnProperty.call(input, field)) {
+      return;
+    }
+    values.push(value);
+    setters.push(`${column} = $${values.length}`);
+  }
+
+  add("creativeId", "creative_id");
+  add("name", "name");
+  add("primaryText", "primary_text");
+  add("headline", "headline");
+  add("description", "description");
+  add("ctaType", "cta_type");
+  add("ctaLink", "cta_link");
+  add("displayLink", "display_link");
+  add("urlTags", "url_tags");
+  add("facebookPageId", "facebook_page_id");
+  add("instagramActorId", "instagram_actor_id");
+  add("threadsActorId", "threads_actor_id");
+  add("brandedContentSponsorPageId", "branded_content_sponsor_page_id");
+  add("brandIdentitySettings", "brand_identity_settings", input.brandIdentitySettings ? JSON.stringify(input.brandIdentitySettings) : null);
+  add("destinationType", "destination_type");
+  add("destinationUrl", "destination_url");
+  add("leadFormId", "lead_form_id");
+  add("leadFormName", "lead_form_name");
+  add("instantExperienceId", "instant_experience_id");
+  add("appDeepLinkUrl", "app_deep_link_url");
+  add("phoneNumber", "phone_number");
+  add("whatsappPhoneNumber", "whatsapp_phone_number");
+  add("primaryTextVariants", "primary_text_variants");
+  add("headlineVariants", "headline_variants");
+  add("descriptionVariants", "description_variants");
+  add("objectStorySpec", "object_story_spec", input.objectStorySpec ? JSON.stringify(input.objectStorySpec) : null);
+  add("assetFeedSpec", "asset_feed_spec", input.assetFeedSpec ? JSON.stringify(input.assetFeedSpec) : null);
+  add("callToActionValue", "call_to_action_value", input.callToActionValue ? JSON.stringify(input.callToActionValue) : null);
+  add(
+    "creativeFeaturesSpec",
+    "creative_features_spec",
+    input.creativeFeaturesSpec ? JSON.stringify(input.creativeFeaturesSpec) : null
+  );
+  add(
+    "degreesOfFreedomSpec",
+    "degrees_of_freedom_spec",
+    input.degreesOfFreedomSpec ? JSON.stringify(input.degreesOfFreedomSpec) : null
+  );
+  add("trackingSpecs", "tracking_specs", input.trackingSpecs ? JSON.stringify(input.trackingSpecs) : null);
+  add("conversionSpecs", "conversion_specs", input.conversionSpecs ? JSON.stringify(input.conversionSpecs) : null);
+  add("urlParameters", "url_parameters", input.urlParameters ? JSON.stringify(input.urlParameters) : null);
+  add("metaPixelId", "meta_pixel_id");
+  add("conversionEventName", "conversion_event_name");
+  add("status", "status");
+  add("metaStatus", "meta_status");
+  add("metaAdCreativeId", "meta_adcreative_id");
+  add("metaAdId", "meta_ad_id");
+  add("sortOrder", "sort_order");
+  add("metadata", "metadata", input.metadata ? JSON.stringify(input.metadata) : null);
+  add("lastError", "last_error");
+  add("publishedAt", "published_at");
+
+  if (!setters.length) {
+    return getAdDraftById(id);
+  }
+
   const result = await query<AdDraft>(
     `
       UPDATE ad_drafts
-      SET creative_id = COALESCE($2, creative_id),
-        name = COALESCE($3, name),
-        primary_text = COALESCE($4, primary_text),
-        headline = COALESCE($5, headline),
-        description = COALESCE($6, description),
-        cta_type = COALESCE($7, cta_type),
-        cta_link = COALESCE($8, cta_link),
-        display_link = COALESCE($9, display_link),
-        url_tags = COALESCE($10, url_tags),
-        status = COALESCE($11, status),
-        meta_status = COALESCE($12, meta_status),
-        meta_adcreative_id = COALESCE($13, meta_adcreative_id),
-        meta_ad_id = COALESCE($14, meta_ad_id),
-        sort_order = COALESCE($15, sort_order),
-        metadata = COALESCE($16, metadata),
-        last_error = COALESCE($17, last_error),
-        published_at = COALESCE($18, published_at)
+      SET ${setters.join(", ")}
       WHERE id = $1
       RETURNING *
     `,
-    [
-      id,
-      input.creativeId ?? null,
-      input.name ?? null,
-      input.primaryText ?? null,
-      input.headline ?? null,
-      input.description ?? null,
-      input.ctaType ?? null,
-      input.ctaLink ?? null,
-      input.displayLink ?? null,
-      input.urlTags ?? null,
-      input.status ?? null,
-      input.metaStatus ?? null,
-      input.metaAdCreativeId ?? null,
-      input.metaAdId ?? null,
-      input.sortOrder ?? null,
-      input.metadata ? JSON.stringify(input.metadata) : null,
-      input.lastError ?? null,
-      input.publishedAt ?? null
-    ]
+    values
   );
   return result.rows[0];
 }
