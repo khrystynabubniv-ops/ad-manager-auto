@@ -29,6 +29,7 @@ import {
   CampaignDraftTree,
   Creative,
   CreativeListKind,
+  CreativeUpdateRequest,
   LaunchRequest,
   MetaAdSet,
   MetaCampaign,
@@ -45,6 +46,7 @@ import {
   searchTargetingLocations,
   syncCampaigns,
   uploadCreative,
+  updateCreative,
   updateAdDraft,
   updateAdSetDraft,
   updateCampaignDraft
@@ -1127,13 +1129,19 @@ function SuccessNotice({ message }: { message: string }) {
 function ConfirmModal({
   creative,
   loading,
+  saving = false,
+  mode = "launch",
   onClose,
-  onConfirm
+  onConfirm,
+  onSave
 }: {
   creative: Creative;
   loading: boolean;
+  saving?: boolean;
+  mode?: "launch" | "edit";
   onClose: () => void;
-  onConfirm: (payload: LaunchRequest) => void;
+  onConfirm?: (payload: LaunchRequest) => void;
+  onSave?: (payload: CreativeUpdateRequest) => Promise<void> | void;
 }) {
   const [draft, setDraft] = useState({
     projectType: creative.project_type ?? "",
@@ -1222,7 +1230,7 @@ function ConfirmModal({
   const selectedCampaign = campaigns.find((campaign) => campaign.id === campaignId);
   const selectedAdSet = adSets.find((adSet) => adSet.id === adSetId);
   const placementReady = Boolean(campaignId && adSetId);
-  const busy = loading;
+  const busy = loading || saving;
   const detailsReady = Boolean(
     draft.projectType.trim() &&
       draft.adText.trim() &&
@@ -1231,7 +1239,29 @@ function ConfirmModal({
       draft.location.trim()
   );
 
+  function savePayload(): CreativeUpdateRequest {
+    return {
+      projectType: draft.projectType.trim() || null,
+      adText: draft.adText.trim() || null,
+      ctaLink: draft.ctaLink.trim() || null,
+      audience: draft.audience.trim() || null,
+      location: draft.location.trim() || null,
+      campaignId: campaignId || null,
+      campaignName: campaignId ? selectedCampaign?.name ?? creative.campaign_name ?? null : null,
+      adSetId: adSetId || null,
+      adSetName: adSetId ? selectedAdSet?.name ?? creative.adset_name ?? null : null
+    };
+  }
+
+  async function saveDetails() {
+    if (!onSave) return;
+    await onSave(savePayload());
+    if (mode === "edit") onClose();
+  }
+
   function confirmPlacement() {
+    if (!onConfirm) return;
+
     if (!detailsReady) {
       setPlacementError("Fill in project type, ad text, CTA link, audience, and location before launch.");
       return;
@@ -1265,7 +1295,7 @@ function ConfirmModal({
       <div className="modal">
         <div className="modalHeader">
           <div>
-            <p className="eyebrow">Review & launch</p>
+            <p className="eyebrow">{mode === "edit" ? "Edit creative" : "Review & launch"}</p>
             <input
               className="modalTitleInput"
               aria-label="Project type"
@@ -1371,14 +1401,26 @@ function ConfirmModal({
           <button className="secondaryButton" onClick={onClose} disabled={busy}>
             Cancel
           </button>
-          <button
-            className="primaryButton"
-            onClick={confirmPlacement}
-            disabled={busy || campaignsLoading || adSetsLoading || !placementReady || !detailsReady}
-          >
-            {loading ? <Loader2 size={16} className="spin" /> : <Play size={16} />}
-            Launch ad
-          </button>
+          {onSave ? (
+            <button
+              className={mode === "edit" ? "primaryButton" : "secondaryButton"}
+              onClick={() => void saveDetails()}
+              disabled={busy || campaignsLoading || adSetsLoading}
+            >
+              {saving ? <Loader2 size={16} className="spin" /> : <Save size={16} />}
+              Save
+            </button>
+          ) : null}
+          {mode === "launch" ? (
+            <button
+              className="primaryButton"
+              onClick={confirmPlacement}
+              disabled={busy || campaignsLoading || adSetsLoading || !placementReady || !detailsReady}
+            >
+              {loading ? <Loader2 size={16} className="spin" /> : <Play size={16} />}
+              Launch ad
+            </button>
+          ) : null}
         </div>
       </div>
     </div>
@@ -1387,11 +1429,13 @@ function ConfirmModal({
 
 function CreativeRow({
   creative,
+  onEdit,
   onLaunch,
   campaignNamesById,
   adSetNamesById
 }: {
   creative: Creative;
+  onEdit?: (creative: Creative) => void;
   onLaunch?: (creative: Creative) => void;
   campaignNamesById?: ReadonlyMap<string, string>;
   adSetNamesById?: ReadonlyMap<string, string>;
@@ -1434,6 +1478,12 @@ function CreativeRow({
           <strong title={adSetLabel}>{adSetLabel}</strong>
         </div>
         <div className="rowActions">
+          {onEdit ? (
+            <button className="secondaryButton compact" onClick={() => onEdit(creative)}>
+              <Pencil size={16} />
+              Edit
+            </button>
+          ) : null}
           {onLaunch ? (
             <button className="primaryButton compact" onClick={() => onLaunch(creative)}>
               <Play size={16} />
@@ -3672,7 +3722,9 @@ export function App() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<Creative | null>(null);
+  const [editing, setEditing] = useState<Creative | null>(null);
   const [launching, setLaunching] = useState(false);
+  const [savingCreative, setSavingCreative] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [query, setQuery] = useState("");
   const [campaigns, setCampaigns] = useState<MetaCampaign[]>([]);
@@ -3846,6 +3898,23 @@ export function App() {
       setError(launchError instanceof Error ? launchError.message : String(launchError));
     } finally {
       setLaunching(false);
+    }
+  }
+
+  async function saveCreativeDetails(creativeId: number, payload: CreativeUpdateRequest) {
+    setSavingCreative(true);
+    setError(null);
+    try {
+      const updated = await updateCreative(creativeId, payload);
+      setCreatives((current) => current.map((creative) => (creative.id === updated.id ? updated : creative)));
+      setSelected((current) => (current?.id === updated.id ? updated : current));
+      setEditing((current) => (current?.id === updated.id ? updated : current));
+      setError("Creative saved.");
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : String(saveError));
+      throw saveError;
+    } finally {
+      setSavingCreative(false);
     }
   }
 
@@ -4036,7 +4105,7 @@ export function App() {
               </section>
 
               {error ? (
-                <div className={error.startsWith("Synced") ? "notice success" : "notice"}>
+                <div className={error.startsWith("Synced") || error.endsWith("saved.") ? "notice success" : "notice"}>
                   <AlertCircle size={18} />
                   {error}
                 </div>
@@ -4057,6 +4126,7 @@ export function App() {
                     <CreativeRow
                       key={creative.id}
                       creative={creative}
+                      onEdit={creativeView === "ready" ? setEditing : undefined}
                       onLaunch={creativeView === "ready" ? setSelected : undefined}
                       campaignNamesById={campaignNamesById}
                       adSetNamesById={adSetNamesById}
@@ -4073,8 +4143,22 @@ export function App() {
         <ConfirmModal
           creative={selected}
           loading={launching}
+          saving={savingCreative}
+          mode="launch"
           onClose={() => setSelected(null)}
           onConfirm={confirmLaunch}
+          onSave={(payload) => saveCreativeDetails(selected.id, payload)}
+        />
+      ) : null}
+
+      {editing ? (
+        <ConfirmModal
+          creative={editing}
+          loading={false}
+          saving={savingCreative}
+          mode="edit"
+          onClose={() => setEditing(null)}
+          onSave={(payload) => saveCreativeDetails(editing.id, payload)}
         />
       ) : null}
     </div>
