@@ -2,6 +2,7 @@ import {
   AlertCircle,
   ArrowLeft,
   Check,
+  ChevronRight,
   ExternalLink,
   ImageIcon,
   Loader2,
@@ -113,6 +114,8 @@ const viewConfig: Record<
   }
 };
 
+const creativeNavItems = Object.keys(viewConfig) as CreativeView[];
+
 function activeRoute(): RouteState {
   const campaignMatch = window.location.pathname.match(/^\/(?:campaigns|builder)(?:\/(\d+))?/);
   if (campaignMatch) {
@@ -201,6 +204,15 @@ function CreativePreview({ creative }: { creative: Creative }) {
 
 function StatusChip({ value }: { value: string }) {
   return <span className={`statusChip ${value}`}>{value.replaceAll("_", " ")}</span>;
+}
+
+function MetadataItem({ label, value }: { label: string; value?: string | null }) {
+  return (
+    <span className="metadataItem">
+      <small>{label}</small>
+      <strong>{value || "—"}</strong>
+    </span>
+  );
 }
 
 function ErrorNotice({ message }: { message: string }) {
@@ -488,40 +500,59 @@ function ConfirmModal({
 }
 
 function CreativeRow({ creative, onLaunch }: { creative: Creative; onLaunch?: (creative: Creative) => void }) {
+  const creativeName = creative.source_file_name ?? creative.project_type ?? `Creative ${creative.id}`;
+  const hasPlacement = Boolean(creative.campaign_id || creative.adset_id || creative.campaign_name || creative.adset_name);
+
   return (
     <article className="creativeRow">
       <CreativePreview creative={creative} />
       <div className="creativeMain">
+        <div className="creativeKicker">
+          <span>Creative #{creative.id}</span>
+          <span>{creative.asset_type ?? "asset"}</span>
+        </div>
         <div className="creativeTitleLine">
-          <h3>{creative.project_type ?? "Promo creative"}</h3>
+          <h3>{creativeName}</h3>
           <StatusChip value={creative.status} />
         </div>
-        {creative.source_file_name ? <p className="creativeFileName">{creative.source_file_name}</p> : null}
-        <p className="adText">{creative.ad_text}</p>
-        <div className="metaGrid">
-          <span>{creative.adset_id ? (creative.campaign_name ?? creative.campaign_id ?? "No campaign") : "No placement"}</span>
-          <span>{creative.adset_name ?? creative.adset_id ?? "No ad set"}</span>
-          <span>{creative.location ?? "No location"}</span>
-          <span>{creative.audience ?? "No audience"}</span>
-          <span>{formatDate(creative.uploaded_at ?? creative.updated_at)}</span>
+        {creative.project_type && creative.project_type !== creativeName ? (
+          <p className="creativeFileName">{creative.project_type}</p>
+        ) : null}
+        <p className="adText">{creative.ad_text || "No primary text yet."}</p>
+        <div className="creativeMetaGrid">
+          <MetadataItem label="CTA" value={creative.cta_link} />
+          <MetadataItem label="Audience" value={creative.audience} />
+          <MetadataItem label="Location" value={creative.location} />
+          <MetadataItem label="Updated" value={formatDate(creative.uploaded_at ?? creative.updated_at)} />
         </div>
       </div>
-      <div className="rowActions">
-        {creative.notion_task_url ? (
-          <a className="iconButton" href={creative.notion_task_url} target="_blank" rel="noreferrer" aria-label="Open Notion">
-            <ExternalLink size={18} />
-          </a>
-        ) : null}
-        {onLaunch ? (
-          <button className="primaryButton compact" onClick={() => onLaunch(creative)}>
-            <Play size={16} />
-            Launch
-          </button>
-        ) : creative.status === "launched" ? (
-          <Check size={20} className="doneIcon" />
-        ) : (
-          <AlertCircle size={20} className="blockedIcon" />
-        )}
+      <div className="creativeContext">
+        <div className={hasPlacement ? "placementSummary" : "placementSummary muted"}>
+          <span>Placement</span>
+          <strong>{creative.campaign_name ?? creative.campaign_id ?? "No campaign"}</strong>
+          <small>{creative.adset_name ?? creative.adset_id ?? "No ad set"}</small>
+        </div>
+        <div className="rowActions">
+          {creative.notion_task_url ? (
+            <a className="iconButton" href={creative.notion_task_url} target="_blank" rel="noreferrer" aria-label="Open Notion">
+              <ExternalLink size={18} />
+            </a>
+          ) : null}
+          {onLaunch ? (
+            <button className="primaryButton compact" onClick={() => onLaunch(creative)}>
+              <Play size={16} />
+              Launch
+            </button>
+          ) : creative.status === "launched" ? (
+            <span className="stateIcon success" aria-label="Launched">
+              <Check size={18} />
+            </span>
+          ) : (
+            <span className="stateIcon warning" aria-label="Needs attention">
+              <AlertCircle size={18} />
+            </span>
+          )}
+        </div>
       </div>
     </article>
   );
@@ -1744,19 +1775,47 @@ export function App() {
           </div>
         </div>
         <nav>
-          {(Object.keys(viewConfig) as CreativeView[]).map((item) => (
+          <section className="navSection">
             <button
-              key={item}
-              className={route.area === "creatives" && creativeView === item ? "navItem active" : "navItem"}
-              onClick={() => navigateCreative(item)}
+              className={route.area === "creatives" ? "navPrimary active" : "navPrimary"}
+              onClick={() => navigateCreative("dashboard")}
             >
-              {viewConfig[item].navLabel}
+              <ImageIcon size={18} />
+              <span>
+                <strong>Creatives</strong>
+                <small>Assets and copy</small>
+              </span>
+              <ChevronRight size={16} />
             </button>
-          ))}
-          <button className={route.area === "campaigns" ? "navItem active" : "navItem"} onClick={navigateCampaigns}>
-            <Megaphone size={16} />
-            Campaigns
-          </button>
+            <div className="subNav" aria-label="Creative status views">
+              {creativeNavItems.map((item) => (
+                <button
+                  key={item}
+                  className={route.area === "creatives" && creativeView === item ? "subNavItem active" : "subNavItem"}
+                  onClick={() => navigateCreative(item)}
+                >
+                  <span className="subNavDot" />
+                  {viewConfig[item].navLabel}
+                </button>
+              ))}
+            </div>
+          </section>
+          <section className="navSection">
+            <button className={route.area === "campaigns" ? "navPrimary active" : "navPrimary"} onClick={navigateCampaigns}>
+              <Megaphone size={18} />
+              <span>
+                <strong>Campaign Builder</strong>
+                <small>Campaigns, ad sets, ads</small>
+              </span>
+              <ChevronRight size={16} />
+            </button>
+            <div className="subNav" aria-label="Campaign views">
+              <button className={route.area === "campaigns" ? "subNavItem active" : "subNavItem"} onClick={navigateCampaigns}>
+                <span className="subNavDot" />
+                Drafts
+              </button>
+            </div>
+          </section>
         </nav>
         {!isAuthDisabled() ? (
           <button className="secondaryButton sidebarLogout" onClick={logout}>
@@ -1772,7 +1831,9 @@ export function App() {
         <main className="content">
           <header className="pageHeader">
             <div>
-              <p className="eyebrow">Facebook promo automation</p>
+              <p className="eyebrow">
+                Creatives <ChevronRight size={12} /> {viewConfig[creativeView].navLabel}
+              </p>
               <h1>{counts.viewLabel}</h1>
             </div>
             <div className="headerActions">
