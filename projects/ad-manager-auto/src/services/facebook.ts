@@ -2,7 +2,7 @@ import axios, { AxiosError } from "axios";
 import FormData from "form-data";
 import { env, requireEnv } from "../config/env.js";
 import { logger } from "../logger.js";
-import { AssetType, DownloadedDriveFile, FacebookAdSet, FacebookCampaign } from "../types.js";
+import { AssetType, DownloadedDriveFile, FacebookAdSet, FacebookCampaign, FacebookTargetingLocation } from "../types.js";
 import { stableHash } from "../utils/crypto.js";
 import { getErrorMessage } from "../utils/errors.js";
 import { detectAssetType } from "../utils/mime.js";
@@ -332,6 +332,63 @@ export async function listFacebookAdSets(input: { campaignId: string; requestId?
   );
 
   return (response.data ?? []).map(mapFacebookAdSet);
+}
+
+export async function searchFacebookTargetingLocations(input: {
+  query: string;
+  locationTypes?: string[];
+  countryCode?: string;
+  limit?: number;
+  requestId?: string;
+}): Promise<FacebookTargetingLocation[]> {
+  const query = input.query.trim();
+  if (query.length < 2) {
+    return [];
+  }
+
+  if (env.MOCK_FACEBOOK) {
+    const mockLocations: FacebookTargetingLocation[] = [
+      { key: "US", name: "United States", type: "country", country_code: "US", country_name: "United States" },
+      { key: "UA", name: "Ukraine", type: "country", country_code: "UA", country_name: "Ukraine" },
+      { key: "PL", name: "Poland", type: "country", country_code: "PL", country_name: "Poland" },
+      { key: "2420605", name: "Kyiv", type: "city", country_code: "UA", country_name: "Ukraine", region: "Kyiv City" },
+      { key: "2490299", name: "Warsaw", type: "city", country_code: "PL", country_name: "Poland", region: "Mazowieckie" },
+      { key: "2420379", name: "New York", type: "city", country_code: "US", country_name: "United States", region: "New York" }
+    ];
+    const normalized = query.toLowerCase();
+    const locationTypes = new Set(input.locationTypes ?? []);
+    return mockLocations
+      .filter((location) => !locationTypes.size || locationTypes.has(location.type))
+      .filter(
+        (location) =>
+          location.name.toLowerCase().includes(normalized) ||
+          location.country_code?.toLowerCase().includes(normalized)
+      )
+      .slice(0, input.limit ?? 25);
+  }
+
+  const params: Record<string, string> = {
+    type: "adgeolocation",
+    q: query,
+    limit: String(input.limit ?? 25),
+    location_types: JSON.stringify(input.locationTypes?.length ? input.locationTypes : ["country", "region", "city"])
+  };
+  if (input.countryCode) {
+    params.country_code = input.countryCode;
+  }
+
+  const response = await graphGet<any>("search", params, input.requestId);
+  return (response.data ?? []).map((location: any) => ({
+    key: String(location.key ?? location.country_code ?? location.id ?? ""),
+    name: String(location.name ?? location.country_name ?? location.key ?? ""),
+    type: String(location.type ?? ""),
+    country_code: location.country_code,
+    country_name: location.country_name,
+    region: location.region,
+    region_id: location.region_id,
+    primary_city_id: location.primary_city_id,
+    supports_region: location.supports_region
+  })).filter((location: FacebookTargetingLocation) => location.key && location.name && location.type);
 }
 
 export async function getFacebookAdSet(adSetId: string, requestId?: string): Promise<FacebookAdSet> {

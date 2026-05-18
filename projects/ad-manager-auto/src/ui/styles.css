@@ -275,6 +275,12 @@ h3 {
   font-weight: 700;
 }
 
+.secondaryButton.compact {
+  min-height: 32px;
+  padding: 0 10px;
+  font-size: 13px;
+}
+
 .secondaryButton:hover {
   background: #f8fafc;
 }
@@ -709,7 +715,7 @@ button:disabled {
 
 .fieldGroup {
   display: grid;
-  gap: 6px;
+  gap: 4px;
 }
 
 .fieldGroup span {
@@ -723,7 +729,7 @@ button:disabled {
 .fieldGroup select,
 .fieldGroup textarea {
   width: 100%;
-  min-height: 42px;
+  min-height: 36px;
   border: 1px solid #cfd8e3;
   border-radius: 8px;
   color: #1f2933;
@@ -732,8 +738,8 @@ button:disabled {
 }
 
 .fieldGroup textarea {
-  min-height: 76px;
-  padding: 10px 12px;
+  min-height: 64px;
+  padding: 8px 12px;
   line-height: 1.4;
   resize: vertical;
 }
@@ -753,8 +759,8 @@ button:disabled {
 
 .formGrid {
   display: grid;
-  gap: 12px;
-  margin-bottom: 12px;
+  gap: 10px;
+  margin-bottom: 8px;
 }
 
 .formGrid.two {
@@ -765,20 +771,24 @@ button:disabled {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
+.formGrid.four {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
 .wideField {
   grid-column: span 2;
 }
 
 .campaignFieldStack {
   display: grid;
-  gap: 16px;
+  gap: 12px;
 }
 
 .formSubsection {
   display: grid;
-  gap: 12px;
+  gap: 10px;
   border-top: 1px solid #e5e9ee;
-  padding-top: 16px;
+  padding-top: 12px;
 }
 
 .formSubsection:first-child {
@@ -811,6 +821,68 @@ button:disabled {
   accent-color: #16794c;
 }
 
+.optionGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.optionChip {
+  min-height: 42px;
+  border: 1px solid #dfe5eb;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #314155;
+  padding: 9px 12px;
+  cursor: pointer;
+  font-weight: 800;
+  text-align: left;
+}
+
+.optionChip:hover {
+  border-color: #b8c4d2;
+  background: #f8fafc;
+}
+
+.optionChip.selected {
+  border-color: #16794c;
+  background: #ecfdf3;
+  color: #0f5f3c;
+}
+
+.optionChip:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.compactHeader {
+  margin-top: 4px;
+}
+
+.budgetModeNotice {
+  min-height: 72px;
+  grid-column: span 2;
+  display: grid;
+  align-content: center;
+  gap: 4px;
+  border: 1px solid #dfe5eb;
+  border-radius: 8px;
+  background: #f8fafc;
+  padding: 12px 14px;
+}
+
+.budgetModeNotice strong {
+  color: #1f2933;
+  font-size: 14px;
+}
+
+.budgetModeNotice span {
+  color: #697586;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
 .campaignTable {
   display: grid;
   gap: 8px;
@@ -818,7 +890,13 @@ button:disabled {
 
 .campaignTableGrid {
   display: grid;
-  grid-template-columns: minmax(220px, 1.5fr) minmax(180px, 1fr) minmax(120px, 0.7fr) 90px minmax(130px, 0.8fr);
+  grid-template-columns:
+    minmax(220px, 1.4fr)
+    minmax(160px, 0.95fr)
+    minmax(110px, 0.55fr)
+    minmax(150px, 0.85fr)
+    minmax(140px, 0.75fr)
+    minmax(130px, 0.7fr);
   gap: 14px;
   align-items: center;
 }
@@ -832,14 +910,12 @@ button:disabled {
 }
 
 .campaignTableRow {
-  width: 100%;
   border: 1px solid #dfe5eb;
   border-radius: 8px;
   background: #ffffff;
   color: #1f2933;
-  padding: 14px;
+  padding: 10px 14px;
   text-align: left;
-  cursor: pointer;
 }
 
 .campaignTableRow:hover {
@@ -851,6 +927,11 @@ button:disabled {
 .campaignTableRow strong {
   min-width: 0;
   overflow-wrap: anywhere;
+}
+
+.rowActionCell {
+  display: flex;
+  justify-content: flex-start;
 }
 
 .backButton {
@@ -868,7 +949,7 @@ button:disabled {
 
 .builderStack {
   display: grid;
-  gap: 14px;
+  gap: 12px;
 }
 
 .builderSection,
@@ -876,13 +957,166 @@ button:disabled {
   background: #ffffff;
   border: 1px solid #dfe5eb;
   border-radius: 8px;
-  padding: 18px;
+  padding: 14px;
   display: grid;
-  gap: 14px;
+  gap: 12px;
 }
 
 .builderSection.flush {
   padding-bottom: 18px;
+}
+
+.structureSection {
+  gap: 12px;
+}
+
+.compactSettings {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+}
+
+.compactSettings span {
+  display: block;
+  margin-top: 5px;
+  color: #697586;
+  font-weight: 700;
+}
+
+.campaignNode,
+.adsetNode {
+  border: 1px solid #dfe5eb;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.campaignNode {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  align-items: center;
+  padding: 12px;
+}
+
+.campaignNode span,
+.adsetNode span,
+.targetingSummary span,
+.creativeNode span {
+  color: #697586;
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.campaignNode strong,
+.adsetNode strong,
+.targetingSummary strong,
+.creativeNode strong {
+  display: block;
+  margin-top: 4px;
+  color: #1f2933;
+  overflow-wrap: anywhere;
+}
+
+.structureMeta {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.structureTree {
+  display: grid;
+  gap: 12px;
+}
+
+.adsetNode {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  background: #ffffff;
+}
+
+.emptyStructureState,
+.emptyCreativeState {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  border: 1px dashed #cbd5e1;
+  border-radius: 8px;
+  padding: 12px;
+  background: #f8fafc;
+}
+
+.emptyStructureState strong,
+.emptyStructureState span,
+.emptyCreativeState span {
+  display: block;
+}
+
+.emptyStructureState strong {
+  color: #1f2933;
+  font-size: 15px;
+}
+
+.emptyStructureState span,
+.emptyCreativeState span {
+  color: #697586;
+  font-weight: 700;
+}
+
+.adsetNodeHeader {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  align-items: flex-start;
+}
+
+.adsetNode small,
+.creativeNode small {
+  display: block;
+  margin-top: 4px;
+  color: #697586;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.targetingSummary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.targetingSummary > div {
+  border: 1px solid #e5e9ee;
+  border-radius: 8px;
+  padding: 10px;
+  background: #f8fafc;
+}
+
+.creativeNodeGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+}
+
+.creativeNode {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  border: 1px solid #e5e9ee;
+  border-radius: 8px;
+  padding: 8px;
+  background: #f8fafc;
+}
+
+.creativeNode .previewImage,
+.creativeNode .previewFallback {
+  width: 72px;
+  height: 54px;
 }
 
 .sectionHeader,
@@ -921,6 +1155,142 @@ button:disabled {
   border-radius: 8px;
   padding: 18px;
   background: #f8fafc;
+}
+
+.inlineEmpty.compact,
+.inlineError {
+  padding: 10px 12px;
+  font-size: 13px;
+}
+
+.inlineError {
+  color: #8a3416;
+  background: #fff7ed;
+  border: 1px solid #fed7aa;
+  border-radius: 8px;
+}
+
+.locationPicker {
+  display: grid;
+  gap: 12px;
+}
+
+.locationSearch {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: end;
+}
+
+.locationResults,
+.locationBuckets,
+.locationChipList {
+  display: grid;
+  gap: 8px;
+}
+
+.locationBuckets {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.locationBucket {
+  min-width: 0;
+  display: grid;
+  gap: 8px;
+  border: 1px solid #e5e9ee;
+  border-radius: 8px;
+  padding: 12px;
+  background: #f8fafc;
+}
+
+.locationResult {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  border: 1px solid #dfe5eb;
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: #ffffff;
+}
+
+.locationResult strong,
+.locationResult span {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.locationResult span {
+  margin-top: 3px;
+  color: #697586;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.locationActions {
+  display: flex;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+.secondaryButton.danger {
+  color: #b42318;
+  border-color: #fecdca;
+  background: #fff5f4;
+}
+
+.locationChip {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 8px;
+  align-items: center;
+  border: 1px solid #bbedd2;
+  border-radius: 8px;
+  background: #ecfdf3;
+  color: #1f2933;
+  padding: 8px 9px;
+}
+
+.locationChip.excluded {
+  grid-template-columns: minmax(0, 1fr) auto;
+  border-color: #fecdca;
+  background: #fff5f4;
+}
+
+.locationChip strong,
+.locationChip small {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.locationChip small {
+  margin-top: 2px;
+  color: #697586;
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.locationChip input {
+  width: 58px;
+  height: 30px;
+  border: 1px solid #b8c4d2;
+  border-radius: 8px;
+  padding: 0 8px;
+}
+
+.locationChip button {
+  width: 28px;
+  height: 28px;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid #dfe5eb;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #314155;
+  cursor: pointer;
 }
 
 .adDraftEditor {
@@ -970,6 +1340,75 @@ button:disabled {
   gap: 8px;
   max-height: 460px;
   overflow: auto;
+}
+
+.modalTabs {
+  display: inline-flex;
+  gap: 6px;
+  margin-bottom: 12px;
+  border: 1px solid #dfe5eb;
+  border-radius: 8px;
+  padding: 4px;
+  background: #f8fafc;
+}
+
+.modalTabs button {
+  min-height: 32px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #697586;
+  padding: 0 12px;
+  cursor: pointer;
+  font-weight: 800;
+}
+
+.modalTabs button.active {
+  color: #ffffff;
+  background: #136c4a;
+}
+
+.uploadCreativePanel {
+  display: grid;
+  gap: 12px;
+}
+
+.uploadDrop {
+  min-height: 138px;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 8px;
+  border: 1px dashed #b8c4d2;
+  border-radius: 8px;
+  background: #f8fafc;
+  color: #314155;
+  cursor: pointer;
+  padding: 18px;
+  text-align: center;
+}
+
+.uploadDrop input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.uploadDrop.selected {
+  border-color: #16794c;
+  background: #ecfdf3;
+}
+
+.uploadDrop strong,
+.uploadDrop span {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.uploadDrop span {
+  color: #697586;
+  font-size: 13px;
+  font-weight: 700;
 }
 
 .creativePickerRow {
@@ -1145,9 +1584,17 @@ button:disabled {
   .creativeMetaGrid,
   .formGrid.two,
   .formGrid.three,
+  .formGrid.four,
   .toggleGrid,
+  .optionGrid,
+  .budgetModeNotice,
+  .compactSettings,
   .campaignTableGrid,
+  .locationSearch,
+  .locationBuckets,
+  .targetingSummary,
   .adDraftEditor,
+  .creativeNode,
   .creativePickerRow {
     grid-template-columns: 1fr;
   }
@@ -1175,6 +1622,11 @@ button:disabled {
 
   .rowActions,
   .headerActions,
+  .campaignNode,
+  .adsetNodeHeader,
+  .emptyStructureState,
+  .emptyCreativeState,
+  .locationResult,
   .modalActions,
   .sectionHeader,
   .subsectionHeader {

@@ -29,6 +29,7 @@ import {
   LaunchRequest,
   MetaAdSet,
   MetaCampaign,
+  MetaTargetingLocation,
   createAdDraft,
   createAdSetDraft,
   createCampaignDraft,
@@ -38,7 +39,9 @@ import {
   fetchCampaigns,
   fetchCreatives,
   launchCreative,
+  searchTargetingLocations,
   syncCampaigns,
+  uploadCreative,
   updateAdDraft,
   updateAdSetDraft,
   updateCampaignDraft
@@ -75,6 +78,16 @@ type CampaignFormState = {
   metaStatus: string;
 };
 
+type LocationSelection = {
+  key: string;
+  name: string;
+  type: string;
+  countryCode?: string;
+  countryName?: string;
+  region?: string;
+  radius?: string;
+};
+
 type AdSetFormState = {
   name: string;
   destinationType: string;
@@ -92,6 +105,8 @@ type AdSetFormState = {
   useAdvantageAudience: boolean;
   savedAudienceId: string;
   targeting: string;
+  includedLocations: LocationSelection[];
+  excludedLocations: LocationSelection[];
   promotedObject: string;
   audienceControls: string;
   audienceRecommendations: string;
@@ -235,6 +250,24 @@ const ctaTypes = [
   "WHATSAPP_MESSAGE"
 ];
 
+const specialAdCategoryOptions = [
+  { value: "HOUSING", label: "Housing" },
+  { value: "EMPLOYMENT", label: "Employment" },
+  { value: "CREDIT", label: "Credit" },
+  { value: "ISSUES_ELECTIONS_POLITICS", label: "Social issues, elections or politics" }
+];
+
+const countryOptions = [
+  { code: "US", label: "United States" },
+  { code: "UA", label: "Ukraine" },
+  { code: "PL", label: "Poland" },
+  { code: "GB", label: "United Kingdom" },
+  { code: "DE", label: "Germany" },
+  { code: "FR", label: "France" },
+  { code: "CA", label: "Canada" },
+  { code: "AU", label: "Australia" }
+];
+
 const viewConfig: Record<
   CreativeView,
   {
@@ -338,6 +371,30 @@ function nullablePositiveNumber(value: string, label: string) {
   return parsed;
 }
 
+function minorToDollarInput(value?: number | null) {
+  if (!value) return "";
+  const dollars = value / 100;
+  return Number.isInteger(dollars) ? String(dollars) : dollars.toFixed(2);
+}
+
+function nullableDollarToMinor(value: string, label: string) {
+  if (!value.trim()) return null;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    throw new Error(`${label} must be a positive dollar amount.`);
+  }
+  return Math.round(parsed * 100);
+}
+
+function formatUsdMinor(value?: number | null) {
+  if (!value) return "No budget";
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: value % 100 === 0 ? 0 : 2
+  }).format(value / 100);
+}
+
 function parseJsonObject(value: string, label: string): Record<string, unknown> {
   const parsed = JSON.parse(value.trim() || "{}");
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
@@ -381,6 +438,116 @@ function formatCategories(categories?: string[] | null) {
   return categories?.join(", ") ?? "";
 }
 
+function categoryList(value: string) {
+  return parseCategories(value);
+}
+
+function locationFromMeta(location: MetaTargetingLocation): LocationSelection {
+  return {
+    key: location.key,
+    name: location.name,
+    type: location.type,
+    countryCode: location.country_code,
+    countryName: location.country_name,
+    region: location.region,
+    radius: location.type === "city" ? "25" : undefined
+  };
+}
+
+function locationKey(location: Pick<LocationSelection, "key" | "type">) {
+  return `${location.type}:${location.key}`;
+}
+
+function uniqueLocations(locations: LocationSelection[]) {
+  const seen = new Set<string>();
+  return locations.filter((location) => {
+    const key = locationKey(location);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function locationLabel(location: LocationSelection) {
+  const pieces = [location.name];
+  if (location.region && location.region !== location.name) pieces.push(location.region);
+  if (location.countryName && location.countryName !== location.name) pieces.push(location.countryName);
+  if (!location.countryName && location.countryCode && location.countryCode !== location.name) pieces.push(location.countryCode);
+  return pieces.filter(Boolean).join(", ");
+}
+
+function readObject(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined;
+}
+
+function readArray(value: unknown): Record<string, unknown>[] {
+  return Array.isArray(value) ? value.filter((item) => item && typeof item === "object" && !Array.isArray(item)) : [];
+}
+
+function locationsFromGeoLocations(value: unknown): LocationSelection[] {
+  const geo = readObject(value);
+  if (!geo) return [];
+
+  const countries = Array.isArray(geo.countries)
+    ? geo.countries
+        .filter((country): country is string => typeof country === "string")
+        .map<LocationSelection>((country) => ({ key: country, name: country, type: "country", countryCode: country }))
+    : [];
+  const regions = readArray(geo.regions).map<LocationSelection>((region) => ({
+    key: String(region.key ?? region.region_id ?? ""),
+    name: String(region.name ?? region.key ?? region.region_id ?? "Region"),
+    type: "region",
+    countryCode: typeof region.country_code === "string" ? region.country_code : undefined,
+    countryName: typeof region.country_name === "string" ? region.country_name : undefined
+  }));
+  const cities = readArray(geo.cities).map<LocationSelection>((city) => ({
+    key: String(city.key ?? city.city_id ?? ""),
+    name: String(city.name ?? city.key ?? city.city_id ?? "City"),
+    type: "city",
+    countryCode: typeof city.country_code === "string" ? city.country_code : undefined,
+    countryName: typeof city.country_name === "string" ? city.country_name : undefined,
+    region: typeof city.region === "string" ? city.region : undefined,
+    radius: city.radius == null ? "25" : String(city.radius)
+  }));
+
+  return uniqueLocations([...countries, ...regions, ...cities].filter((location) => location.key));
+}
+
+function buildGeoLocations(locations: LocationSelection[]) {
+  const countries: string[] = [];
+  const regions: Array<Record<string, unknown>> = [];
+  const cities: Array<Record<string, unknown>> = [];
+
+  for (const location of uniqueLocations(locations)) {
+    if (location.type === "country") {
+      countries.push(location.countryCode || location.key);
+    } else if (location.type === "region") {
+      regions.push({ key: location.key });
+    } else if (location.type === "city") {
+      const radius = Number(location.radius || 25);
+      cities.push({
+        key: location.key,
+        radius: Number.isFinite(radius) && radius > 0 ? radius : 25,
+        distance_unit: "mile"
+      });
+    }
+  }
+
+  return {
+    ...(countries.length ? { countries } : {}),
+    ...(regions.length ? { regions } : {}),
+    ...(cities.length ? { cities } : {})
+  };
+}
+
+function summarizeTargetingLocations(targeting: Record<string, unknown>) {
+  const included = locationsFromGeoLocations(targeting.geo_locations);
+  const excluded = locationsFromGeoLocations(targeting.excluded_geo_locations);
+  const includeText = included.length ? included.map(locationLabel).join("; ") : "No included locations";
+  const excludeText = excluded.length ? excluded.map(locationLabel).join("; ") : "No exclusions";
+  return { includeText, excludeText, includedCount: included.length, excludedCount: excluded.length };
+}
+
 function defaultCampaignFormState(): CampaignFormState {
   return {
     name: "",
@@ -410,10 +577,10 @@ function campaignToFormState(campaign: CampaignDraftTree): CampaignFormState {
     buyingType: campaign.buying_type,
     campaignSettingsMode: campaign.campaign_settings_mode || "MANUAL",
     budgetStrategy: campaign.budget_strategy || "AD_SET",
-    campaignDailyBudgetMinor: campaign.campaign_daily_budget_minor?.toString() ?? "",
-    campaignLifetimeBudgetMinor: campaign.campaign_lifetime_budget_minor?.toString() ?? "",
+    campaignDailyBudgetMinor: minorToDollarInput(campaign.campaign_daily_budget_minor),
+    campaignLifetimeBudgetMinor: minorToDollarInput(campaign.campaign_lifetime_budget_minor),
     bidStrategy: campaign.bid_strategy ?? "",
-    spendCapMinor: campaign.spend_cap_minor?.toString() ?? "",
+    spendCapMinor: minorToDollarInput(campaign.spend_cap_minor),
     specialAdCategories: formatCategories(campaign.special_ad_categories),
     specialAdCategoryCountries: formatCategories(campaign.special_ad_category_countries),
     promotedObject: formatJsonValue(campaign.promoted_object),
@@ -432,10 +599,10 @@ function buildCampaignPayload(draft: CampaignFormState): CampaignDraftPayload & 
   }
 
   const campaignDailyBudgetMinor =
-    draft.budgetStrategy === "CAMPAIGN" ? nullablePositiveNumber(draft.campaignDailyBudgetMinor, "Campaign daily budget") : null;
+    draft.budgetStrategy === "CAMPAIGN" ? nullableDollarToMinor(draft.campaignDailyBudgetMinor, "Campaign daily budget") : null;
   const campaignLifetimeBudgetMinor =
     draft.budgetStrategy === "CAMPAIGN"
-      ? nullablePositiveNumber(draft.campaignLifetimeBudgetMinor, "Campaign lifetime budget")
+      ? nullableDollarToMinor(draft.campaignLifetimeBudgetMinor, "Campaign lifetime budget")
       : null;
 
   if (campaignDailyBudgetMinor && campaignLifetimeBudgetMinor) {
@@ -455,19 +622,20 @@ function buildCampaignPayload(draft: CampaignFormState): CampaignDraftPayload & 
     campaignDailyBudgetMinor,
     campaignLifetimeBudgetMinor,
     bidStrategy: optionalText(draft.bidStrategy) ?? null,
-    spendCapMinor: nullablePositiveNumber(draft.spendCapMinor, "Spend cap"),
+    spendCapMinor: nullableDollarToMinor(draft.spendCapMinor, "Spend cap"),
     specialAdCategories: parseCategories(draft.specialAdCategories),
     specialAdCategoryCountries: parseCategories(draft.specialAdCategoryCountries),
-    promotedObject: parseOptionalJsonObject(draft.promotedObject, "Promoted object"),
-    budgetScheduleSpecs: parseOptionalJsonValue(draft.budgetScheduleSpecs, "Budget schedule specs"),
-    isSkadnetworkAttribution: draft.isSkadnetworkAttribution,
-    abTestEnabled: draft.abTestEnabled,
-    liveAdsEnabled: draft.liveAdsEnabled,
+    promotedObject: null,
+    budgetScheduleSpecs: null,
+    isSkadnetworkAttribution: false,
+    abTestEnabled: false,
+    liveAdsEnabled: false,
     metaStatus: draft.metaStatus
   };
 }
 
 function adSetToFormState(adset: AdSetDraftWithAds): AdSetFormState {
+  const targeting = adset.targeting ?? {};
   return {
     name: adset.name,
     destinationType: adset.destination_type || "WEBSITE",
@@ -475,16 +643,18 @@ function adSetToFormState(adset: AdSetDraftWithAds): AdSetFormState {
     optimizationGoal: adset.optimization_goal || "LINK_CLICKS",
     billingEvent: adset.billing_event || "IMPRESSIONS",
     bidStrategy: adset.bid_strategy ?? "",
-    bidAmountMinor: adset.bid_amount_minor?.toString() ?? "",
-    dailyBudgetMinor: adset.daily_budget_minor?.toString() ?? "",
-    lifetimeBudgetMinor: adset.lifetime_budget_minor?.toString() ?? "",
+    bidAmountMinor: minorToDollarInput(adset.bid_amount_minor),
+    dailyBudgetMinor: minorToDollarInput(adset.daily_budget_minor),
+    lifetimeBudgetMinor: minorToDollarInput(adset.lifetime_budget_minor),
     startTime: toDatetimeLocal(adset.start_time),
     endTime: toDatetimeLocal(adset.end_time),
     attributionSetting: adset.attribution_setting ?? "",
     isDynamicCreative: adset.is_dynamic_creative,
     useAdvantageAudience: adset.use_advantage_audience,
     savedAudienceId: adset.saved_audience_id ?? "",
-    targeting: JSON.stringify(adset.targeting ?? {}, null, 2),
+    targeting: JSON.stringify(targeting, null, 2),
+    includedLocations: locationsFromGeoLocations(targeting.geo_locations),
+    excludedLocations: locationsFromGeoLocations(targeting.excluded_geo_locations),
     promotedObject: formatJsonValue(adset.promoted_object),
     audienceControls: JSON.stringify(adset.audience_controls ?? {}, null, 2),
     audienceRecommendations: JSON.stringify(adset.audience_recommendations ?? {}, null, 2),
@@ -507,9 +677,9 @@ function buildAdSetPayload(draft: AdSetFormState, campaignBudgetStrategy: string
   }
 
   const dailyBudgetMinor =
-    campaignBudgetStrategy === "CAMPAIGN" ? null : nullablePositiveNumber(draft.dailyBudgetMinor, "Daily budget");
+    campaignBudgetStrategy === "CAMPAIGN" ? null : nullableDollarToMinor(draft.dailyBudgetMinor, "Daily budget");
   const lifetimeBudgetMinor =
-    campaignBudgetStrategy === "CAMPAIGN" ? null : nullablePositiveNumber(draft.lifetimeBudgetMinor, "Lifetime budget");
+    campaignBudgetStrategy === "CAMPAIGN" ? null : nullableDollarToMinor(draft.lifetimeBudgetMinor, "Lifetime budget");
 
   if (dailyBudgetMinor && lifetimeBudgetMinor) {
     throw new Error("Use either ad set daily budget or lifetime budget, not both.");
@@ -519,6 +689,20 @@ function buildAdSetPayload(draft: AdSetFormState, campaignBudgetStrategy: string
     throw new Error("Ad set budget strategy needs a daily or lifetime budget.");
   }
 
+  const targeting = parseJsonObject(draft.targeting, "Targeting");
+  const geoLocations = buildGeoLocations(draft.includedLocations);
+  const excludedGeoLocations = buildGeoLocations(draft.excludedLocations);
+  if (Object.keys(geoLocations).length) {
+    targeting.geo_locations = geoLocations;
+  } else {
+    delete targeting.geo_locations;
+  }
+  if (Object.keys(excludedGeoLocations).length) {
+    targeting.excluded_geo_locations = excludedGeoLocations;
+  } else {
+    delete targeting.excluded_geo_locations;
+  }
+
   return {
     name,
     destinationType: draft.destinationType,
@@ -526,13 +710,13 @@ function buildAdSetPayload(draft: AdSetFormState, campaignBudgetStrategy: string
     optimizationGoal: draft.optimizationGoal,
     billingEvent: draft.billingEvent,
     bidStrategy: nullableText(draft.bidStrategy),
-    bidAmountMinor: nullablePositiveNumber(draft.bidAmountMinor, "Bid amount"),
+    bidAmountMinor: nullableDollarToMinor(draft.bidAmountMinor, "Bid amount"),
     dailyBudgetMinor,
     lifetimeBudgetMinor,
     startTime: nullableDatetimeLocal(draft.startTime),
     endTime: nullableDatetimeLocal(draft.endTime),
-    targeting: parseJsonObject(draft.targeting, "Targeting"),
-    promotedObject: parseOptionalJsonObject(draft.promotedObject, "Promoted object"),
+    targeting,
+    promotedObject: null,
     attributionSetting: nullableText(draft.attributionSetting),
     isDynamicCreative: draft.isDynamicCreative,
     useAdvantageAudience: draft.useAdvantageAudience,
@@ -543,8 +727,8 @@ function buildAdSetPayload(draft: AdSetFormState, campaignBudgetStrategy: string
     placementSettings: parseJsonObject(draft.placementSettings, "Placement settings"),
     brandSafetyControls: parseJsonObject(draft.brandSafetyControls, "Brand safety controls"),
     pacingType: nullableText(draft.pacingType),
-    adsetSchedule: parseOptionalJsonValue(draft.adsetSchedule, "Ad set schedule"),
-    frequencyControlSpecs: parseOptionalJsonValue(draft.frequencyControlSpecs, "Frequency control specs"),
+    adsetSchedule: null,
+    frequencyControlSpecs: null,
     beneficiary: nullableText(draft.beneficiary),
     payor: nullableText(draft.payor),
     metaStatus: draft.metaStatus
@@ -638,6 +822,31 @@ function buildAdDraftPayload(draft: AdDraftFormState): AdDraftPayload & { name: 
 
 function countAds(campaign: CampaignDraftTree) {
   return campaign.adsets.reduce((sum, adset) => sum + adset.ads.length, 0);
+}
+
+function defaultAdSetPayload(index: number): AdSetDraftPayload & { name: string } {
+  return {
+    name: `Ad set ${index}`,
+    destinationType: "WEBSITE",
+    optimizationGoal: "LINK_CLICKS",
+    billingEvent: "IMPRESSIONS",
+    placementMode: "ADVANTAGE_PLUS",
+    useAdvantageAudience: true,
+    targeting: {},
+    metaStatus: "PAUSED"
+  };
+}
+
+function fileToBase64(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(reader.error ?? new Error("Could not read file."));
+    reader.onload = () => {
+      const result = String(reader.result ?? "");
+      resolve(result.includes(",") ? result.split(",")[1] : result);
+    };
+    reader.readAsDataURL(file);
+  });
 }
 
 function CreativePreview({ creative }: { creative: Creative }) {
@@ -1022,6 +1231,22 @@ function CampaignFieldGroups({
   const update = <Key extends keyof CampaignFormState>(field: Key, value: CampaignFormState[Key]) => {
     setDraft((current) => ({ ...current, [field]: value }));
   };
+  const selectedCategories = categoryList(draft.specialAdCategories);
+  const selectedSpecialCountries = categoryList(draft.specialAdCategoryCountries);
+
+  function toggleSpecialCategory(category: string) {
+    const next = selectedCategories.includes(category)
+      ? selectedCategories.filter((item) => item !== category)
+      : [...selectedCategories, category];
+    update("specialAdCategories", next.join(", "));
+  }
+
+  function toggleSpecialCountry(countryCode: string) {
+    const next = selectedSpecialCountries.includes(countryCode)
+      ? selectedSpecialCountries.filter((item) => item !== countryCode)
+      : [...selectedSpecialCountries, countryCode];
+    update("specialAdCategoryCountries", next.join(", "));
+  }
 
   return (
     <div className="campaignFieldStack">
@@ -1096,135 +1321,105 @@ function CampaignFieldGroups({
         </div>
       </section>
 
-      <section className="formSubsection">
-        <div className="subsectionHeader">
-          <h3>Campaign budget</h3>
-          <span>{draft.budgetStrategy === "CAMPAIGN" ? "Used at campaign level" : "Budget will be set per ad set"}</span>
-        </div>
-        <div className="formGrid three">
-          <label className="fieldGroup">
-            <span>Campaign daily budget minor</span>
-            <input
-              type="number"
-              min="1"
-              value={draft.campaignDailyBudgetMinor}
-              onChange={(event) => update("campaignDailyBudgetMinor", event.target.value)}
-              disabled={disabled || draft.budgetStrategy !== "CAMPAIGN"}
-            />
-          </label>
-          <label className="fieldGroup">
-            <span>Campaign lifetime budget minor</span>
-            <input
-              type="number"
-              min="1"
-              value={draft.campaignLifetimeBudgetMinor}
-              onChange={(event) => update("campaignLifetimeBudgetMinor", event.target.value)}
-              disabled={disabled || draft.budgetStrategy !== "CAMPAIGN"}
-            />
-          </label>
-          <label className="fieldGroup">
-            <span>Spend cap minor</span>
-            <input
-              type="number"
-              min="1"
-              value={draft.spendCapMinor}
-              onChange={(event) => update("spendCapMinor", event.target.value)}
-              disabled={disabled}
-            />
-          </label>
-          <label className="fieldGroup">
-            <span>Campaign bid strategy</span>
-            <select value={draft.bidStrategy} onChange={(event) => update("bidStrategy", event.target.value)} disabled={disabled}>
-              {bidStrategies.map((strategy) => (
-                <option key={strategy || "default"} value={strategy}>
-                  {strategy || "Meta default"}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
-      </section>
+      {draft.budgetStrategy === "CAMPAIGN" ? (
+        <section className="formSubsection">
+          <div className="subsectionHeader">
+            <h3>Campaign budget</h3>
+            <span>Used across all ad sets</span>
+          </div>
+          <div className="formGrid four">
+            <label className="fieldGroup">
+              <span>Daily budget, USD</span>
+              <input
+                type="number"
+                min="0.01"
+                step="0.01"
+                value={draft.campaignDailyBudgetMinor}
+                onChange={(event) => update("campaignDailyBudgetMinor", event.target.value)}
+                disabled={disabled}
+                placeholder="100"
+              />
+            </label>
+            <label className="fieldGroup">
+              <span>Lifetime budget, USD</span>
+              <input
+                type="number"
+                min="0.01"
+                step="0.01"
+                value={draft.campaignLifetimeBudgetMinor}
+                onChange={(event) => update("campaignLifetimeBudgetMinor", event.target.value)}
+                disabled={disabled}
+                placeholder="3000"
+              />
+            </label>
+            <label className="fieldGroup">
+              <span>Spend cap, USD</span>
+              <input
+                type="number"
+                min="0.01"
+                step="0.01"
+                value={draft.spendCapMinor}
+                onChange={(event) => update("spendCapMinor", event.target.value)}
+                disabled={disabled}
+                placeholder="Optional"
+              />
+            </label>
+            <label className="fieldGroup">
+              <span>Bid strategy</span>
+              <select value={draft.bidStrategy} onChange={(event) => update("bidStrategy", event.target.value)} disabled={disabled}>
+                {bidStrategies.map((strategy) => (
+                  <option key={strategy || "default"} value={strategy}>
+                    {strategy || "Meta default"}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+        </section>
+      ) : null}
 
       <section className="formSubsection">
         <div className="subsectionHeader">
-          <h3>Compliance</h3>
+          <h3>Meta special ad category</h3>
+          <span>Only for housing, jobs, credit, social issues or elections</span>
         </div>
-        <div className="formGrid two">
-          <label className="fieldGroup">
-            <span>Special ad categories</span>
-            <input
-              value={draft.specialAdCategories}
-              onChange={(event) => update("specialAdCategories", event.target.value)}
-              placeholder="HOUSING, EMPLOYMENT, CREDIT, ISSUES_ELECTIONS_POLITICS"
+        <div className="optionGrid">
+          {specialAdCategoryOptions.map((category) => (
+            <button
+              type="button"
+              key={category.value}
+              className={selectedCategories.includes(category.value) ? "optionChip selected" : "optionChip"}
+              onClick={() => toggleSpecialCategory(category.value)}
               disabled={disabled}
-            />
-          </label>
-          <label className="fieldGroup">
-            <span>Special ad category countries</span>
-            <input
-              value={draft.specialAdCategoryCountries}
-              onChange={(event) => update("specialAdCategoryCountries", event.target.value)}
-              placeholder="US, UA, PL"
-              disabled={disabled}
-            />
-          </label>
+            >
+              {category.label}
+            </button>
+          ))}
         </div>
-        <div className="toggleGrid">
-          <label className="checkboxField">
-            <input
-              type="checkbox"
-              checked={draft.isSkadnetworkAttribution}
-              onChange={(event) => update("isSkadnetworkAttribution", event.target.checked)}
-              disabled={disabled}
-            />
-            <span>SKAdNetwork attribution campaign</span>
-          </label>
-          <label className="checkboxField">
-            <input
-              type="checkbox"
-              checked={draft.abTestEnabled}
-              onChange={(event) => update("abTestEnabled", event.target.checked)}
-              disabled={disabled}
-            />
-            <span>A/B testing enabled</span>
-          </label>
-          <label className="checkboxField">
-            <input
-              type="checkbox"
-              checked={draft.liveAdsEnabled}
-              onChange={(event) => update("liveAdsEnabled", event.target.checked)}
-              disabled={disabled}
-            />
-            <span>Live ads campaign</span>
-          </label>
+        <div className="subsectionHeader compactHeader">
+          <h3>Countries where the category applies</h3>
+          <span>{selectedCategories.length ? "Stored as Meta country codes" : "Not needed when no category is selected"}</span>
         </div>
-      </section>
-
-      <section className="formSubsection">
-        <div className="subsectionHeader">
-          <h3>Advanced campaign payload</h3>
-          <span>Promoted object and schedule</span>
+        <div className="optionGrid">
+          {countryOptions.map((country) => (
+            <button
+              type="button"
+              key={country.code}
+              className={selectedSpecialCountries.includes(country.code) ? "optionChip selected" : "optionChip"}
+              onClick={() => toggleSpecialCountry(country.code)}
+              disabled={disabled || selectedCategories.length === 0}
+            >
+              {country.label}
+            </button>
+          ))}
         </div>
         <label className="fieldGroup">
-          <span>Promoted object JSON</span>
-          <textarea
-            className="codeTextarea"
-            value={draft.promotedObject}
-            onChange={(event) => update("promotedObject", event.target.value)}
-            placeholder='{"pixel_id":"...", "custom_event_type":"LEAD"}'
-            rows={4}
-            disabled={disabled}
-          />
-        </label>
-        <label className="fieldGroup">
-          <span>Budget schedule specs JSON</span>
-          <textarea
-            className="codeTextarea"
-            value={draft.budgetScheduleSpecs}
-            onChange={(event) => update("budgetScheduleSpecs", event.target.value)}
-            placeholder='[{"time_start":1699081200,"time_end":1699167600,"budget_value":100,"budget_value_type":"ABSOLUTE"}]'
-            rows={4}
-            disabled={disabled}
+          <span>Other country codes</span>
+          <input
+            value={draft.specialAdCategoryCountries}
+            onChange={(event) => update("specialAdCategoryCountries", event.target.value)}
+            placeholder="US, UA, PL"
+            disabled={disabled || selectedCategories.length === 0}
           />
         </label>
       </section>
@@ -1292,11 +1487,13 @@ function CampaignCreateModal({
 
 function CampaignDraftListView({ ready, onOpen }: { ready: boolean; onOpen: (id: number) => void }) {
   const [drafts, setDrafts] = useState<CampaignDraft[]>([]);
-  const [adSetCounts, setAdSetCounts] = useState<Record<number, number>>({});
+  const [structureCounts, setStructureCounts] = useState<Record<number, { adsets: number; ads: number }>>({});
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
+  const [creatingAdSetId, setCreatingAdSetId] = useState<number | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!ready) return;
@@ -1309,13 +1506,13 @@ function CampaignDraftListView({ ready, onOpen }: { ready: boolean; onOpen: (id:
         items.map(async (draft) => {
           try {
             const detail = await fetchCampaignDraft(draft.id);
-            return [draft.id, detail.adsets.length] as const;
+            return [draft.id, { adsets: detail.adsets.length, ads: countAds(detail) }] as const;
           } catch {
-            return [draft.id, 0] as const;
+            return [draft.id, { adsets: 0, ads: 0 }] as const;
           }
         })
       );
-      setAdSetCounts(Object.fromEntries(detailPairs));
+      setStructureCounts(Object.fromEntries(detailPairs));
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : String(loadError));
     } finally {
@@ -1330,14 +1527,31 @@ function CampaignDraftListView({ ready, onOpen }: { ready: boolean; onOpen: (id:
   async function submitCampaign(payload: CampaignDraftPayload & { name: string }) {
     setCreating(true);
     setError(null);
+    setSuccess(null);
     try {
       const campaign = await createCampaignDraft(payload);
       setCreateOpen(false);
-      onOpen(campaign.id);
+      setDrafts((current) => [campaign, ...current.filter((draft) => draft.id !== campaign.id)]);
+      setStructureCounts((current) => ({ ...current, [campaign.id]: { adsets: 0, ads: 0 } }));
+      setSuccess(`Campaign "${campaign.name}" saved. Add an ad set when you are ready.`);
     } catch (createError) {
       setError(createError instanceof Error ? createError.message : String(createError));
     } finally {
       setCreating(false);
+    }
+  }
+
+  async function addAdSetFromList(draft: CampaignDraft) {
+    setCreatingAdSetId(draft.id);
+    setError(null);
+    setSuccess(null);
+    try {
+      await createAdSetDraft(draft.id, defaultAdSetPayload((structureCounts[draft.id]?.adsets ?? 0) + 1));
+      onOpen(draft.id);
+    } catch (createError) {
+      setError(createError instanceof Error ? createError.message : String(createError));
+    } finally {
+      setCreatingAdSetId(null);
     }
   }
 
@@ -1376,13 +1590,15 @@ function CampaignDraftListView({ ready, onOpen }: { ready: boolean; onOpen: (id:
       </section>
 
       {error ? <ErrorNotice message={error} /> : null}
+      {success ? <SuccessNotice message={success} /> : null}
 
       <section className="campaignTable">
         <div className="campaignTableHeader campaignTableGrid">
           <span>Name</span>
           <span>Objective</span>
           <span>Status</span>
-          <span>Ad sets</span>
+          <span>Structure</span>
+          <span>Next step</span>
           <span>Updated</span>
         </div>
         {loading ? (
@@ -1396,17 +1612,34 @@ function CampaignDraftListView({ ready, onOpen }: { ready: boolean; onOpen: (id:
             No campaign drafts yet.
           </div>
         ) : (
-          drafts.map((draft) => (
-            <button key={draft.id} className="campaignTableRow campaignTableGrid" onClick={() => onOpen(draft.id)}>
+          drafts.map((draft) => {
+            const counts = structureCounts[draft.id] ?? { adsets: 0, ads: 0 };
+            return (
+            <article key={draft.id} className="campaignTableRow campaignTableGrid">
               <strong>{draft.name}</strong>
               <span>{draft.objective}</span>
               <span>
                 <StatusChip value={draft.status} />
               </span>
-              <span>{adSetCounts[draft.id] ?? 0}</span>
+              <span>
+                {counts.adsets} ad sets · {counts.ads} creatives
+              </span>
+              <span className="rowActionCell">
+                {counts.adsets === 0 ? (
+                  <button className="primaryButton compact" onClick={() => addAdSetFromList(draft)} disabled={creatingAdSetId === draft.id}>
+                    {creatingAdSetId === draft.id ? <Loader2 size={16} className="spin" /> : <Plus size={16} />}
+                    Add ad set
+                  </button>
+                ) : (
+                  <button className="secondaryButton compact" onClick={() => onOpen(draft.id)}>
+                    Open structure
+                  </button>
+                )}
+              </span>
               <span>{formatDate(draft.updated_at)}</span>
-            </button>
-          ))
+            </article>
+          );
+          })
         )}
       </section>
 
@@ -1421,12 +1654,14 @@ function CampaignSettingsForm({
   campaign,
   saving,
   onSave,
-  onError
+  onError,
+  onClose
 }: {
   campaign: CampaignDraftTree;
   saving: boolean;
   onSave: (payload: CampaignDraftPayload) => void;
   onError: (message: string) => void;
+  onClose: () => void;
 }) {
   const [draft, setDraft] = useState<CampaignFormState>(() => campaignToFormState(campaign));
 
@@ -1451,9 +1686,12 @@ function CampaignSettingsForm({
         </div>
         <div className="headerActions">
           <StatusChip value={campaign.status} />
+          <button className="secondaryButton" onClick={onClose} disabled={saving}>
+            Close
+          </button>
           <button className="primaryButton" onClick={save} disabled={saving}>
             {saving ? <Loader2 size={16} className="spin" /> : <Save size={16} />}
-            Save campaign
+            Save changes
           </button>
         </div>
       </div>
@@ -1560,16 +1798,6 @@ function AdDraftEditor({
                 />
               </label>
             </div>
-            <label className="fieldGroup">
-              <span>Brand identity settings JSON</span>
-              <textarea
-                className="codeTextarea"
-                value={draft.brandIdentitySettings}
-                onChange={(event) => update("brandIdentitySettings", event.target.value)}
-                rows={4}
-                disabled={saving}
-              />
-            </label>
           </section>
 
           <section className="formSubsection">
@@ -1724,99 +1952,188 @@ function AdDraftEditor({
                   disabled={saving}
                 />
               </label>
-              <label className="fieldGroup">
-                <span>URL parameters JSON</span>
-                <textarea
-                  className="codeTextarea"
-                  value={draft.urlParameters}
-                  onChange={(event) => update("urlParameters", event.target.value)}
-                  rows={4}
-                  disabled={saving}
-                />
-              </label>
-              <label className="fieldGroup">
-                <span>Tracking specs JSON</span>
-                <textarea
-                  className="codeTextarea"
-                  value={draft.trackingSpecs}
-                  onChange={(event) => update("trackingSpecs", event.target.value)}
-                  rows={4}
-                  disabled={saving}
-                />
-              </label>
-              <label className="fieldGroup">
-                <span>Conversion specs JSON</span>
-                <textarea
-                  className="codeTextarea"
-                  value={draft.conversionSpecs}
-                  onChange={(event) => update("conversionSpecs", event.target.value)}
-                  rows={4}
-                  disabled={saving}
-                />
-              </label>
-            </div>
-          </section>
-
-          <section className="formSubsection">
-            <div className="subsectionHeader">
-              <h3>Advanced Meta creative specs</h3>
-            </div>
-            <div className="formGrid two">
-              <label className="fieldGroup">
-                <span>Object story spec JSON</span>
-                <textarea
-                  className="codeTextarea"
-                  value={draft.objectStorySpec}
-                  onChange={(event) => update("objectStorySpec", event.target.value)}
-                  rows={4}
-                  disabled={saving}
-                />
-              </label>
-              <label className="fieldGroup">
-                <span>Asset feed spec JSON</span>
-                <textarea
-                  className="codeTextarea"
-                  value={draft.assetFeedSpec}
-                  onChange={(event) => update("assetFeedSpec", event.target.value)}
-                  rows={4}
-                  disabled={saving}
-                />
-              </label>
-              <label className="fieldGroup">
-                <span>Call to action value JSON</span>
-                <textarea
-                  className="codeTextarea"
-                  value={draft.callToActionValue}
-                  onChange={(event) => update("callToActionValue", event.target.value)}
-                  rows={4}
-                  disabled={saving}
-                />
-              </label>
-              <label className="fieldGroup">
-                <span>Creative features spec JSON</span>
-                <textarea
-                  className="codeTextarea"
-                  value={draft.creativeFeaturesSpec}
-                  onChange={(event) => update("creativeFeaturesSpec", event.target.value)}
-                  rows={4}
-                  disabled={saving}
-                />
-              </label>
-              <label className="fieldGroup">
-                <span>Degrees of freedom spec JSON</span>
-                <textarea
-                  className="codeTextarea"
-                  value={draft.degreesOfFreedomSpec}
-                  onChange={(event) => update("degreesOfFreedomSpec", event.target.value)}
-                  rows={4}
-                  disabled={saving}
-                />
-              </label>
             </div>
           </section>
         </div>
       </div>
     </article>
+  );
+}
+
+function LocationPicker({
+  included,
+  excluded,
+  disabled,
+  onIncludedChange,
+  onExcludedChange
+}: {
+  included: LocationSelection[];
+  excluded: LocationSelection[];
+  disabled: boolean;
+  onIncludedChange: (locations: LocationSelection[]) => void;
+  onExcludedChange: (locations: LocationSelection[]) => void;
+}) {
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState<MetaTargetingLocation[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function runSearch(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const trimmed = query.trim();
+    if (trimmed.length < 2) {
+      setResults([]);
+      setError("Type at least 2 characters.");
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+    try {
+      const locations = await searchTargetingLocations({
+        query: trimmed,
+        locationTypes: ["country", "region", "city"],
+        limit: 20
+      });
+      setResults(locations);
+    } catch (searchError) {
+      setError(searchError instanceof Error ? searchError.message : String(searchError));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function addIncluded(location: MetaTargetingLocation) {
+    const next = locationFromMeta(location);
+    onIncludedChange(uniqueLocations([...included, next]));
+    onExcludedChange(excluded.filter((item) => locationKey(item) !== locationKey(next)));
+  }
+
+  function addExcluded(location: MetaTargetingLocation) {
+    const next = locationFromMeta(location);
+    onExcludedChange(uniqueLocations([...excluded, next]));
+    onIncludedChange(included.filter((item) => locationKey(item) !== locationKey(next)));
+  }
+
+  function removeIncluded(location: LocationSelection) {
+    onIncludedChange(included.filter((item) => locationKey(item) !== locationKey(location)));
+  }
+
+  function removeExcluded(location: LocationSelection) {
+    onExcludedChange(excluded.filter((item) => locationKey(item) !== locationKey(location)));
+  }
+
+  function updateRadius(location: LocationSelection, radius: string) {
+    onIncludedChange(
+      included.map((item) => (locationKey(item) === locationKey(location) ? { ...item, radius } : item))
+    );
+  }
+
+  return (
+    <div className="locationPicker">
+      <form className="locationSearch" onSubmit={runSearch}>
+        <label className="fieldGroup">
+          <span>Search Meta countries, regions or cities</span>
+          <input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Ukraine, Kyiv, Poland, New York"
+            disabled={disabled}
+          />
+        </label>
+        <button className="secondaryButton" disabled={disabled || loading}>
+          {loading ? <Loader2 size={16} className="spin" /> : <RefreshCw size={16} />}
+          Search
+        </button>
+      </form>
+
+      {error ? <div className="inlineError">{error}</div> : null}
+
+      {results.length ? (
+        <div className="locationResults">
+          {results.map((location) => (
+            <article key={`${location.type}:${location.key}`} className="locationResult">
+              <div>
+                <strong>{location.name}</strong>
+                <span>
+                  {location.type}
+                  {location.region ? ` · ${location.region}` : ""}
+                  {location.country_name ? ` · ${location.country_name}` : ""}
+                </span>
+              </div>
+              <div className="locationActions">
+                <button type="button" className="secondaryButton compact" onClick={() => addIncluded(location)} disabled={disabled}>
+                  Include
+                </button>
+                <button type="button" className="secondaryButton compact danger" onClick={() => addExcluded(location)} disabled={disabled}>
+                  Exclude
+                </button>
+              </div>
+            </article>
+          ))}
+        </div>
+      ) : null}
+
+      <div className="locationBuckets">
+        <section className="locationBucket">
+          <div className="subsectionHeader compactHeader">
+            <h3>Included locations</h3>
+            <span>{included.length}</span>
+          </div>
+          {included.length ? (
+            <div className="locationChipList">
+              {included.map((location) => (
+                <span className="locationChip" key={locationKey(location)}>
+                  <span>
+                    <strong>{locationLabel(location)}</strong>
+                    <small>{location.type}</small>
+                  </span>
+                  {location.type === "city" ? (
+                    <input
+                      aria-label={`${location.name} radius in miles`}
+                      type="number"
+                      min="1"
+                      value={location.radius ?? "25"}
+                      onChange={(event) => updateRadius(location, event.target.value)}
+                      disabled={disabled}
+                    />
+                  ) : null}
+                  <button type="button" onClick={() => removeIncluded(location)} disabled={disabled} aria-label={`Remove ${location.name}`}>
+                    <X size={14} />
+                  </button>
+                </span>
+              ))}
+            </div>
+          ) : (
+            <div className="inlineEmpty compact">No included locations selected.</div>
+          )}
+        </section>
+
+        <section className="locationBucket">
+          <div className="subsectionHeader compactHeader">
+            <h3>Excluded locations</h3>
+            <span>{excluded.length}</span>
+          </div>
+          {excluded.length ? (
+            <div className="locationChipList">
+              {excluded.map((location) => (
+                <span className="locationChip excluded" key={locationKey(location)}>
+                  <span>
+                    <strong>{locationLabel(location)}</strong>
+                    <small>{location.type}</small>
+                  </span>
+                  <button type="button" onClick={() => removeExcluded(location)} disabled={disabled} aria-label={`Remove ${location.name}`}>
+                    <X size={14} />
+                  </button>
+                </span>
+              ))}
+            </div>
+          ) : (
+            <div className="inlineEmpty compact">Nothing excluded.</div>
+          )}
+        </section>
+      </div>
+    </div>
   );
 }
 
@@ -1973,26 +2290,39 @@ function AdSetEditor({
             <span>{usesCampaignBudget ? "Campaign budget is active" : "Ad set budget required"}</span>
           </div>
           <div className="formGrid three">
-            <label className="fieldGroup">
-              <span>Daily budget minor</span>
-              <input
-                type="number"
-                min="1"
-                value={draft.dailyBudgetMinor}
-                onChange={(event) => update("dailyBudgetMinor", event.target.value)}
-                disabled={adSetSaving || usesCampaignBudget}
-              />
-            </label>
-            <label className="fieldGroup">
-              <span>Lifetime budget minor</span>
-              <input
-                type="number"
-                min="1"
-                value={draft.lifetimeBudgetMinor}
-                onChange={(event) => update("lifetimeBudgetMinor", event.target.value)}
-                disabled={adSetSaving || usesCampaignBudget}
-              />
-            </label>
+            {usesCampaignBudget ? (
+              <div className="budgetModeNotice">
+                <strong>Campaign budget is selected</strong>
+                <span>This ad set will use the campaign-level budget. Switch the campaign to Ad set budget to edit budgets here.</span>
+              </div>
+            ) : (
+              <>
+                <label className="fieldGroup">
+                  <span>Daily budget, USD</span>
+                  <input
+                    type="number"
+                    min="0.01"
+                    step="0.01"
+                    value={draft.dailyBudgetMinor}
+                    onChange={(event) => update("dailyBudgetMinor", event.target.value)}
+                    disabled={adSetSaving}
+                    placeholder="50"
+                  />
+                </label>
+                <label className="fieldGroup">
+                  <span>Lifetime budget, USD</span>
+                  <input
+                    type="number"
+                    min="0.01"
+                    step="0.01"
+                    value={draft.lifetimeBudgetMinor}
+                    onChange={(event) => update("lifetimeBudgetMinor", event.target.value)}
+                    disabled={adSetSaving}
+                    placeholder="1500"
+                  />
+                </label>
+              </>
+            )}
             <label className="fieldGroup">
               <span>Bid strategy</span>
               <select value={draft.bidStrategy} onChange={(event) => update("bidStrategy", event.target.value)} disabled={adSetSaving}>
@@ -2004,13 +2334,15 @@ function AdSetEditor({
               </select>
             </label>
             <label className="fieldGroup">
-              <span>Bid amount minor</span>
+              <span>Bid amount, USD</span>
               <input
                 type="number"
-                min="1"
+                min="0.01"
+                step="0.01"
                 value={draft.bidAmountMinor}
                 onChange={(event) => update("bidAmountMinor", event.target.value)}
                 disabled={adSetSaving}
+                placeholder="Optional"
               />
             </label>
             <label className="fieldGroup">
@@ -2056,7 +2388,7 @@ function AdSetEditor({
         <section className="formSubsection">
           <div className="subsectionHeader">
             <h3>Audience</h3>
-            <span>Targeting remains JSON for MVP</span>
+            <span>Use Meta location keys; exclusions are saved separately</span>
           </div>
           <div className="formGrid two">
             <label className="checkboxField">
@@ -2077,45 +2409,20 @@ function AdSetEditor({
               />
             </label>
           </div>
-          <label className="fieldGroup">
-            <span>Targeting JSON</span>
-            <textarea
-              className="codeTextarea"
-              value={draft.targeting}
-              onChange={(event) => update("targeting", event.target.value)}
-              rows={6}
-              disabled={adSetSaving}
-            />
-          </label>
-          <div className="formGrid two">
-            <label className="fieldGroup">
-              <span>Audience controls JSON</span>
-              <textarea
-                className="codeTextarea"
-                value={draft.audienceControls}
-                onChange={(event) => update("audienceControls", event.target.value)}
-                rows={4}
-                disabled={adSetSaving}
-              />
-            </label>
-            <label className="fieldGroup">
-              <span>Audience recommendations JSON</span>
-              <textarea
-                className="codeTextarea"
-                value={draft.audienceRecommendations}
-                onChange={(event) => update("audienceRecommendations", event.target.value)}
-                rows={4}
-                disabled={adSetSaving}
-              />
-            </label>
-          </div>
+          <LocationPicker
+            included={draft.includedLocations}
+            excluded={draft.excludedLocations}
+            disabled={adSetSaving}
+            onIncludedChange={(locations) => update("includedLocations", locations)}
+            onExcludedChange={(locations) => update("excludedLocations", locations)}
+          />
         </section>
 
         <section className="formSubsection">
           <div className="subsectionHeader">
-            <h3>Placements and delivery controls</h3>
+            <h3>Placements</h3>
           </div>
-          <div className="formGrid two">
+          <div className="formGrid two compactGrid">
             <label className="fieldGroup">
               <span>Placement mode</span>
               <select value={draft.placementMode} onChange={(event) => update("placementMode", event.target.value)} disabled={adSetSaving}>
@@ -2126,52 +2433,12 @@ function AdSetEditor({
                 ))}
               </select>
             </label>
-            <label className="fieldGroup">
-              <span>Placement settings JSON</span>
-              <textarea
-                className="codeTextarea"
-                value={draft.placementSettings}
-                onChange={(event) => update("placementSettings", event.target.value)}
-                rows={4}
-                disabled={adSetSaving}
-              />
-            </label>
-            <label className="fieldGroup">
-              <span>Brand safety controls JSON</span>
-              <textarea
-                className="codeTextarea"
-                value={draft.brandSafetyControls}
-                onChange={(event) => update("brandSafetyControls", event.target.value)}
-                rows={4}
-                disabled={adSetSaving}
-              />
-            </label>
-            <label className="fieldGroup">
-              <span>Ad set schedule JSON</span>
-              <textarea
-                className="codeTextarea"
-                value={draft.adsetSchedule}
-                onChange={(event) => update("adsetSchedule", event.target.value)}
-                rows={4}
-                disabled={adSetSaving}
-              />
-            </label>
-            <label className="fieldGroup">
-              <span>Frequency control specs JSON</span>
-              <textarea
-                className="codeTextarea"
-                value={draft.frequencyControlSpecs}
-                onChange={(event) => update("frequencyControlSpecs", event.target.value)}
-                rows={4}
-                disabled={adSetSaving}
-              />
-            </label>
           </div>
         </section>
 
         <section className="formSubsection">
           <div className="subsectionHeader">
-            <h3>Compliance and promoted object</h3>
+            <h3>EU transparency</h3>
           </div>
           <div className="formGrid two">
             <label className="fieldGroup">
@@ -2183,17 +2450,6 @@ function AdSetEditor({
               <input value={draft.payor} onChange={(event) => update("payor", event.target.value)} disabled={adSetSaving} />
             </label>
           </div>
-          <label className="fieldGroup">
-            <span>Promoted object JSON</span>
-            <textarea
-              className="codeTextarea"
-              value={draft.promotedObject}
-              onChange={(event) => update("promotedObject", event.target.value)}
-              placeholder='{"pixel_id":"...", "custom_event_type":"LEAD"}'
-              rows={5}
-              disabled={adSetSaving}
-            />
-          </label>
         </section>
       </div>
 
@@ -2203,7 +2459,13 @@ function AdSetEditor({
           <span>{adset.ads.length} creative{adset.ads.length === 1 ? "" : "s"}</span>
         </div>
         {adset.ads.length === 0 ? (
-          <div className="inlineEmpty">No creatives assigned to this ad set yet.</div>
+          <div className="emptyCreativeState">
+            <span>No creatives assigned to this ad set yet.</span>
+            <button className="secondaryButton compact" onClick={() => onAddCreative(adset.id)}>
+              <ImageIcon size={16} />
+              Add creative
+            </button>
+          </div>
         ) : (
           adset.ads.map((ad) => (
             <AdDraftEditor
@@ -2233,7 +2495,11 @@ function AddCreativeModal({
 }) {
   const [creatives, setCreatives] = useState<Creative[]>([]);
   const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [mode, setMode] = useState<"choose" | "upload">("choose");
+  const [file, setFile] = useState<File | null>(null);
+  const [uploadDraft, setUploadDraft] = useState({ projectType: "", adText: "", ctaLink: "" });
   const [loadingCreatives, setLoadingCreatives] = useState(true);
+  const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -2259,6 +2525,37 @@ function AddCreativeModal({
     };
   }, []);
 
+  async function uploadAndAttach() {
+    if (!file) {
+      setError("Choose an image or video first.");
+      return;
+    }
+    if (file.size > 18 * 1024 * 1024) {
+      setError("File is too large for direct upload here. Use a file under 18 MB or upload through the Drive/Notion flow.");
+      return;
+    }
+
+    setUploading(true);
+    setError(null);
+    try {
+      const creative = await uploadCreative({
+        fileName: file.name,
+        mimeType: file.type || "application/octet-stream",
+        dataBase64: await fileToBase64(file),
+        projectType: uploadDraft.projectType || file.name,
+        adText: uploadDraft.adText || undefined,
+        ctaLink: uploadDraft.ctaLink || undefined
+      });
+      onAdd(adsetId, creative.id);
+    } catch (uploadError) {
+      setError(uploadError instanceof Error ? uploadError.message : String(uploadError));
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  const busy = loading || uploading;
+
   return (
     <div className="modalOverlay" role="dialog" aria-modal="true">
       <div className="modal creativePickerModal">
@@ -2267,49 +2564,223 @@ function AddCreativeModal({
             <p className="eyebrow">Ready creatives</p>
             <h2>Add creative</h2>
           </div>
-          <button className="iconButton" onClick={onClose} aria-label="Close" disabled={loading}>
+          <button className="iconButton" onClick={onClose} aria-label="Close" disabled={busy}>
             <X size={18} />
+          </button>
+        </div>
+
+        <div className="modalTabs">
+          <button className={mode === "choose" ? "active" : ""} onClick={() => setMode("choose")}>
+            Choose uploaded
+          </button>
+          <button className={mode === "upload" ? "active" : ""} onClick={() => setMode("upload")}>
+            Upload new
           </button>
         </div>
 
         {error ? <ErrorNotice message={error} /> : null}
 
-        <div className="creativePickerList">
-          {loadingCreatives ? (
-            <div className="emptyState">
-              <Loader2 className="spin" />
-              Loading ready creatives
+        {mode === "choose" ? (
+          <div className="creativePickerList">
+            {loadingCreatives ? (
+              <div className="emptyState">
+                <Loader2 className="spin" />
+                Loading ready creatives
+              </div>
+            ) : creatives.length === 0 ? (
+              <div className="emptyState">No ready creatives are available.</div>
+            ) : (
+              creatives.map((creative) => (
+                <button
+                  key={creative.id}
+                  className={selectedId === creative.id ? "creativePickerRow selected" : "creativePickerRow"}
+                  onClick={() => setSelectedId(creative.id)}
+                >
+                  <CreativePreview creative={creative} />
+                  <div>
+                    <strong>{creative.source_file_name ?? creative.project_type ?? `Creative ${creative.id}`}</strong>
+                    <span>{creative.ad_text ?? "No primary text yet"}</span>
+                  </div>
+                </button>
+              ))
+            )}
+          </div>
+        ) : (
+          <div className="uploadCreativePanel">
+            <label className={file ? "uploadDrop selected" : "uploadDrop"}>
+              <input
+                type="file"
+                accept="image/*,video/*"
+                onChange={(event) => setFile(event.target.files?.[0] ?? null)}
+                disabled={busy}
+              />
+              <ImageIcon size={24} />
+              <strong>{file ? file.name : "Choose image or video"}</strong>
+              <span>Direct upload creates a ready creative and attaches it to this ad set.</span>
+            </label>
+            <div className="formGrid two compactGrid">
+              <label className="fieldGroup">
+                <span>Name</span>
+                <input
+                  value={uploadDraft.projectType}
+                  onChange={(event) => setUploadDraft((current) => ({ ...current, projectType: event.target.value }))}
+                  disabled={busy}
+                  placeholder={file?.name ?? "Creative name"}
+                />
+              </label>
+              <label className="fieldGroup">
+                <span>CTA link</span>
+                <input
+                  type="url"
+                  value={uploadDraft.ctaLink}
+                  onChange={(event) => setUploadDraft((current) => ({ ...current, ctaLink: event.target.value }))}
+                  disabled={busy}
+                  placeholder="https://..."
+                />
+              </label>
             </div>
-          ) : creatives.length === 0 ? (
-            <div className="emptyState">No ready creatives are available.</div>
-          ) : (
-            creatives.map((creative) => (
-              <button
-                key={creative.id}
-                className={selectedId === creative.id ? "creativePickerRow selected" : "creativePickerRow"}
-                onClick={() => setSelectedId(creative.id)}
-              >
-                <CreativePreview creative={creative} />
-                <div>
-                  <strong>{creative.source_file_name ?? creative.project_type ?? `Creative ${creative.id}`}</strong>
-                  <span>{creative.ad_text ?? "No primary text yet"}</span>
-                </div>
-              </button>
-            ))
-          )}
-        </div>
+            <label className="fieldGroup">
+              <span>Primary text</span>
+              <textarea
+                value={uploadDraft.adText}
+                onChange={(event) => setUploadDraft((current) => ({ ...current, adText: event.target.value }))}
+                disabled={busy}
+                rows={3}
+              />
+            </label>
+          </div>
+        )}
 
         <div className="modalActions">
-          <button className="secondaryButton" onClick={onClose} disabled={loading}>
+          <button className="secondaryButton" onClick={onClose} disabled={busy}>
             Cancel
           </button>
-          <button className="primaryButton" onClick={() => selectedId && onAdd(adsetId, selectedId)} disabled={loading || !selectedId}>
-            {loading ? <Loader2 size={16} className="spin" /> : <Plus size={16} />}
-            Add creative
-          </button>
+          {mode === "choose" ? (
+            <button className="primaryButton" onClick={() => selectedId && onAdd(adsetId, selectedId)} disabled={busy || !selectedId}>
+              {loading ? <Loader2 size={16} className="spin" /> : <Plus size={16} />}
+              Add creative
+            </button>
+          ) : (
+            <button className="primaryButton" onClick={uploadAndAttach} disabled={busy || !file}>
+              {uploading ? <Loader2 size={16} className="spin" /> : <Plus size={16} />}
+              Upload and attach
+            </button>
+          )}
         </div>
       </div>
     </div>
+  );
+}
+
+function CampaignStructure({
+  campaign,
+  onAddAdSet,
+  onAddCreative,
+  addingAdSet
+}: {
+  campaign: CampaignDraftTree;
+  onAddAdSet: () => void;
+  onAddCreative: (adsetId: number) => void;
+  addingAdSet: boolean;
+}) {
+  return (
+    <section className="builderSection structureSection">
+      <div className="sectionHeader">
+        <div>
+          <p className="eyebrow">Structure</p>
+          <h2>Campaign → ad sets → creatives</h2>
+        </div>
+        <button className="primaryButton" onClick={onAddAdSet} disabled={addingAdSet}>
+          {addingAdSet ? <Loader2 size={16} className="spin" /> : <Plus size={16} />}
+          Add ad set
+        </button>
+      </div>
+
+      <div className="campaignNode">
+        <div>
+          <span>Campaign</span>
+          <strong>{campaign.name}</strong>
+        </div>
+        <div className="structureMeta">
+          <span>{campaign.objective}</span>
+          <span>{campaign.budget_strategy === "CAMPAIGN" ? "Campaign budget" : "Ad set budgets"}</span>
+          <StatusChip value={campaign.status} />
+        </div>
+      </div>
+
+      {campaign.adsets.length === 0 ? (
+        <div className="emptyStructureState">
+          <div>
+            <strong>No ad sets yet</strong>
+            <span>Create the first ad set, then choose uploaded creatives or upload new ones inside it.</span>
+          </div>
+          <button className="primaryButton" onClick={onAddAdSet} disabled={addingAdSet}>
+            {addingAdSet ? <Loader2 size={16} className="spin" /> : <Plus size={16} />}
+            Add ad set
+          </button>
+        </div>
+      ) : (
+        <div className="structureTree">
+          {campaign.adsets.map((adset) => {
+            const targetingSummary = summarizeTargetingLocations(adset.targeting ?? {});
+            return (
+              <article className="adsetNode" key={adset.id}>
+                <div className="adsetNodeHeader">
+                  <div>
+                    <span>Ad set</span>
+                    <strong>{adset.name}</strong>
+                    <small>
+                      {formatUsdMinor(adset.daily_budget_minor ?? adset.lifetime_budget_minor)} · {adset.optimization_goal}
+                    </small>
+                  </div>
+                  <div className="headerActions">
+                    <StatusChip value={adset.status} />
+                    <button className="secondaryButton compact" onClick={() => onAddCreative(adset.id)}>
+                      <ImageIcon size={16} />
+                      Add creative
+                    </button>
+                  </div>
+                </div>
+
+                <div className="targetingSummary">
+                  <div>
+                    <span>Included</span>
+                    <strong>{targetingSummary.includeText}</strong>
+                  </div>
+                  <div>
+                    <span>Excluded</span>
+                    <strong>{targetingSummary.excludeText}</strong>
+                  </div>
+                </div>
+
+                {adset.ads.length ? (
+                  <div className="creativeNodeGrid">
+                    {adset.ads.map((ad) => (
+                      <div className="creativeNode" key={ad.id}>
+                        <CreativePreview creative={ad.creative} />
+                        <div>
+                          <span>Creative</span>
+                          <strong>{ad.name || ad.creative.source_file_name || `Creative ${ad.creative.id}`}</strong>
+                          <small>{ad.cta_type}</small>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="emptyCreativeState">
+                    <span>No creatives assigned to this ad set yet.</span>
+                    <button className="secondaryButton compact" onClick={() => onAddCreative(adset.id)}>
+                      <ImageIcon size={16} />
+                      Add creative
+                    </button>
+                  </div>
+                )}
+              </article>
+            );
+          })}
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -2326,6 +2797,7 @@ function CampaignDetailView({
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState<string | null>(null);
   const [addCreativeAdSetId, setAddCreativeAdSetId] = useState<number | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
@@ -2468,29 +2940,37 @@ function CampaignDetailView({
       {success ? <SuccessNotice message={success} /> : null}
 
       <div className="builderStack">
-        <CampaignSettingsForm
+        <CampaignStructure
           campaign={campaign}
-          saving={saving === "campaign"}
-          onSave={saveCampaign}
-          onError={setError}
+          onAddAdSet={addAdSet}
+          onAddCreative={setAddCreativeAdSetId}
+          addingAdSet={saving === "create-adset"}
         />
 
-        <section className="builderSection flush">
-          <div className="sectionHeader">
-            <div>
-              <p className="eyebrow">Structure</p>
-              <h2>Ad sets</h2>
-            </div>
-            <button className="primaryButton" onClick={addAdSet} disabled={saving === "create-adset"}>
-              {saving === "create-adset" ? <Loader2 size={16} className="spin" /> : <Plus size={16} />}
-              Add ad set
-            </button>
-          </div>
-        </section>
-
-        {campaign.adsets.length === 0 ? (
-          <div className="emptyState">No ad sets yet. Add one to start assigning creatives.</div>
+        {settingsOpen ? (
+          <CampaignSettingsForm
+            campaign={campaign}
+            saving={saving === "campaign"}
+            onSave={saveCampaign}
+            onError={setError}
+            onClose={() => setSettingsOpen(false)}
+          />
         ) : (
+          <section className="builderSection compactSettings">
+            <div>
+              <p className="eyebrow">Campaign settings</p>
+              <h2>{campaign.objective}</h2>
+              <span>
+                {campaign.meta_status} · {campaign.budget_strategy === "CAMPAIGN" ? "Campaign budget" : "Ad set budgets"}
+              </span>
+            </div>
+            <button className="secondaryButton" onClick={() => setSettingsOpen(true)}>
+              Edit settings
+            </button>
+          </section>
+        )}
+
+        {campaign.adsets.length === 0 ? null : (
           campaign.adsets.map((adset) => (
             <AdSetEditor
               key={adset.id}

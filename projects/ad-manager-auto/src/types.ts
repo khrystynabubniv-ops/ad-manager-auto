@@ -78,6 +78,18 @@ export type FacebookAdSet = {
   targeting?: Record<string, unknown>;
 };
 
+export type FacebookTargetingLocation = {
+  key: string;
+  name: string;
+  type: string;
+  country_code?: string;
+  country_name?: string;
+  region?: string;
+  region_id?: string;
+  primary_city_id?: string;
+  supports_region?: boolean;
+};
+
 export type DraftStatus = "draft" | "publishing" | "published" | "publish_failed" | "archived";
 
 export type CampaignDraft = {

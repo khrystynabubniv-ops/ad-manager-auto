@@ -26,7 +26,7 @@ app.use(cors());
 app.use(httpLogger);
 app.use(
   express.json({
-    limit: "5mb",
+    limit: "25mb",
     verify: (req, _res, buf) => {
       (req as any).rawBody = Buffer.from(buf);
     }

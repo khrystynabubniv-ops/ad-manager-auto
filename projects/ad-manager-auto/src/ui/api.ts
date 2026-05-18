@@ -51,6 +51,18 @@ export type MetaAdSet = {
   lifetime_budget?: string;
 };
 
+export type MetaTargetingLocation = {
+  key: string;
+  name: string;
+  type: string;
+  country_code?: string;
+  country_name?: string;
+  region?: string;
+  region_id?: string;
+  primary_city_id?: string;
+  supports_region?: boolean;
+};
+
 export type DraftStatus = "draft" | "publishing" | "published" | "publish_failed" | "archived";
 
 export type CampaignDraft = {
@@ -330,6 +342,21 @@ export async function fetchCreatives(kind: CreativeListKind): Promise<Creative[]
   return response.creatives;
 }
 
+export async function uploadCreative(payload: {
+  fileName: string;
+  mimeType: string;
+  dataBase64: string;
+  projectType?: string;
+  adText?: string;
+  ctaLink?: string;
+}): Promise<Creative> {
+  const response = await apiFetch<{ creative: Creative }>("/api/creatives/upload", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+  return response.creative;
+}
+
 export async function launchCreative(id: number, payload: LaunchRequest): Promise<Creative> {
   const response = await apiFetch<{ creative: Creative }>(`/api/launch/${id}`, {
     method: "POST",
@@ -348,6 +375,27 @@ export async function fetchAdSets(campaignId: string): Promise<MetaAdSet[]> {
     `/api/campaigns/${encodeURIComponent(campaignId)}/adsets`
   );
   return response.adsets;
+}
+
+export async function searchTargetingLocations(input: {
+  query: string;
+  locationTypes?: string[];
+  countryCode?: string;
+  limit?: number;
+}): Promise<MetaTargetingLocation[]> {
+  const params = new URLSearchParams({
+    q: input.query,
+    locationTypes: (input.locationTypes?.length ? input.locationTypes : ["country", "region", "city"]).join(","),
+    limit: String(input.limit ?? 20)
+  });
+  if (input.countryCode) {
+    params.set("countryCode", input.countryCode);
+  }
+
+  const response = await apiFetch<{ locations: MetaTargetingLocation[] }>(
+    `/api/campaigns/targeting/locations?${params.toString()}`
+  );
+  return response.locations;
 }
 
 export async function syncCampaigns(): Promise<number> {
