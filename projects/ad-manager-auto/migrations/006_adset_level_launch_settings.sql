@@ -25,7 +25,7 @@ BEGIN
     ALTER TABLE adset_drafts
     ADD CONSTRAINT adset_drafts_budget_check CHECK (
       daily_budget_minor IS NULL OR lifetime_budget_minor IS NULL
-    );
+    ) NOT VALID;
   END IF;
 
   IF NOT EXISTS (
