@@ -8,8 +8,6 @@ import {
   Layers,
   Loader2,
   LogOut,
-  MapPin,
-  MapPinOff,
   Megaphone,
   Pencil,
   Plus,
@@ -3201,7 +3199,6 @@ function CampaignStructure({
   activeStep,
   completedSteps,
   onAddAdSet,
-  onAddCreative,
   onStepSelect,
   addingAdSet
 }: {
@@ -3209,10 +3206,30 @@ function CampaignStructure({
   activeStep: BuilderStep;
   completedSteps: Record<BuilderStep, boolean>;
   onAddAdSet: () => void;
-  onAddCreative: (adsetId: number) => void;
   onStepSelect: (step: BuilderStep) => void;
   addingAdSet: boolean;
 }) {
+  const activeStepConfig = builderSteps.find((step) => step.id === activeStep) ?? builderSteps[0];
+  const adSetCount = campaign.adsets.length;
+  const adCount = countAds(campaign);
+  const missingBudgetCount =
+    campaign.budget_strategy === "CAMPAIGN"
+      ? 0
+      : campaign.adsets.filter((adset) => !adset.daily_budget_minor && !adset.lifetime_budget_minor).length;
+  const missingCreativeCount = campaign.adsets.filter((adset) => adset.ads.length === 0).length;
+  const activeStepTitle =
+    activeStep === "campaign"
+      ? campaign.name
+      : activeStep === "adsets"
+        ? `${adSetCount} ad set draft${adSetCount === 1 ? "" : "s"}`
+        : `Creatives for ${campaign.name}`;
+  const activeStepDescription =
+    activeStep === "campaign"
+      ? "Campaign-level settings"
+      : activeStep === "adsets"
+        ? `${budgetStrategyLabel(campaign.budget_strategy)} · ${campaign.name}`
+        : `${adCount} creative draft${adCount === 1 ? "" : "s"} across ${adSetCount} ad set${adSetCount === 1 ? "" : "s"}`;
+
   return (
     <section className="builderSection structureSection">
       <div className="sectionHeader">
@@ -3226,104 +3243,54 @@ function CampaignStructure({
         </button>
       </div>
 
-      <div className="campaignNode">
-        <div className="nodeTitle">
-          <span>Campaign</span>
-          <strong>{campaign.name}</strong>
+      <div className="stepContextCard">
+        <div className="stepContextMain">
+          <span>{activeStepConfig.label}</span>
+          <strong>{activeStepTitle}</strong>
+          <small>{activeStepDescription}</small>
         </div>
-        <div className="structureMeta">
-          <BadgeChip>{campaign.objective}</BadgeChip>
-          <BadgeChip>{budgetStrategyLabel(campaign.budget_strategy)}</BadgeChip>
-          <StatusChip value={campaign.status} />
+        <div className="structureMeta stepContextMeta">
+          {activeStep === "campaign" ? (
+            <>
+              <BadgeChip>{campaign.objective}</BadgeChip>
+              <BadgeChip>{budgetStrategyLabel(campaign.budget_strategy)}</BadgeChip>
+              <StatusChip value={campaign.status} />
+            </>
+          ) : null}
+          {activeStep === "adsets" ? (
+            <>
+              <BadgeChip>{adSetCount} ad set{adSetCount === 1 ? "" : "s"}</BadgeChip>
+              {missingBudgetCount ? (
+                <BadgeChip tone="warning">
+                  <AlertCircle size={12} />
+                  {missingBudgetCount} need budget
+                </BadgeChip>
+              ) : (
+                <BadgeChip>
+                  <Check size={12} />
+                  Budgets ready
+                </BadgeChip>
+              )}
+            </>
+          ) : null}
+          {activeStep === "creatives" ? (
+            <>
+              <BadgeChip>{adCount} creative{adCount === 1 ? "" : "s"}</BadgeChip>
+              {missingCreativeCount ? (
+                <BadgeChip tone="warning">
+                  <AlertCircle size={12} />
+                  {missingCreativeCount} ad set{missingCreativeCount === 1 ? "" : "s"} need creatives
+                </BadgeChip>
+              ) : (
+                <BadgeChip>
+                  <Check size={12} />
+                  Creatives ready
+                </BadgeChip>
+              )}
+            </>
+          ) : null}
         </div>
       </div>
-
-      {campaign.adsets.length === 0 ? (
-        <div className="emptyStructureState">
-          <div>
-            <strong>No ad sets yet</strong>
-            <span>Create the first ad set, then choose uploaded creatives or upload new ones inside it.</span>
-          </div>
-          <button className="primaryButton" onClick={onAddAdSet} disabled={addingAdSet}>
-            {addingAdSet ? <Loader2 size={16} className="spin" /> : <Plus size={16} />}
-            Add ad set
-          </button>
-        </div>
-      ) : (
-        <div className="structureTree">
-          {campaign.adsets.map((adset) => {
-            const targetingSummary = summarizeTargetingLocations(adset.targeting ?? {}, adset.metadata);
-            const budget = formatUsdMinor(adset.daily_budget_minor ?? adset.lifetime_budget_minor);
-            const hasBudget = Boolean(adset.daily_budget_minor || adset.lifetime_budget_minor);
-            return (
-              <article className="adsetNode" key={adset.id}>
-                <div className="adsetNodeHeader">
-                  <div className="nodeTitle">
-                    <span>Ad set</span>
-                    <strong>{adset.name}</strong>
-                    <div className="chipRow">
-                      {hasBudget ? (
-                        <BadgeChip>{budget}</BadgeChip>
-                      ) : (
-                        <BadgeChip tone="warning">
-                          <AlertCircle size={12} />
-                          No budget
-                        </BadgeChip>
-                      )}
-                      <BadgeChip>{adset.optimization_goal}</BadgeChip>
-                    </div>
-                  </div>
-                  <div className="headerActions">
-                    <StatusChip value={adset.status} />
-                    <button className="secondaryButton compact" onClick={() => onAddCreative(adset.id)}>
-                      <ImageIcon size={16} />
-                      Add creative
-                    </button>
-                  </div>
-                </div>
-
-                <div className="targetingSummary">
-                  <div>
-                    <MapPin size={16} />
-                    <span>Included locations</span>
-                    <strong>{targetingSummary.includeText}</strong>
-                  </div>
-                  <div>
-                    <MapPinOff size={16} />
-                    <span>Excluded locations</span>
-                    <strong>{targetingSummary.excludeText}</strong>
-                  </div>
-                </div>
-
-                {adset.ads.length ? (
-                  <div className="creativeNodeGrid">
-                    {adset.ads.map((ad) => (
-                      <div className="creativeNode" key={ad.id}>
-                        <CreativePreview creative={ad.creative} />
-                        <div>
-                          <span>Creative</span>
-                          <strong>{ad.name || ad.creative.source_file_name || `Creative ${ad.creative.id}`}</strong>
-                          <small>{ad.cta_type}</small>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="emptyCreativeState">
-                    <ImageIcon size={30} />
-                    <strong>No creatives assigned to this ad set yet</strong>
-                    <span>Add a creative to finish this ad set.</span>
-                    <button className="secondaryButton compact" onClick={() => onAddCreative(adset.id)}>
-                      <ImageIcon size={16} />
-                      Add creative
-                    </button>
-                  </div>
-                )}
-              </article>
-            );
-          })}
-        </div>
-      )}
     </section>
   );
 }
@@ -3587,7 +3554,6 @@ function CampaignDetailView({
           activeStep={activeBuilderStep}
           completedSteps={activeCompletedSteps}
           onAddAdSet={addAdSet}
-          onAddCreative={setAddCreativeAdSetId}
           onStepSelect={selectBuilderStep}
           addingAdSet={saving === "create-adset"}
         />

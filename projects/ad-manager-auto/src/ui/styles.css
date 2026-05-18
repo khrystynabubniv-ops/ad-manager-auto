@@ -2113,6 +2113,15 @@ button:disabled {
     width: 100%;
   }
 
+  .stepContextCard {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .stepContextMeta {
+    justify-content: flex-start;
+  }
+
   .summaryBand,
   .campaignSummaryRow,
   .modalGrid,
@@ -3365,6 +3374,50 @@ button:disabled {
   display: grid;
   gap: 14px;
   scroll-margin-top: 18px;
+}
+
+.stepContextCard {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface-alt);
+  padding: 12px 14px;
+}
+
+.stepContextMain {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.stepContextMain > span {
+  color: var(--fg-muted);
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.stepContextMain strong {
+  min-width: 0;
+  color: var(--fg-strong);
+  font-size: 16px;
+  font-weight: 650;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.stepContextMain small {
+  color: var(--fg-muted);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.stepContextMeta {
+  flex: 0 0 auto;
 }
 
 .stepActionBar {
