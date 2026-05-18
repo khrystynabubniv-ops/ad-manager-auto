@@ -1,6 +1,7 @@
 import {
   AlertCircle,
   ArrowLeft,
+  Bell,
   Check,
   ChevronRight,
   ImageIcon,
@@ -15,6 +16,7 @@ import {
   Play,
   RefreshCw,
   Save,
+  Search,
   X
 } from "lucide-react";
 import { type Dispatch, type FormEvent, type ReactNode, type SetStateAction, useCallback, useEffect, useMemo, useState } from "react";
@@ -29,6 +31,7 @@ import {
   CampaignDraftTree,
   Creative,
   CreativeListKind,
+  CreativeUpdateRequest,
   LaunchRequest,
   MetaAdSet,
   MetaCampaign,
@@ -45,6 +48,7 @@ import {
   searchTargetingLocations,
   syncCampaigns,
   uploadCreative,
+  updateCreative,
   updateAdDraft,
   updateAdSetDraft,
   updateCampaignDraft
@@ -1023,6 +1027,41 @@ function MetadataItem({ label, value }: { label: string; value?: string | null }
   );
 }
 
+function looksLikeTechnicalId(value?: string | null) {
+  const trimmed = value?.trim();
+  if (!trimmed) return false;
+  return (
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(trimmed) ||
+    /^[0-9a-f-]{24,}$/i.test(trimmed) ||
+    /^\d{12,}$/.test(trimmed)
+  );
+}
+
+function readablePlacementName(value?: string | null, id?: string | null) {
+  const trimmed = value?.trim();
+  if (!trimmed || trimmed === id || looksLikeTechnicalId(trimmed)) return null;
+  return trimmed;
+}
+
+function displayCampaignName(creative: Creative, campaignNamesById?: ReadonlyMap<string, string>) {
+  const lookupName = creative.campaign_id ? campaignNamesById?.get(creative.campaign_id) : undefined;
+  return (
+    lookupName ??
+    readablePlacementName(creative.campaign_name, creative.campaign_id) ??
+    readablePlacementName(creative.project_type) ??
+    (creative.campaign_id || creative.campaign_name ? "Selected campaign" : "Not selected")
+  );
+}
+
+function displayAdSetName(creative: Creative, adSetNamesById?: ReadonlyMap<string, string>) {
+  const lookupName = creative.adset_id ? adSetNamesById?.get(creative.adset_id) : undefined;
+  return (
+    lookupName ??
+    readablePlacementName(creative.adset_name, creative.adset_id) ??
+    (creative.adset_id || creative.adset_name ? "Selected ad set" : "Not selected")
+  );
+}
+
 function errorNoticeBody(message: string) {
   const normalized = message.toLowerCase();
   if (normalized.includes("creativeid") || normalized.includes("creative id")) {
@@ -1062,13 +1101,19 @@ function SuccessNotice({ message }: { message: string }) {
 function ConfirmModal({
   creative,
   loading,
+  saving = false,
+  mode = "launch",
   onClose,
-  onConfirm
+  onConfirm,
+  onSave
 }: {
   creative: Creative;
   loading: boolean;
+  saving?: boolean;
+  mode?: "launch" | "edit";
   onClose: () => void;
-  onConfirm: (payload: LaunchRequest) => void;
+  onConfirm?: (payload: LaunchRequest) => void;
+  onSave?: (payload: CreativeUpdateRequest) => Promise<void> | void;
 }) {
   const [draft, setDraft] = useState({
     projectType: creative.project_type ?? "",
@@ -1157,6 +1202,7 @@ function ConfirmModal({
   const selectedCampaign = campaigns.find((campaign) => campaign.id === campaignId);
   const selectedAdSet = adSets.find((adSet) => adSet.id === adSetId);
   const placementReady = Boolean(campaignId && adSetId);
+  const busy = loading || saving;
   const detailsReady = Boolean(
     draft.projectType.trim() &&
       draft.adText.trim() &&
@@ -1164,8 +1210,26 @@ function ConfirmModal({
       draft.audience.trim() &&
       draft.location.trim()
   );
+  const savePayload = (): CreativeUpdateRequest => ({
+    projectType: draft.projectType.trim() || null,
+    adText: draft.adText.trim() || null,
+    ctaLink: draft.ctaLink.trim() || null,
+    audience: draft.audience.trim() || null,
+    location: draft.location.trim() || null,
+    campaignId: campaignId || null,
+    campaignName: campaignId ? selectedCampaign?.name ?? creative.campaign_name ?? null : null,
+    adSetId: adSetId || null,
+    adSetName: adSetId ? selectedAdSet?.name ?? creative.adset_name ?? null : null
+  });
+
+  async function saveDetails() {
+    if (!onSave) return;
+    await onSave(savePayload());
+    if (mode === "edit") onClose();
+  }
 
   function confirmPlacement() {
+    if (!onConfirm) return;
     if (!detailsReady) {
       setPlacementError("Fill in project type, ad text, CTA link, audience, and location before launch.");
       return;
@@ -1199,17 +1263,17 @@ function ConfirmModal({
       <div className="modal">
         <div className="modalHeader">
           <div>
-            <p className="eyebrow">Review & launch</p>
+            <p className="eyebrow">{mode === "edit" ? "Edit creative" : "Review & launch"}</p>
             <input
               className="modalTitleInput"
               aria-label="Project type"
               value={draft.projectType}
               onChange={(event) => updateDraft("projectType", event.target.value)}
               placeholder="Project type"
-              disabled={loading}
+              disabled={busy}
             />
           </div>
-          <button className="iconButton" onClick={onClose} aria-label="Close" disabled={loading}>
+          <button className="iconButton" onClick={onClose} aria-label="Close" disabled={busy}>
             ×
           </button>
         </div>
@@ -1223,7 +1287,7 @@ function ConfirmModal({
                 value={draft.adText}
                 onChange={(event) => updateDraft("adText", event.target.value)}
                 rows={3}
-                disabled={loading}
+                disabled={busy}
               />
             </label>
             <label className="fieldGroup">
@@ -1232,7 +1296,7 @@ function ConfirmModal({
                 type="url"
                 value={draft.ctaLink}
                 onChange={(event) => updateDraft("ctaLink", event.target.value)}
-                disabled={loading}
+                disabled={busy}
               />
             </label>
             <label className="fieldGroup">
@@ -1241,7 +1305,7 @@ function ConfirmModal({
                 value={draft.audience}
                 onChange={(event) => updateDraft("audience", event.target.value)}
                 rows={2}
-                disabled={loading}
+                disabled={busy}
               />
             </label>
             <label className="fieldGroup">
@@ -1249,7 +1313,7 @@ function ConfirmModal({
               <input
                 value={draft.location}
                 onChange={(event) => updateDraft("location", event.target.value)}
-                disabled={loading}
+                disabled={busy}
               />
             </label>
           </div>
@@ -1264,7 +1328,7 @@ function ConfirmModal({
                 setCampaignId(event.target.value);
                 setAdSetId("");
               }}
-              disabled={loading || campaignsLoading}
+              disabled={busy || campaignsLoading}
             >
               <option value="">{campaignsLoading ? "Loading campaigns..." : "Select campaign"}</option>
               {campaigns.map((campaign) => (
@@ -1280,7 +1344,7 @@ function ConfirmModal({
             <select
               value={adSetId}
               onChange={(event) => setAdSetId(event.target.value)}
-              disabled={loading || adSetsLoading || !campaignId}
+              disabled={busy || adSetsLoading || !campaignId}
             >
               <option value="">
                 {!campaignId ? "Select campaign first" : adSetsLoading ? "Loading ad sets..." : "Select ad set"}
@@ -1302,28 +1366,54 @@ function ConfirmModal({
         ) : null}
 
         <div className="modalActions">
-          <button className="secondaryButton" onClick={onClose} disabled={loading}>
+          <button className="secondaryButton" onClick={onClose} disabled={busy}>
             Cancel
           </button>
-          <button
-            className="primaryButton"
-            onClick={confirmPlacement}
-            disabled={loading || campaignsLoading || adSetsLoading || !placementReady || !detailsReady}
-          >
-            {loading ? <Loader2 size={16} className="spin" /> : <Play size={16} />}
-            Launch ad
-          </button>
+          {onSave ? (
+            <button
+              className={mode === "edit" ? "primaryButton" : "secondaryButton"}
+              onClick={() => void saveDetails()}
+              disabled={busy || campaignsLoading || adSetsLoading}
+            >
+              {saving ? <Loader2 size={16} className="spin" /> : <Save size={16} />}
+              Save
+            </button>
+          ) : null}
+          {mode === "launch" ? (
+            <button
+              className="primaryButton"
+              onClick={confirmPlacement}
+              disabled={busy || campaignsLoading || adSetsLoading || !placementReady || !detailsReady}
+            >
+              {loading ? <Loader2 size={16} className="spin" /> : <Play size={16} />}
+              Launch ad
+            </button>
+          ) : null}
         </div>
       </div>
     </div>
   );
 }
 
-function CreativeRow({ creative, onLaunch }: { creative: Creative; onLaunch?: (creative: Creative) => void }) {
+function CreativeRow({
+  creative,
+  onLaunch,
+  onEdit,
+  campaignNamesById,
+  adSetNamesById
+}: {
+  creative: Creative;
+  onLaunch?: (creative: Creative) => void;
+  onEdit?: (creative: Creative) => void;
+  campaignNamesById?: ReadonlyMap<string, string>;
+  adSetNamesById?: ReadonlyMap<string, string>;
+}) {
   const creativeName = creative.source_file_name ?? creative.project_type ?? `Creative ${creative.id}`;
   const hasCampaign = Boolean(creative.campaign_id || creative.campaign_name);
   const hasAdSet = Boolean(creative.adset_id || creative.adset_name);
   const setupReady = hasCampaign && hasAdSet;
+  const campaignLabel = displayCampaignName(creative, campaignNamesById);
+  const adSetLabel = displayAdSetName(creative, adSetNamesById);
 
   return (
     <article className="creativeRow">
@@ -1351,11 +1441,17 @@ function CreativeRow({ creative, onLaunch }: { creative: Creative; onLaunch?: (c
       <div className="creativeContext">
         <div className={setupReady ? "campaignSetupSummary" : "campaignSetupSummary missing"}>
           <span>Campaign</span>
-          <strong>{creative.campaign_name ?? (creative.campaign_id ? "Selected campaign" : "Not selected")}</strong>
+          <strong title={campaignLabel}>{campaignLabel}</strong>
           <span>Ad set</span>
-          <strong>{creative.adset_name ?? (creative.adset_id ? "Selected ad set" : "Not selected")}</strong>
+          <strong title={adSetLabel}>{adSetLabel}</strong>
         </div>
         <div className="rowActions">
+          {onEdit ? (
+            <button className="secondaryButton compact" onClick={() => onEdit(creative)}>
+              <Pencil size={16} />
+              Edit
+            </button>
+          ) : null}
           {onLaunch ? (
             <button className="primaryButton compact" onClick={() => onLaunch(creative)}>
               <Play size={16} />
@@ -2263,6 +2359,8 @@ function LocationPicker({
   const [results, setResults] = useState<MetaTargetingLocation[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const includedKeys = useMemo(() => new Set(included.map((location) => locationKey(location))), [included]);
+  const excludedKeys = useMemo(() => new Set(excluded.map((location) => locationKey(location))), [excluded]);
 
   const searchLocations = useCallback(async (rawQuery: string) => {
     const trimmed = rawQuery.trim();
@@ -2349,26 +2447,63 @@ function LocationPicker({
 
       {results.length ? (
         <div className="locationResults">
-          {results.map((location) => (
-            <article key={`${location.type}:${location.key}`} className="locationResult">
-              <div>
-                <strong>{location.name}</strong>
-                <span>
-                  {location.type}
-                  {location.region ? ` · ${location.region}` : ""}
-                  {location.country_name ? ` · ${location.country_name}` : ""}
-                </span>
-              </div>
-              <div className="locationActions">
-                <button type="button" className="secondaryButton compact" onClick={() => addIncluded(location)} disabled={disabled}>
-                  Include
-                </button>
-                <button type="button" className="secondaryButton compact danger" onClick={() => addExcluded(location)} disabled={disabled}>
-                  Exclude
-                </button>
-              </div>
-            </article>
-          ))}
+          {results.map((location) => {
+            const key = locationKey(location);
+            const isIncluded = includedKeys.has(key);
+            const isExcluded = excludedKeys.has(key);
+            const selectionClass = isIncluded ? " included" : isExcluded ? " excluded" : "";
+
+            return (
+              <article key={key} className={`locationResult${selectionClass}`}>
+                <div>
+                  <strong>{location.name}</strong>
+                  <span>
+                    {location.type}
+                    {location.region ? ` · ${location.region}` : ""}
+                    {location.country_name ? ` · ${location.country_name}` : ""}
+                  </span>
+                  {isIncluded || isExcluded ? (
+                    <span className={`locationResultStatus${isExcluded ? " excluded" : ""}`}>
+                      <Check size={14} />
+                      {isIncluded ? "Included" : "Excluded"}
+                    </span>
+                  ) : null}
+                </div>
+                <div className="locationActions">
+                  <button
+                    type="button"
+                    className="secondaryButton compact success"
+                    onClick={() => addIncluded(location)}
+                    disabled={disabled || isIncluded}
+                  >
+                    {isIncluded ? (
+                      <>
+                        <Check size={14} />
+                        Included
+                      </>
+                    ) : (
+                      "Include"
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    className="secondaryButton compact danger"
+                    onClick={() => addExcluded(location)}
+                    disabled={disabled || isExcluded}
+                  >
+                    {isExcluded ? (
+                      <>
+                        <Check size={14} />
+                        Excluded
+                      </>
+                    ) : (
+                      "Exclude"
+                    )}
+                  </button>
+                </div>
+              </article>
+            );
+          })}
         </div>
       ) : null}
 
@@ -3444,8 +3579,13 @@ export function App() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<Creative | null>(null);
+  const [editing, setEditing] = useState<Creative | null>(null);
   const [launching, setLaunching] = useState(false);
+  const [savingCreative, setSavingCreative] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const [query, setQuery] = useState("");
+  const [campaigns, setCampaigns] = useState<MetaCampaign[]>([]);
+  const [adSetsByCampaign, setAdSetsByCampaign] = useState<Record<string, MetaAdSet[]>>({});
 
   useEffect(() => {
     function handlePopstate() {
@@ -3506,12 +3646,101 @@ export function App() {
     }
   }, [load, ready, route.area]);
 
+  const loadCampaignNames = useCallback(async () => {
+    try {
+      setCampaigns(await fetchCampaigns());
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : String(loadError));
+    }
+  }, []);
+
+  useEffect(() => {
+    if (ready && route.area === "creatives") {
+      void loadCampaignNames();
+    }
+  }, [loadCampaignNames, ready, route.area]);
+
+  const campaignNamesById = useMemo(
+    () => new Map(campaigns.map((campaign) => [campaign.id, campaign.name])),
+    [campaigns]
+  );
+
+  const creativeCampaignIds = useMemo(() => {
+    const knownCampaignIds = new Set(campaigns.map((campaign) => campaign.id));
+    return [
+      ...new Set(
+        creatives
+          .map((creative) => creative.campaign_id)
+          .filter((id): id is string => Boolean(id && knownCampaignIds.has(id)))
+      )
+    ];
+  }, [campaigns, creatives]);
+
+  useEffect(() => {
+    if (!ready || route.area !== "creatives" || !creativeCampaignIds.length) {
+      setAdSetsByCampaign({});
+      return;
+    }
+
+    let active = true;
+    Promise.all(
+      creativeCampaignIds.map(async (campaignId) => {
+        try {
+          return [campaignId, await fetchAdSets(campaignId)] as const;
+        } catch {
+          return [campaignId, []] as const;
+        }
+      })
+    ).then((entries) => {
+      if (active) setAdSetsByCampaign(Object.fromEntries(entries));
+    });
+
+    return () => {
+      active = false;
+    };
+  }, [creativeCampaignIds, ready, route.area]);
+
+  const adSetNamesById = useMemo(() => {
+    const names = new Map<string, string>();
+    Object.values(adSetsByCampaign).forEach((adSets) => {
+      adSets.forEach((adSet) => names.set(adSet.id, adSet.name));
+    });
+    return names;
+  }, [adSetsByCampaign]);
+
+  const displayedCreatives = useMemo(() => {
+    const search = query.trim().toLowerCase();
+    if (!search) return creatives;
+
+    return creatives.filter((creative) =>
+      [
+        creative.project_type,
+        creative.source_file_name,
+        creative.ad_text,
+        creative.audience,
+        creative.location,
+        creative.campaign_name,
+        creative.adset_name,
+        displayCampaignName(creative, campaignNamesById),
+        displayAdSetName(creative, adSetNamesById),
+        creative.asset_id,
+        creative.facebook_ad_id,
+        creative.notion_task_id
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase()
+        .includes(search)
+    );
+  }, [adSetNamesById, campaignNamesById, creatives, query]);
+
   const counts = useMemo(
     () => ({
-      shown: creatives.length,
+      shown: displayedCreatives.length,
+      total: creatives.length,
       viewLabel: viewConfig[creativeView].title
     }),
-    [creatives.length, creativeView]
+    [creativeView, creatives.length, displayedCreatives.length]
   );
 
   async function confirmLaunch(placement: LaunchRequest) {
@@ -3529,12 +3758,30 @@ export function App() {
     }
   }
 
+  async function saveCreativeDetails(creativeId: number, payload: CreativeUpdateRequest) {
+    setSavingCreative(true);
+    setError(null);
+    try {
+      const updated = await updateCreative(creativeId, payload);
+      setCreatives((current) => current.map((creative) => (creative.id === updated.id ? updated : creative)));
+      setSelected((current) => (current?.id === updated.id ? updated : current));
+      setEditing((current) => (current?.id === updated.id ? updated : current));
+      setError("Creative saved.");
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : String(saveError));
+      throw saveError;
+    } finally {
+      setSavingCreative(false);
+    }
+  }
+
   async function handleSyncCampaigns() {
     setSyncing(true);
     setError(null);
     try {
       const count = await syncCampaigns();
       setError(`Synced ${count} campaign${count === 1 ? "" : "s"}.`);
+      await loadCampaignNames();
     } catch (syncError) {
       setError(syncError instanceof Error ? syncError.message : String(syncError));
     } finally {
@@ -3562,131 +3809,212 @@ export function App() {
     window.history.pushState({}, "", `/campaigns/${id}`);
   }
 
+  const campaignRouteId = route.area === "campaigns" ? route.campaignId : undefined;
+  const breadcrumbs = useMemo(() => {
+    if (route.area === "campaigns" && campaignRouteId) {
+      return ["Workspace", "Campaign Builder", `Draft #${campaignRouteId}`];
+    }
+
+    if (route.area === "campaigns") {
+      return ["Workspace", "Campaign drafts"];
+    }
+
+    return ["Workspace", "Creatives", viewConfig[creativeView].navLabel];
+  }, [campaignRouteId, creativeView, route.area]);
+
   return (
-    <div className="appShell">
+    <div className="app">
       <aside className="sidebar">
-        <div className="brand">
-          <div className="brandMark">A</div>
+        <div className="side-brand">
+          <div className="side-brand-mark">P</div>
           <div>
-            <strong>Promo Ads</strong>
-            <span>Launch dashboard</span>
+            <div className="side-brand-name">Promo Ads</div>
+            <div className="side-brand-sub">Auto workspace</div>
           </div>
         </div>
-        <nav>
-          <section className="navSection">
+        <nav className="side-nav" aria-label="Workspace navigation">
+          <section className="side-section">
+            <div className="side-section-label">Workspace</div>
             <button
-              className={route.area === "creatives" ? "navPrimary active" : "navPrimary"}
+              className={route.area === "creatives" ? "side-item active" : "side-item"}
               onClick={() => navigateCreative("ready")}
             >
-              <ImageIcon size={18} />
-              <span>
-                <strong>Creatives</strong>
-                <small>Assets and copy</small>
-              </span>
-              <ChevronRight size={16} />
+              <span className="side-icon"><ImageIcon size={15} /></span>
+              <span className="side-item-label">Creatives</span>
+              <span className="side-item-badge num">{counts.total}</span>
             </button>
-            <div className="subNav" aria-label="Creative status views">
+            <div className="side-subnav" aria-label="Creative status views">
               {creativeNavItems.map((item) => (
                 <button
                   key={item}
-                  className={route.area === "creatives" && creativeView === item ? "subNavItem active" : "subNavItem"}
+                  className={route.area === "creatives" && creativeView === item ? "side-item side-item-nested active" : "side-item side-item-nested"}
                   onClick={() => navigateCreative(item)}
                 >
-                  <span className="subNavDot" />
+                  <span className="side-item-dot-muted" />
                   {viewConfig[item].navLabel}
                 </button>
               ))}
             </div>
-          </section>
-          <section className="navSection">
-            <button className={route.area === "campaigns" ? "navPrimary active" : "navPrimary"} onClick={navigateCampaigns}>
-              <Megaphone size={18} />
-              <span>
-                <strong>Campaign Builder</strong>
-                <small>Campaigns, ad sets, ads</small>
-              </span>
-              <ChevronRight size={16} />
+
+            <button className={route.area === "campaigns" ? "side-item active" : "side-item"} onClick={navigateCampaigns}>
+              <span className="side-icon"><Megaphone size={15} /></span>
+              <span className="side-item-label">Campaign Builder</span>
             </button>
-            <div className="subNav" aria-label="Campaign views">
-              <button className={route.area === "campaigns" ? "subNavItem active" : "subNavItem"} onClick={navigateCampaigns}>
-                <span className="subNavDot" />
+            <div className="side-subnav" aria-label="Campaign views">
+              <button className={route.area === "campaigns" ? "side-item side-item-nested active" : "side-item side-item-nested"} onClick={navigateCampaigns}>
+                <span className="side-item-dot-muted" />
                 Drafts
               </button>
             </div>
           </section>
         </nav>
-        {!isAuthDisabled() ? (
-          <button className="secondaryButton sidebarLogout" onClick={logout}>
-            <LogOut size={16} />
-            Logout
-          </button>
-        ) : null}
+
+        <div className="side-connections">
+          <div className="side-conn"><span className="side-conn-dot" />Notion sync</div>
+          <div className="side-conn"><span className="side-conn-dot" />Google Drive</div>
+          <div className="side-conn"><span className="side-conn-dot warn" />Meta Ads</div>
+        </div>
+
+        <div className="side-foot">
+          <div className="side-avatar">PA</div>
+          <div className="side-user-block">
+            <div className="side-user-name truncate">Promo workspace</div>
+            <div className="side-user-role">Launch operations</div>
+          </div>
+          {!isAuthDisabled() ? (
+            <button className="icon-btn side-logout" onClick={logout} title="Logout">
+              <LogOut size={15} />
+            </button>
+          ) : null}
+        </div>
       </aside>
 
-      {route.area === "campaigns" ? (
-        <CampaignsPage ready={ready} campaignId={route.campaignId} onOpen={navigateCampaign} onBack={navigateCampaigns} />
-      ) : (
-        <main className="content">
-          <header className="pageHeader">
-            <div>
-              <p className="eyebrow">
-                Creatives <ChevronRight size={12} /> {viewConfig[creativeView].navLabel}
-              </p>
-              <h1>{counts.viewLabel}</h1>
-            </div>
-            <div className="headerActions">
-              <button className="secondaryButton" onClick={load} disabled={loading}>
-                <RefreshCw size={16} className={loading ? "spin" : ""} />
-                Refresh
-              </button>
-              <button className="secondaryButton" onClick={handleSyncCampaigns} disabled={syncing}>
-                {syncing ? <Loader2 size={16} className="spin" /> : <RefreshCw size={16} />}
-                Sync campaigns
-              </button>
-            </div>
-          </header>
+      <div className="main">
+        <div className="topbar">
+          <div className="crumb">
+            {breadcrumbs.map((crumb, index) => (
+              <span className={index === breadcrumbs.length - 1 ? "crumb-current crumb-item" : "crumb-item"} key={`${crumb}-${index}`}>
+                {index > 0 ? <ChevronRight size={12} className="crumb-sep" /> : null}
+                {crumb}
+              </span>
+            ))}
+          </div>
 
-          <section className="summaryBand creativeSummaryBand">
-            <div>
-              <span>{counts.shown}</span>
-              <p>{viewConfig[creativeView].summary}</p>
-            </div>
-          </section>
+          <label className="search">
+            <Search size={13} />
+            <input
+              value={route.area === "creatives" ? query : ""}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Search creatives, copy, campaign names..."
+              disabled={route.area !== "creatives"}
+            />
+          </label>
 
-          {error ? (
-            <div className={error.startsWith("Synced") ? "notice success" : "notice"}>
-              <AlertCircle size={18} />
-              {error}
-            </div>
-          ) : null}
+          <button
+            className="icon-btn"
+            title="Refresh"
+            onClick={() => {
+              if (route.area === "creatives") void load();
+            }}
+            disabled={route.area !== "creatives" || loading}
+          >
+            <RefreshCw size={15} className={loading && route.area === "creatives" ? "spin" : ""} />
+          </button>
+          <button className="icon-btn notificationButton" title="Notifications">
+            <Bell size={15} />
+            {error ? <span className="topbar-dot" /> : null}
+          </button>
+        </div>
 
-          <section className="listPanel">
-            {loading ? (
-              <div className="emptyState">
-                <Loader2 className="spin" />
-                Loading creatives
-              </div>
-            ) : creatives.length === 0 ? (
-              <div className="emptyState">{viewConfig[creativeView].empty}</div>
-            ) : (
-              creatives.map((creative) => (
-                <CreativeRow
-                  key={creative.id}
-                  creative={creative}
-                  onLaunch={creativeView === "ready" ? setSelected : undefined}
-                />
-              ))
-            )}
-          </section>
-        </main>
-      )}
+        <div className="workspace">
+          {route.area === "campaigns" ? (
+            <CampaignsPage ready={ready} campaignId={route.campaignId} onOpen={navigateCampaign} onBack={navigateCampaigns} />
+          ) : (
+            <main className="content">
+              <header className="pageHeader">
+                <div>
+                  <p className="eyebrow">
+                    Creatives <ChevronRight size={12} /> {viewConfig[creativeView].navLabel}
+                  </p>
+                  <h1>{counts.viewLabel}</h1>
+                </div>
+                <div className="headerActions">
+                  <button className="secondaryButton" onClick={load} disabled={loading}>
+                    <RefreshCw size={16} className={loading ? "spin" : ""} />
+                    Refresh
+                  </button>
+                  <button className="secondaryButton" onClick={handleSyncCampaigns} disabled={syncing}>
+                    {syncing ? <Loader2 size={16} className="spin" /> : <RefreshCw size={16} />}
+                    Sync campaigns
+                  </button>
+                </div>
+              </header>
+
+              <section className="summaryBand creativeSummaryBand">
+                <div>
+                  <span>{counts.shown}</span>
+                  <p>
+                    {query.trim()
+                      ? `${counts.shown} of ${counts.total} match "${query.trim()}".`
+                      : viewConfig[creativeView].summary}
+                  </p>
+                </div>
+              </section>
+
+              {error ? (
+                <div className={error.startsWith("Synced") || error.endsWith("saved.") ? "notice success" : "notice"}>
+                  <AlertCircle size={18} />
+                  {error}
+                </div>
+              ) : null}
+
+              <section className="listPanel">
+                {loading ? (
+                  <div className="emptyState">
+                    <Loader2 className="spin" />
+                    Loading creatives
+                  </div>
+                ) : displayedCreatives.length === 0 ? (
+                  <div className="emptyState">
+                    {query.trim() ? `No creatives match "${query.trim()}".` : viewConfig[creativeView].empty}
+                  </div>
+                ) : (
+                  displayedCreatives.map((creative) => (
+                    <CreativeRow
+                      key={creative.id}
+                      creative={creative}
+                      onLaunch={creativeView === "ready" ? setSelected : undefined}
+                      onEdit={creativeView === "ready" ? setEditing : undefined}
+                      campaignNamesById={campaignNamesById}
+                      adSetNamesById={adSetNamesById}
+                    />
+                  ))
+                )}
+              </section>
+            </main>
+          )}
+        </div>
+      </div>
 
       {selected ? (
         <ConfirmModal
           creative={selected}
           loading={launching}
+          saving={savingCreative}
+          mode="launch"
           onClose={() => setSelected(null)}
           onConfirm={confirmLaunch}
+          onSave={(payload) => saveCreativeDetails(selected.id, payload)}
+        />
+      ) : null}
+      {editing ? (
+        <ConfirmModal
+          creative={editing}
+          loading={false}
+          saving={savingCreative}
+          mode="edit"
+          onClose={() => setEditing(null)}
+          onSave={(payload) => saveCreativeDetails(editing.id, payload)}
         />
       ) : null}
     </div>
