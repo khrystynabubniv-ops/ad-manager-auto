@@ -75,6 +75,37 @@ type CampaignFormState = {
   metaStatus: string;
 };
 
+type AdSetFormState = {
+  name: string;
+  destinationType: string;
+  conversionEvent: string;
+  optimizationGoal: string;
+  billingEvent: string;
+  bidStrategy: string;
+  bidAmountMinor: string;
+  dailyBudgetMinor: string;
+  lifetimeBudgetMinor: string;
+  startTime: string;
+  endTime: string;
+  attributionSetting: string;
+  isDynamicCreative: boolean;
+  useAdvantageAudience: boolean;
+  savedAudienceId: string;
+  targeting: string;
+  promotedObject: string;
+  audienceControls: string;
+  audienceRecommendations: string;
+  placementMode: string;
+  placementSettings: string;
+  brandSafetyControls: string;
+  pacingType: string;
+  adsetSchedule: string;
+  frequencyControlSpecs: string;
+  beneficiary: string;
+  payor: string;
+  metaStatus: string;
+};
+
 const campaignObjectives = [
   "OUTCOME_TRAFFIC",
   "OUTCOME_ENGAGEMENT",
@@ -94,8 +125,50 @@ const budgetStrategies = [
   { value: "CAMPAIGN", label: "Campaign budget" }
 ];
 const bidStrategies = ["", "LOWEST_COST_WITHOUT_CAP", "LOWEST_COST_WITH_BID_CAP", "COST_CAP", "LOWEST_COST_WITH_MIN_ROAS"];
-const optimizationGoals = ["LINK_CLICKS", "LANDING_PAGE_VIEWS", "IMPRESSIONS", "REACH", "OFFSITE_CONVERSIONS"];
-const billingEvents = ["IMPRESSIONS", "LINK_CLICKS"];
+const destinationTypes = [
+  "WEBSITE",
+  "APP",
+  "MESSENGER",
+  "WHATSAPP",
+  "INSTAGRAM_DIRECT",
+  "ON_AD",
+  "PHONE_CALL",
+  "APP_STORE",
+  "DEEPLINK"
+];
+const conversionEvents = [
+  "",
+  "LINK_CLICK",
+  "LANDING_PAGE_VIEW",
+  "LEAD",
+  "PURCHASE",
+  "CONTACT",
+  "SUBSCRIBE",
+  "COMPLETE_REGISTRATION",
+  "INITIATED_CHECKOUT",
+  "ADD_TO_CART",
+  "APP_INSTALL"
+];
+const optimizationGoals = [
+  "LINK_CLICKS",
+  "LANDING_PAGE_VIEWS",
+  "OFFSITE_CONVERSIONS",
+  "LEAD_GENERATION",
+  "CONVERSATIONS",
+  "IMPRESSIONS",
+  "REACH",
+  "POST_ENGAGEMENT",
+  "THRUPLAY",
+  "VALUE",
+  "APP_INSTALLS"
+];
+const billingEvents = ["IMPRESSIONS", "LINK_CLICKS", "THRUPLAY", "APP_INSTALLS", "POST_ENGAGEMENT"];
+const attributionSettings = ["", "1d_click", "7d_click", "1d_view", "1d_click_1d_view", "7d_click_1d_view", "skan_click", "skan_view"];
+const placementModes = [
+  { value: "ADVANTAGE_PLUS", label: "Advantage+ placements" },
+  { value: "MANUAL", label: "Manual placements" }
+];
+const pacingTypes = ["", "standard", "day_parting", "no_pacing"];
 const ctaTypes = ["LEARN_MORE", "SIGN_UP", "SHOP_NOW", "APPLY_NOW", "CONTACT_US", "SUBSCRIBE", "DOWNLOAD", "GET_QUOTE"];
 
 const viewConfig: Record<
@@ -178,8 +251,8 @@ function toDatetimeLocal(value?: string | null) {
   return localDate.toISOString().slice(0, 16);
 }
 
-function fromDatetimeLocal(value: string) {
-  return value ? new Date(value).toISOString() : undefined;
+function nullableDatetimeLocal(value: string) {
+  return value ? new Date(value).toISOString() : null;
 }
 
 function optionalText(value: string) {
@@ -187,13 +260,9 @@ function optionalText(value: string) {
   return trimmed || undefined;
 }
 
-function optionalPositiveNumber(value: string, label: string) {
-  if (!value.trim()) return undefined;
-  const parsed = Number(value);
-  if (!Number.isInteger(parsed) || parsed <= 0) {
-    throw new Error(`${label} must be a positive whole number.`);
-  }
-  return parsed;
+function nullableText(value: string) {
+  const trimmed = value.trim();
+  return trimmed || null;
 }
 
 function nullablePositiveNumber(value: string, label: string) {
@@ -330,6 +399,90 @@ function buildCampaignPayload(draft: CampaignFormState): CampaignDraftPayload & 
     isSkadnetworkAttribution: draft.isSkadnetworkAttribution,
     abTestEnabled: draft.abTestEnabled,
     liveAdsEnabled: draft.liveAdsEnabled,
+    metaStatus: draft.metaStatus
+  };
+}
+
+function adSetToFormState(adset: AdSetDraftWithAds): AdSetFormState {
+  return {
+    name: adset.name,
+    destinationType: adset.destination_type || "WEBSITE",
+    conversionEvent: adset.conversion_event ?? "",
+    optimizationGoal: adset.optimization_goal || "LINK_CLICKS",
+    billingEvent: adset.billing_event || "IMPRESSIONS",
+    bidStrategy: adset.bid_strategy ?? "",
+    bidAmountMinor: adset.bid_amount_minor?.toString() ?? "",
+    dailyBudgetMinor: adset.daily_budget_minor?.toString() ?? "",
+    lifetimeBudgetMinor: adset.lifetime_budget_minor?.toString() ?? "",
+    startTime: toDatetimeLocal(adset.start_time),
+    endTime: toDatetimeLocal(adset.end_time),
+    attributionSetting: adset.attribution_setting ?? "",
+    isDynamicCreative: adset.is_dynamic_creative,
+    useAdvantageAudience: adset.use_advantage_audience,
+    savedAudienceId: adset.saved_audience_id ?? "",
+    targeting: JSON.stringify(adset.targeting ?? {}, null, 2),
+    promotedObject: formatJsonValue(adset.promoted_object),
+    audienceControls: JSON.stringify(adset.audience_controls ?? {}, null, 2),
+    audienceRecommendations: JSON.stringify(adset.audience_recommendations ?? {}, null, 2),
+    placementMode: adset.placement_mode || "ADVANTAGE_PLUS",
+    placementSettings: JSON.stringify(adset.placement_settings ?? {}, null, 2),
+    brandSafetyControls: JSON.stringify(adset.brand_safety_controls ?? {}, null, 2),
+    pacingType: adset.pacing_type ?? "",
+    adsetSchedule: formatJsonValue(adset.adset_schedule),
+    frequencyControlSpecs: formatJsonValue(adset.frequency_control_specs),
+    beneficiary: adset.beneficiary ?? "",
+    payor: adset.payor ?? "",
+    metaStatus: adset.meta_status || "PAUSED"
+  };
+}
+
+function buildAdSetPayload(draft: AdSetFormState, campaignBudgetStrategy: string): AdSetDraftPayload & { name: string } {
+  const name = draft.name.trim();
+  if (!name) {
+    throw new Error("Ad set name is required.");
+  }
+
+  const dailyBudgetMinor =
+    campaignBudgetStrategy === "CAMPAIGN" ? null : nullablePositiveNumber(draft.dailyBudgetMinor, "Daily budget");
+  const lifetimeBudgetMinor =
+    campaignBudgetStrategy === "CAMPAIGN" ? null : nullablePositiveNumber(draft.lifetimeBudgetMinor, "Lifetime budget");
+
+  if (dailyBudgetMinor && lifetimeBudgetMinor) {
+    throw new Error("Use either ad set daily budget or lifetime budget, not both.");
+  }
+
+  if (campaignBudgetStrategy !== "CAMPAIGN" && !dailyBudgetMinor && !lifetimeBudgetMinor) {
+    throw new Error("Ad set budget strategy needs a daily or lifetime budget.");
+  }
+
+  return {
+    name,
+    destinationType: draft.destinationType,
+    conversionEvent: nullableText(draft.conversionEvent),
+    optimizationGoal: draft.optimizationGoal,
+    billingEvent: draft.billingEvent,
+    bidStrategy: nullableText(draft.bidStrategy),
+    bidAmountMinor: nullablePositiveNumber(draft.bidAmountMinor, "Bid amount"),
+    dailyBudgetMinor,
+    lifetimeBudgetMinor,
+    startTime: nullableDatetimeLocal(draft.startTime),
+    endTime: nullableDatetimeLocal(draft.endTime),
+    targeting: parseJsonObject(draft.targeting, "Targeting"),
+    promotedObject: parseOptionalJsonObject(draft.promotedObject, "Promoted object"),
+    attributionSetting: nullableText(draft.attributionSetting),
+    isDynamicCreative: draft.isDynamicCreative,
+    useAdvantageAudience: draft.useAdvantageAudience,
+    savedAudienceId: nullableText(draft.savedAudienceId),
+    audienceControls: parseJsonObject(draft.audienceControls, "Audience controls"),
+    audienceRecommendations: parseJsonObject(draft.audienceRecommendations, "Audience recommendations"),
+    placementMode: draft.placementMode,
+    placementSettings: parseJsonObject(draft.placementSettings, "Placement settings"),
+    brandSafetyControls: parseJsonObject(draft.brandSafetyControls, "Brand safety controls"),
+    pacingType: nullableText(draft.pacingType),
+    adsetSchedule: parseOptionalJsonValue(draft.adsetSchedule, "Ad set schedule"),
+    frequencyControlSpecs: parseOptionalJsonValue(draft.frequencyControlSpecs, "Frequency control specs"),
+    beneficiary: nullableText(draft.beneficiary),
+    payor: nullableText(draft.payor),
     metaStatus: draft.metaStatus
   };
 }
@@ -1335,6 +1488,7 @@ function AdDraftEditor({
 
 function AdSetEditor({
   adset,
+  campaignBudgetStrategy,
   saving,
   onSave,
   onAddCreative,
@@ -1342,63 +1496,33 @@ function AdSetEditor({
   onError
 }: {
   adset: AdSetDraftWithAds;
+  campaignBudgetStrategy: string;
   saving: string | null;
   onSave: (id: number, payload: AdSetDraftPayload) => void;
   onAddCreative: (adsetId: number) => void;
   onSaveAd: (id: number, payload: AdDraftPayload) => void;
   onError: (message: string) => void;
 }) {
-  const [draft, setDraft] = useState({
-    name: adset.name,
-    optimizationGoal: adset.optimization_goal || "LINK_CLICKS",
-    billingEvent: adset.billing_event || "IMPRESSIONS",
-    dailyBudgetMinor: adset.daily_budget_minor?.toString() ?? "",
-    lifetimeBudgetMinor: adset.lifetime_budget_minor?.toString() ?? "",
-    startTime: toDatetimeLocal(adset.start_time),
-    endTime: toDatetimeLocal(adset.end_time),
-    targeting: JSON.stringify(adset.targeting ?? {}, null, 2),
-    metaStatus: adset.meta_status || "PAUSED"
-  });
+  const [draft, setDraft] = useState<AdSetFormState>(() => adSetToFormState(adset));
 
   useEffect(() => {
-    setDraft({
-      name: adset.name,
-      optimizationGoal: adset.optimization_goal || "LINK_CLICKS",
-      billingEvent: adset.billing_event || "IMPRESSIONS",
-      dailyBudgetMinor: adset.daily_budget_minor?.toString() ?? "",
-      lifetimeBudgetMinor: adset.lifetime_budget_minor?.toString() ?? "",
-      startTime: toDatetimeLocal(adset.start_time),
-      endTime: toDatetimeLocal(adset.end_time),
-      targeting: JSON.stringify(adset.targeting ?? {}, null, 2),
-      metaStatus: adset.meta_status || "PAUSED"
-    });
+    setDraft(adSetToFormState(adset));
   }, [adset]);
 
-  function save() {
-    const name = draft.name.trim();
-    if (!name) {
-      onError("Ad set name is required.");
-      return;
-    }
+  const update = <Key extends keyof AdSetFormState>(field: Key, value: AdSetFormState[Key]) => {
+    setDraft((current) => ({ ...current, [field]: value }));
+  };
 
+  function save() {
     try {
-      onSave(adset.id, {
-        name,
-        optimizationGoal: draft.optimizationGoal,
-        billingEvent: draft.billingEvent,
-        dailyBudgetMinor: optionalPositiveNumber(draft.dailyBudgetMinor, "Daily budget"),
-        lifetimeBudgetMinor: optionalPositiveNumber(draft.lifetimeBudgetMinor, "Lifetime budget"),
-        startTime: fromDatetimeLocal(draft.startTime),
-        endTime: fromDatetimeLocal(draft.endTime),
-        targeting: parseJsonObject(draft.targeting, "Targeting"),
-        metaStatus: draft.metaStatus
-      });
+      onSave(adset.id, buildAdSetPayload(draft, campaignBudgetStrategy));
     } catch (saveError) {
       onError(saveError instanceof Error ? saveError.message : String(saveError));
     }
   }
 
   const adSetSaving = saving === `adset-${adset.id}`;
+  const usesCampaignBudget = campaignBudgetStrategy === "CAMPAIGN";
 
   return (
     <section className="adsetEditor">
@@ -1420,106 +1544,324 @@ function AdSetEditor({
         </div>
       </div>
 
-      <div className="formGrid three">
-        <label className="fieldGroup">
-          <span>Name</span>
-          <input
-            value={draft.name}
-            onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))}
-            disabled={adSetSaving}
-          />
-        </label>
-        <label className="fieldGroup">
-          <span>Optimization goal</span>
-          <select
-            value={draft.optimizationGoal}
-            onChange={(event) => setDraft((current) => ({ ...current, optimizationGoal: event.target.value }))}
-            disabled={adSetSaving}
-          >
-            {optimizationGoals.map((goal) => (
-              <option key={goal} value={goal}>
-                {goal}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="fieldGroup">
-          <span>Billing event</span>
-          <select
-            value={draft.billingEvent}
-            onChange={(event) => setDraft((current) => ({ ...current, billingEvent: event.target.value }))}
-            disabled={adSetSaving}
-          >
-            {billingEvents.map((event) => (
-              <option key={event} value={event}>
-                {event}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="fieldGroup">
-          <span>Daily budget minor</span>
-          <input
-            type="number"
-            min="1"
-            value={draft.dailyBudgetMinor}
-            onChange={(event) => setDraft((current) => ({ ...current, dailyBudgetMinor: event.target.value }))}
-            disabled={adSetSaving}
-          />
-        </label>
-        <label className="fieldGroup">
-          <span>Lifetime budget minor</span>
-          <input
-            type="number"
-            min="1"
-            value={draft.lifetimeBudgetMinor}
-            onChange={(event) => setDraft((current) => ({ ...current, lifetimeBudgetMinor: event.target.value }))}
-            disabled={adSetSaving}
-          />
-        </label>
-        <label className="fieldGroup">
-          <span>Meta status</span>
-          <select
-            value={draft.metaStatus}
-            onChange={(event) => setDraft((current) => ({ ...current, metaStatus: event.target.value }))}
-            disabled={adSetSaving}
-          >
-            {metaStatuses.map((status) => (
-              <option key={status} value={status}>
-                {status}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="fieldGroup">
-          <span>Start time</span>
-          <input
-            type="datetime-local"
-            value={draft.startTime}
-            onChange={(event) => setDraft((current) => ({ ...current, startTime: event.target.value }))}
-            disabled={adSetSaving}
-          />
-        </label>
-        <label className="fieldGroup">
-          <span>End time</span>
-          <input
-            type="datetime-local"
-            value={draft.endTime}
-            onChange={(event) => setDraft((current) => ({ ...current, endTime: event.target.value }))}
-            disabled={adSetSaving}
-          />
-        </label>
+      <div className="campaignFieldStack">
+        <section className="formSubsection">
+          <div className="subsectionHeader">
+            <h3>Delivery and conversion</h3>
+          </div>
+          <div className="formGrid three">
+            <label className="fieldGroup wideField">
+              <span>Ad set name</span>
+              <input value={draft.name} onChange={(event) => update("name", event.target.value)} disabled={adSetSaving} />
+            </label>
+            <label className="fieldGroup">
+              <span>Meta status</span>
+              <select value={draft.metaStatus} onChange={(event) => update("metaStatus", event.target.value)} disabled={adSetSaving}>
+                {metaStatuses.map((status) => (
+                  <option key={status} value={status}>
+                    {status}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="fieldGroup">
+              <span>Conversion location</span>
+              <select
+                value={draft.destinationType}
+                onChange={(event) => update("destinationType", event.target.value)}
+                disabled={adSetSaving}
+              >
+                {destinationTypes.map((type) => (
+                  <option key={type} value={type}>
+                    {type}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="fieldGroup">
+              <span>Conversion event</span>
+              <select
+                value={draft.conversionEvent}
+                onChange={(event) => update("conversionEvent", event.target.value)}
+                disabled={adSetSaving}
+              >
+                {conversionEvents.map((event) => (
+                  <option key={event || "default"} value={event}>
+                    {event || "Meta default"}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="fieldGroup">
+              <span>Optimization goal</span>
+              <select
+                value={draft.optimizationGoal}
+                onChange={(event) => update("optimizationGoal", event.target.value)}
+                disabled={adSetSaving}
+              >
+                {optimizationGoals.map((goal) => (
+                  <option key={goal} value={goal}>
+                    {goal}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="fieldGroup">
+              <span>Billing event</span>
+              <select value={draft.billingEvent} onChange={(event) => update("billingEvent", event.target.value)} disabled={adSetSaving}>
+                {billingEvents.map((event) => (
+                  <option key={event} value={event}>
+                    {event}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="fieldGroup">
+              <span>Attribution setting</span>
+              <select
+                value={draft.attributionSetting}
+                onChange={(event) => update("attributionSetting", event.target.value)}
+                disabled={adSetSaving}
+              >
+                {attributionSettings.map((setting) => (
+                  <option key={setting || "default"} value={setting}>
+                    {setting || "Meta default"}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+        </section>
+
+        <section className="formSubsection">
+          <div className="subsectionHeader">
+            <h3>Budget and schedule</h3>
+            <span>{usesCampaignBudget ? "Campaign budget is active" : "Ad set budget required"}</span>
+          </div>
+          <div className="formGrid three">
+            <label className="fieldGroup">
+              <span>Daily budget minor</span>
+              <input
+                type="number"
+                min="1"
+                value={draft.dailyBudgetMinor}
+                onChange={(event) => update("dailyBudgetMinor", event.target.value)}
+                disabled={adSetSaving || usesCampaignBudget}
+              />
+            </label>
+            <label className="fieldGroup">
+              <span>Lifetime budget minor</span>
+              <input
+                type="number"
+                min="1"
+                value={draft.lifetimeBudgetMinor}
+                onChange={(event) => update("lifetimeBudgetMinor", event.target.value)}
+                disabled={adSetSaving || usesCampaignBudget}
+              />
+            </label>
+            <label className="fieldGroup">
+              <span>Bid strategy</span>
+              <select value={draft.bidStrategy} onChange={(event) => update("bidStrategy", event.target.value)} disabled={adSetSaving}>
+                {bidStrategies.map((strategy) => (
+                  <option key={strategy || "default"} value={strategy}>
+                    {strategy || "Meta default"}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="fieldGroup">
+              <span>Bid amount minor</span>
+              <input
+                type="number"
+                min="1"
+                value={draft.bidAmountMinor}
+                onChange={(event) => update("bidAmountMinor", event.target.value)}
+                disabled={adSetSaving}
+              />
+            </label>
+            <label className="fieldGroup">
+              <span>Start time</span>
+              <input
+                type="datetime-local"
+                value={draft.startTime}
+                onChange={(event) => update("startTime", event.target.value)}
+                disabled={adSetSaving}
+              />
+            </label>
+            <label className="fieldGroup">
+              <span>End time</span>
+              <input
+                type="datetime-local"
+                value={draft.endTime}
+                onChange={(event) => update("endTime", event.target.value)}
+                disabled={adSetSaving}
+              />
+            </label>
+            <label className="fieldGroup">
+              <span>Pacing type</span>
+              <select value={draft.pacingType} onChange={(event) => update("pacingType", event.target.value)} disabled={adSetSaving}>
+                {pacingTypes.map((type) => (
+                  <option key={type || "default"} value={type}>
+                    {type || "Meta default"}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+          <label className="checkboxField">
+            <input
+              type="checkbox"
+              checked={draft.isDynamicCreative}
+              onChange={(event) => update("isDynamicCreative", event.target.checked)}
+              disabled={adSetSaving}
+            />
+            <span>Dynamic creative</span>
+          </label>
+        </section>
+
+        <section className="formSubsection">
+          <div className="subsectionHeader">
+            <h3>Audience</h3>
+            <span>Targeting remains JSON for MVP</span>
+          </div>
+          <div className="formGrid two">
+            <label className="checkboxField">
+              <input
+                type="checkbox"
+                checked={draft.useAdvantageAudience}
+                onChange={(event) => update("useAdvantageAudience", event.target.checked)}
+                disabled={adSetSaving}
+              />
+              <span>Use Advantage+ audience</span>
+            </label>
+            <label className="fieldGroup">
+              <span>Saved audience ID</span>
+              <input
+                value={draft.savedAudienceId}
+                onChange={(event) => update("savedAudienceId", event.target.value)}
+                disabled={adSetSaving}
+              />
+            </label>
+          </div>
+          <label className="fieldGroup">
+            <span>Targeting JSON</span>
+            <textarea
+              className="codeTextarea"
+              value={draft.targeting}
+              onChange={(event) => update("targeting", event.target.value)}
+              rows={6}
+              disabled={adSetSaving}
+            />
+          </label>
+          <div className="formGrid two">
+            <label className="fieldGroup">
+              <span>Audience controls JSON</span>
+              <textarea
+                className="codeTextarea"
+                value={draft.audienceControls}
+                onChange={(event) => update("audienceControls", event.target.value)}
+                rows={4}
+                disabled={adSetSaving}
+              />
+            </label>
+            <label className="fieldGroup">
+              <span>Audience recommendations JSON</span>
+              <textarea
+                className="codeTextarea"
+                value={draft.audienceRecommendations}
+                onChange={(event) => update("audienceRecommendations", event.target.value)}
+                rows={4}
+                disabled={adSetSaving}
+              />
+            </label>
+          </div>
+        </section>
+
+        <section className="formSubsection">
+          <div className="subsectionHeader">
+            <h3>Placements and delivery controls</h3>
+          </div>
+          <div className="formGrid two">
+            <label className="fieldGroup">
+              <span>Placement mode</span>
+              <select value={draft.placementMode} onChange={(event) => update("placementMode", event.target.value)} disabled={adSetSaving}>
+                {placementModes.map((mode) => (
+                  <option key={mode.value} value={mode.value}>
+                    {mode.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="fieldGroup">
+              <span>Placement settings JSON</span>
+              <textarea
+                className="codeTextarea"
+                value={draft.placementSettings}
+                onChange={(event) => update("placementSettings", event.target.value)}
+                rows={4}
+                disabled={adSetSaving}
+              />
+            </label>
+            <label className="fieldGroup">
+              <span>Brand safety controls JSON</span>
+              <textarea
+                className="codeTextarea"
+                value={draft.brandSafetyControls}
+                onChange={(event) => update("brandSafetyControls", event.target.value)}
+                rows={4}
+                disabled={adSetSaving}
+              />
+            </label>
+            <label className="fieldGroup">
+              <span>Ad set schedule JSON</span>
+              <textarea
+                className="codeTextarea"
+                value={draft.adsetSchedule}
+                onChange={(event) => update("adsetSchedule", event.target.value)}
+                rows={4}
+                disabled={adSetSaving}
+              />
+            </label>
+            <label className="fieldGroup">
+              <span>Frequency control specs JSON</span>
+              <textarea
+                className="codeTextarea"
+                value={draft.frequencyControlSpecs}
+                onChange={(event) => update("frequencyControlSpecs", event.target.value)}
+                rows={4}
+                disabled={adSetSaving}
+              />
+            </label>
+          </div>
+        </section>
+
+        <section className="formSubsection">
+          <div className="subsectionHeader">
+            <h3>Compliance and promoted object</h3>
+          </div>
+          <div className="formGrid two">
+            <label className="fieldGroup">
+              <span>EU beneficiary</span>
+              <input value={draft.beneficiary} onChange={(event) => update("beneficiary", event.target.value)} disabled={adSetSaving} />
+            </label>
+            <label className="fieldGroup">
+              <span>EU payor</span>
+              <input value={draft.payor} onChange={(event) => update("payor", event.target.value)} disabled={adSetSaving} />
+            </label>
+          </div>
+          <label className="fieldGroup">
+            <span>Promoted object JSON</span>
+            <textarea
+              className="codeTextarea"
+              value={draft.promotedObject}
+              onChange={(event) => update("promotedObject", event.target.value)}
+              placeholder='{"pixel_id":"...", "custom_event_type":"LEAD"}'
+              rows={5}
+              disabled={adSetSaving}
+            />
+          </label>
+        </section>
       </div>
-      <label className="fieldGroup">
-        <span>Targeting JSON</span>
-        <textarea
-          className="codeTextarea"
-          value={draft.targeting}
-          onChange={(event) => setDraft((current) => ({ ...current, targeting: event.target.value }))}
-          rows={5}
-          disabled={adSetSaving}
-        />
-      </label>
 
       <div className="adDraftStack">
         <div className="subsectionHeader">
@@ -1704,8 +2046,11 @@ function CampaignDetailView({
       () =>
         createAdSetDraft(id, {
           name: `Ad set ${campaign.adsets.length + 1}`,
+          destinationType: "WEBSITE",
           optimizationGoal: "LINK_CLICKS",
           billingEvent: "IMPRESSIONS",
+          placementMode: "ADVANTAGE_PLUS",
+          useAdvantageAudience: true,
           targeting: {},
           metaStatus: "PAUSED"
         }).then(() => undefined),
@@ -1816,6 +2161,7 @@ function CampaignDetailView({
             <AdSetEditor
               key={adset.id}
               adset={adset}
+              campaignBudgetStrategy={campaign.budget_strategy}
               saving={saving}
               onSave={saveAdSet}
               onAddCreative={setAddCreativeAdSetId}

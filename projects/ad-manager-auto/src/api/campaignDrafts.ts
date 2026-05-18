@@ -25,7 +25,7 @@ const optionalString = nonEmptyString.optional();
 const nullableString = nonEmptyString.nullable().optional();
 const nullablePositiveInt = z.number().int().positive().nullable().optional();
 const optionalJsonValue = z.union([jsonObjectSchema, z.array(jsonObjectSchema)]).nullable().optional();
-const optionalDate = z.string().datetime().transform((value) => new Date(value)).optional();
+const nullableDate = z.union([z.string().datetime().transform((value) => new Date(value)), z.null()]).optional();
 
 const campaignCreateSchema = z
   .object({
@@ -56,15 +56,32 @@ const campaignUpdateSchema = campaignCreateSchema.partial();
 const adSetCreateSchema = z
   .object({
     name: nonEmptyString,
+    destinationType: optionalString,
+    conversionEvent: nullableString,
     optimizationGoal: optionalString,
     billingEvent: optionalString,
-    bidStrategy: optionalString,
-    dailyBudgetMinor: z.number().int().positive().optional(),
-    lifetimeBudgetMinor: z.number().int().positive().optional(),
-    startTime: optionalDate,
-    endTime: optionalDate,
+    bidStrategy: nullableString,
+    bidAmountMinor: nullablePositiveInt,
+    dailyBudgetMinor: nullablePositiveInt,
+    lifetimeBudgetMinor: nullablePositiveInt,
+    startTime: nullableDate,
+    endTime: nullableDate,
     targeting: jsonObjectSchema.optional(),
-    promotedObject: jsonObjectSchema.optional(),
+    promotedObject: jsonObjectSchema.nullable().optional(),
+    attributionSetting: nullableString,
+    isDynamicCreative: z.boolean().optional(),
+    useAdvantageAudience: z.boolean().optional(),
+    savedAudienceId: nullableString,
+    audienceControls: jsonObjectSchema.optional(),
+    audienceRecommendations: jsonObjectSchema.optional(),
+    placementMode: optionalString,
+    placementSettings: jsonObjectSchema.optional(),
+    brandSafetyControls: jsonObjectSchema.optional(),
+    pacingType: nullableString,
+    adsetSchedule: optionalJsonValue,
+    frequencyControlSpecs: optionalJsonValue,
+    beneficiary: nullableString,
+    payor: nullableString,
     status: draftStatusSchema.optional(),
     metaStatus: optionalString,
     sortOrder: z.number().int().min(0).optional(),

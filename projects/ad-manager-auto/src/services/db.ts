@@ -439,15 +439,32 @@ export async function getCampaignDraftById(id: number): Promise<CampaignDraft | 
 export type CreateAdSetDraftInput = {
   campaignDraftId: number;
   name: string;
+  destinationType?: string;
+  conversionEvent?: string | null;
   optimizationGoal?: string;
   billingEvent?: string;
-  bidStrategy?: string;
-  dailyBudgetMinor?: number;
-  lifetimeBudgetMinor?: number;
-  startTime?: Date;
-  endTime?: Date;
+  bidStrategy?: string | null;
+  bidAmountMinor?: number | null;
+  dailyBudgetMinor?: number | null;
+  lifetimeBudgetMinor?: number | null;
+  startTime?: Date | null;
+  endTime?: Date | null;
   targeting?: JsonObject;
-  promotedObject?: JsonObject;
+  promotedObject?: JsonObject | null;
+  attributionSetting?: string | null;
+  isDynamicCreative?: boolean;
+  useAdvantageAudience?: boolean;
+  savedAudienceId?: string | null;
+  audienceControls?: JsonObject;
+  audienceRecommendations?: JsonObject;
+  placementMode?: string;
+  placementSettings?: JsonObject;
+  brandSafetyControls?: JsonObject;
+  pacingType?: string | null;
+  adsetSchedule?: JsonInput | null;
+  frequencyControlSpecs?: JsonInput | null;
+  beneficiary?: string | null;
+  payor?: string | null;
   status?: DraftStatus;
   metaStatus?: string;
   sortOrder?: number;
@@ -458,25 +475,50 @@ export async function createAdSetDraft(input: CreateAdSetDraftInput): Promise<Ad
   const result = await query<AdSetDraft>(
     `
       INSERT INTO adset_drafts (
-        campaign_draft_id, name, optimization_goal, billing_event, bid_strategy, daily_budget_minor,
-        lifetime_budget_minor, start_time, end_time, targeting, promoted_object, status, meta_status,
-        sort_order, metadata
+        campaign_draft_id, name, destination_type, conversion_event, optimization_goal, billing_event,
+        bid_strategy, bid_amount_minor, daily_budget_minor, lifetime_budget_minor, start_time, end_time,
+        targeting, promoted_object, attribution_setting, is_dynamic_creative, use_advantage_audience,
+        saved_audience_id, audience_controls, audience_recommendations, placement_mode, placement_settings,
+        brand_safety_controls, pacing_type, adset_schedule, frequency_control_specs, beneficiary, payor,
+        status, meta_status, sort_order, metadata
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+      VALUES (
+        $1, $2, $3, $4, $5, $6, $7, $8,
+        $9, $10, $11, $12, $13, $14, $15, $16,
+        $17, $18, $19, $20, $21, $22, $23, $24,
+        $25, $26, $27, $28, $29, $30, $31, $32
+      )
       RETURNING *
     `,
     [
       input.campaignDraftId,
       input.name,
+      input.destinationType ?? "WEBSITE",
+      input.conversionEvent ?? null,
       input.optimizationGoal ?? "LINK_CLICKS",
       input.billingEvent ?? "IMPRESSIONS",
       input.bidStrategy ?? null,
+      input.bidAmountMinor ?? null,
       input.dailyBudgetMinor ?? null,
       input.lifetimeBudgetMinor ?? null,
       input.startTime ?? null,
       input.endTime ?? null,
       JSON.stringify(input.targeting ?? {}),
       input.promotedObject ? JSON.stringify(input.promotedObject) : null,
+      input.attributionSetting ?? null,
+      input.isDynamicCreative ?? false,
+      input.useAdvantageAudience ?? true,
+      input.savedAudienceId ?? null,
+      JSON.stringify(input.audienceControls ?? {}),
+      JSON.stringify(input.audienceRecommendations ?? {}),
+      input.placementMode ?? "ADVANTAGE_PLUS",
+      JSON.stringify(input.placementSettings ?? {}),
+      JSON.stringify(input.brandSafetyControls ?? {}),
+      input.pacingType ?? null,
+      input.adsetSchedule ? JSON.stringify(input.adsetSchedule) : null,
+      input.frequencyControlSpecs ? JSON.stringify(input.frequencyControlSpecs) : null,
+      input.beneficiary ?? null,
+      input.payor ?? null,
       input.status ?? "draft",
       input.metaStatus ?? "PAUSED",
       input.sortOrder ?? 0,
@@ -503,15 +545,32 @@ export type UpdateAdSetDraftInput = Partial<
   Pick<
     CreateAdSetDraftInput,
     | "name"
+    | "destinationType"
+    | "conversionEvent"
     | "optimizationGoal"
     | "billingEvent"
     | "bidStrategy"
+    | "bidAmountMinor"
     | "dailyBudgetMinor"
     | "lifetimeBudgetMinor"
     | "startTime"
     | "endTime"
     | "targeting"
     | "promotedObject"
+    | "attributionSetting"
+    | "isDynamicCreative"
+    | "useAdvantageAudience"
+    | "savedAudienceId"
+    | "audienceControls"
+    | "audienceRecommendations"
+    | "placementMode"
+    | "placementSettings"
+    | "brandSafetyControls"
+    | "pacingType"
+    | "adsetSchedule"
+    | "frequencyControlSpecs"
+    | "beneficiary"
+    | "payor"
     | "status"
     | "metaStatus"
     | "sortOrder"
@@ -524,49 +583,76 @@ export type UpdateAdSetDraftInput = Partial<
 };
 
 export async function updateAdSetDraft(id: number, input: UpdateAdSetDraftInput): Promise<AdSetDraft | undefined> {
+  const setters: string[] = [];
+  const values: unknown[] = [id];
+
+  function add(field: keyof UpdateAdSetDraftInput, column: string, value: unknown = input[field]) {
+    if (!Object.prototype.hasOwnProperty.call(input, field)) {
+      return;
+    }
+    values.push(value);
+    setters.push(`${column} = $${values.length}`);
+  }
+
+  add("name", "name");
+  add("destinationType", "destination_type");
+  add("conversionEvent", "conversion_event");
+  add("optimizationGoal", "optimization_goal");
+  add("billingEvent", "billing_event");
+  add("bidStrategy", "bid_strategy");
+  add("bidAmountMinor", "bid_amount_minor");
+  add("dailyBudgetMinor", "daily_budget_minor");
+  add("lifetimeBudgetMinor", "lifetime_budget_minor");
+  add("startTime", "start_time");
+  add("endTime", "end_time");
+  add("targeting", "targeting", input.targeting ? JSON.stringify(input.targeting) : null);
+  add("promotedObject", "promoted_object", input.promotedObject ? JSON.stringify(input.promotedObject) : null);
+  add("attributionSetting", "attribution_setting");
+  add("isDynamicCreative", "is_dynamic_creative");
+  add("useAdvantageAudience", "use_advantage_audience");
+  add("savedAudienceId", "saved_audience_id");
+  add("audienceControls", "audience_controls", input.audienceControls ? JSON.stringify(input.audienceControls) : null);
+  add(
+    "audienceRecommendations",
+    "audience_recommendations",
+    input.audienceRecommendations ? JSON.stringify(input.audienceRecommendations) : null
+  );
+  add("placementMode", "placement_mode");
+  add("placementSettings", "placement_settings", input.placementSettings ? JSON.stringify(input.placementSettings) : null);
+  add(
+    "brandSafetyControls",
+    "brand_safety_controls",
+    input.brandSafetyControls ? JSON.stringify(input.brandSafetyControls) : null
+  );
+  add("pacingType", "pacing_type");
+  add("adsetSchedule", "adset_schedule", input.adsetSchedule ? JSON.stringify(input.adsetSchedule) : null);
+  add(
+    "frequencyControlSpecs",
+    "frequency_control_specs",
+    input.frequencyControlSpecs ? JSON.stringify(input.frequencyControlSpecs) : null
+  );
+  add("beneficiary", "beneficiary");
+  add("payor", "payor");
+  add("status", "status");
+  add("metaStatus", "meta_status");
+  add("metaAdSetId", "meta_adset_id");
+  add("sortOrder", "sort_order");
+  add("metadata", "metadata", input.metadata ? JSON.stringify(input.metadata) : null);
+  add("lastError", "last_error");
+  add("publishedAt", "published_at");
+
+  if (!setters.length) {
+    return getAdSetDraftById(id);
+  }
+
   const result = await query<AdSetDraft>(
     `
       UPDATE adset_drafts
-      SET name = COALESCE($2, name),
-        optimization_goal = COALESCE($3, optimization_goal),
-        billing_event = COALESCE($4, billing_event),
-        bid_strategy = COALESCE($5, bid_strategy),
-        daily_budget_minor = COALESCE($6, daily_budget_minor),
-        lifetime_budget_minor = COALESCE($7, lifetime_budget_minor),
-        start_time = COALESCE($8, start_time),
-        end_time = COALESCE($9, end_time),
-        targeting = COALESCE($10, targeting),
-        promoted_object = COALESCE($11, promoted_object),
-        status = COALESCE($12, status),
-        meta_status = COALESCE($13, meta_status),
-        meta_adset_id = COALESCE($14, meta_adset_id),
-        sort_order = COALESCE($15, sort_order),
-        metadata = COALESCE($16, metadata),
-        last_error = COALESCE($17, last_error),
-        published_at = COALESCE($18, published_at)
+      SET ${setters.join(", ")}
       WHERE id = $1
       RETURNING *
     `,
-    [
-      id,
-      input.name ?? null,
-      input.optimizationGoal ?? null,
-      input.billingEvent ?? null,
-      input.bidStrategy ?? null,
-      input.dailyBudgetMinor ?? null,
-      input.lifetimeBudgetMinor ?? null,
-      input.startTime ?? null,
-      input.endTime ?? null,
-      input.targeting ? JSON.stringify(input.targeting) : null,
-      input.promotedObject ? JSON.stringify(input.promotedObject) : null,
-      input.status ?? null,
-      input.metaStatus ?? null,
-      input.metaAdSetId ?? null,
-      input.sortOrder ?? null,
-      input.metadata ? JSON.stringify(input.metadata) : null,
-      input.lastError ?? null,
-      input.publishedAt ?? null
-    ]
+    values
   );
   return result.rows[0];
 }
