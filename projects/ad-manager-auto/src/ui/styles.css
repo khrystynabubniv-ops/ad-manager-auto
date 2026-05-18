@@ -644,7 +644,9 @@ button:disabled {
 }
 
 .campaignModal {
-  width: min(640px, 100%);
+  width: min(980px, 100%);
+  max-height: min(920px, calc(100vh - 48px));
+  overflow: auto;
 }
 
 .creativePickerModal {
@@ -761,6 +763,52 @@ button:disabled {
 
 .formGrid.three {
   grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.wideField {
+  grid-column: span 2;
+}
+
+.campaignFieldStack {
+  display: grid;
+  gap: 16px;
+}
+
+.formSubsection {
+  display: grid;
+  gap: 12px;
+  border-top: 1px solid #e5e9ee;
+  padding-top: 16px;
+}
+
+.formSubsection:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.toggleGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.checkboxField {
+  min-height: 42px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid #dfe5eb;
+  border-radius: 8px;
+  background: #f8fafc;
+  padding: 10px 12px;
+  color: #314155;
+  font-weight: 700;
+}
+
+.checkboxField input {
+  width: 18px;
+  height: 18px;
+  accent-color: #16794c;
 }
 
 .campaignTable {
@@ -1097,10 +1145,15 @@ button:disabled {
   .creativeMetaGrid,
   .formGrid.two,
   .formGrid.three,
+  .toggleGrid,
   .campaignTableGrid,
   .adDraftEditor,
   .creativePickerRow {
     grid-template-columns: 1fr;
+  }
+
+  .wideField {
+    grid-column: auto;
   }
 
   .summaryBand > div {

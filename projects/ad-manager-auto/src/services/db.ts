@@ -273,12 +273,25 @@ export async function getCreativeById(id: number): Promise<Creative | undefined>
 }
 
 type JsonObject = Record<string, unknown>;
+type JsonInput = JsonObject | Array<Record<string, unknown>>;
 
 export type CreateCampaignDraftInput = {
   name: string;
   objective?: string;
   buyingType?: string;
   specialAdCategories?: string[];
+  campaignSettingsMode?: string;
+  budgetStrategy?: string;
+  campaignDailyBudgetMinor?: number | null;
+  campaignLifetimeBudgetMinor?: number | null;
+  bidStrategy?: string | null;
+  spendCapMinor?: number | null;
+  specialAdCategoryCountries?: string[];
+  promotedObject?: JsonObject | null;
+  budgetScheduleSpecs?: JsonInput | null;
+  isSkadnetworkAttribution?: boolean;
+  abTestEnabled?: boolean;
+  liveAdsEnabled?: boolean;
   status?: DraftStatus;
   metaStatus?: string;
   metadata?: JsonObject;
@@ -288,9 +301,12 @@ export async function createCampaignDraft(input: CreateCampaignDraftInput): Prom
   const result = await query<CampaignDraft>(
     `
       INSERT INTO campaign_drafts (
-        name, objective, buying_type, special_ad_categories, status, meta_status, metadata
+        name, objective, buying_type, special_ad_categories, campaign_settings_mode, budget_strategy,
+        campaign_daily_budget_minor, campaign_lifetime_budget_minor, bid_strategy, spend_cap_minor,
+        special_ad_category_countries, promoted_object, budget_schedule_specs, is_skadnetwork_attribution,
+        a_b_test_enabled, live_ads_enabled, status, meta_status, metadata
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
       RETURNING *
     `,
     [
@@ -298,6 +314,18 @@ export async function createCampaignDraft(input: CreateCampaignDraftInput): Prom
       input.objective ?? "OUTCOME_TRAFFIC",
       input.buyingType ?? "AUCTION",
       input.specialAdCategories ?? [],
+      input.campaignSettingsMode ?? "MANUAL",
+      input.budgetStrategy ?? "AD_SET",
+      input.campaignDailyBudgetMinor ?? null,
+      input.campaignLifetimeBudgetMinor ?? null,
+      input.bidStrategy ?? null,
+      input.spendCapMinor ?? null,
+      input.specialAdCategoryCountries ?? [],
+      input.promotedObject ? JSON.stringify(input.promotedObject) : null,
+      input.budgetScheduleSpecs ? JSON.stringify(input.budgetScheduleSpecs) : null,
+      input.isSkadnetworkAttribution ?? false,
+      input.abTestEnabled ?? false,
+      input.liveAdsEnabled ?? false,
       input.status ?? "draft",
       input.metaStatus ?? "PAUSED",
       JSON.stringify(input.metadata ?? {})
@@ -307,7 +335,28 @@ export async function createCampaignDraft(input: CreateCampaignDraftInput): Prom
 }
 
 export type UpdateCampaignDraftInput = Partial<
-  Pick<CreateCampaignDraftInput, "name" | "objective" | "buyingType" | "specialAdCategories" | "status" | "metaStatus" | "metadata">
+  Pick<
+    CreateCampaignDraftInput,
+    | "name"
+    | "objective"
+    | "buyingType"
+    | "specialAdCategories"
+    | "campaignSettingsMode"
+    | "budgetStrategy"
+    | "campaignDailyBudgetMinor"
+    | "campaignLifetimeBudgetMinor"
+    | "bidStrategy"
+    | "spendCapMinor"
+    | "specialAdCategoryCountries"
+    | "promotedObject"
+    | "budgetScheduleSpecs"
+    | "isSkadnetworkAttribution"
+    | "abTestEnabled"
+    | "liveAdsEnabled"
+    | "status"
+    | "metaStatus"
+    | "metadata"
+  >
 > & {
   metaCampaignId?: string | null;
   lastError?: string | null;
@@ -318,35 +367,56 @@ export async function updateCampaignDraft(
   id: number,
   input: UpdateCampaignDraftInput
 ): Promise<CampaignDraft | undefined> {
+  const setters: string[] = [];
+  const values: unknown[] = [id];
+
+  function add(field: keyof UpdateCampaignDraftInput, column: string, value: unknown = input[field]) {
+    if (!Object.prototype.hasOwnProperty.call(input, field)) {
+      return;
+    }
+    values.push(value);
+    setters.push(`${column} = $${values.length}`);
+  }
+
+  add("name", "name");
+  add("objective", "objective");
+  add("buyingType", "buying_type");
+  add("specialAdCategories", "special_ad_categories");
+  add("campaignSettingsMode", "campaign_settings_mode");
+  add("budgetStrategy", "budget_strategy");
+  add("campaignDailyBudgetMinor", "campaign_daily_budget_minor");
+  add("campaignLifetimeBudgetMinor", "campaign_lifetime_budget_minor");
+  add("bidStrategy", "bid_strategy");
+  add("spendCapMinor", "spend_cap_minor");
+  add("specialAdCategoryCountries", "special_ad_category_countries");
+  add("promotedObject", "promoted_object", input.promotedObject ? JSON.stringify(input.promotedObject) : null);
+  add(
+    "budgetScheduleSpecs",
+    "budget_schedule_specs",
+    input.budgetScheduleSpecs ? JSON.stringify(input.budgetScheduleSpecs) : null
+  );
+  add("isSkadnetworkAttribution", "is_skadnetwork_attribution");
+  add("abTestEnabled", "a_b_test_enabled");
+  add("liveAdsEnabled", "live_ads_enabled");
+  add("status", "status");
+  add("metaStatus", "meta_status");
+  add("metaCampaignId", "meta_campaign_id");
+  add("metadata", "metadata", input.metadata ? JSON.stringify(input.metadata) : null);
+  add("lastError", "last_error");
+  add("publishedAt", "published_at");
+
+  if (!setters.length) {
+    return getCampaignDraftById(id);
+  }
+
   const result = await query<CampaignDraft>(
     `
       UPDATE campaign_drafts
-      SET name = COALESCE($2, name),
-        objective = COALESCE($3, objective),
-        buying_type = COALESCE($4, buying_type),
-        special_ad_categories = COALESCE($5, special_ad_categories),
-        status = COALESCE($6, status),
-        meta_status = COALESCE($7, meta_status),
-        meta_campaign_id = COALESCE($8, meta_campaign_id),
-        metadata = COALESCE($9, metadata),
-        last_error = COALESCE($10, last_error),
-        published_at = COALESCE($11, published_at)
+      SET ${setters.join(", ")}
       WHERE id = $1
       RETURNING *
     `,
-    [
-      id,
-      input.name ?? null,
-      input.objective ?? null,
-      input.buyingType ?? null,
-      input.specialAdCategories ?? null,
-      input.status ?? null,
-      input.metaStatus ?? null,
-      input.metaCampaignId ?? null,
-      input.metadata ? JSON.stringify(input.metadata) : null,
-      input.lastError ?? null,
-      input.publishedAt ?? null
-    ]
+    values
   );
   return result.rows[0];
 }

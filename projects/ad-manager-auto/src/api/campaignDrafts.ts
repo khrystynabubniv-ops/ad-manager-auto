@@ -22,6 +22,9 @@ const draftStatusSchema = z.enum(["draft", "publishing", "published", "publish_f
 const jsonObjectSchema = z.record(z.unknown());
 const nonEmptyString = z.string().trim().min(1);
 const optionalString = nonEmptyString.optional();
+const nullableString = nonEmptyString.nullable().optional();
+const nullablePositiveInt = z.number().int().positive().nullable().optional();
+const optionalJsonValue = z.union([jsonObjectSchema, z.array(jsonObjectSchema)]).nullable().optional();
 const optionalDate = z.string().datetime().transform((value) => new Date(value)).optional();
 
 const campaignCreateSchema = z
@@ -30,6 +33,18 @@ const campaignCreateSchema = z
     objective: optionalString,
     buyingType: optionalString,
     specialAdCategories: z.array(nonEmptyString).optional(),
+    campaignSettingsMode: optionalString,
+    budgetStrategy: optionalString,
+    campaignDailyBudgetMinor: nullablePositiveInt,
+    campaignLifetimeBudgetMinor: nullablePositiveInt,
+    bidStrategy: nullableString,
+    spendCapMinor: nullablePositiveInt,
+    specialAdCategoryCountries: z.array(nonEmptyString).optional(),
+    promotedObject: jsonObjectSchema.nullable().optional(),
+    budgetScheduleSpecs: optionalJsonValue,
+    isSkadnetworkAttribution: z.boolean().optional(),
+    abTestEnabled: z.boolean().optional(),
+    liveAdsEnabled: z.boolean().optional(),
     status: draftStatusSchema.optional(),
     metaStatus: optionalString,
     metadata: jsonObjectSchema.optional()

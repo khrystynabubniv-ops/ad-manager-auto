@@ -86,6 +86,18 @@ export type CampaignDraft = {
   objective: string;
   buying_type: string;
   special_ad_categories: string[];
+  campaign_settings_mode: string;
+  budget_strategy: string;
+  campaign_daily_budget_minor: number | null;
+  campaign_lifetime_budget_minor: number | null;
+  bid_strategy: string | null;
+  spend_cap_minor: number | null;
+  special_ad_category_countries: string[];
+  promoted_object: Record<string, unknown> | null;
+  budget_schedule_specs: Record<string, unknown> | Array<Record<string, unknown>> | null;
+  is_skadnetwork_attribution: boolean;
+  a_b_test_enabled: boolean;
+  live_ads_enabled: boolean;
   status: DraftStatus;
   meta_status: string;
   meta_campaign_id: string | null;

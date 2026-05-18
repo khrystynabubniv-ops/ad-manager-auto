@@ -14,7 +14,7 @@ import {
   Save,
   X
 } from "lucide-react";
-import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { type Dispatch, type FormEvent, type SetStateAction, useCallback, useEffect, useMemo, useState } from "react";
 import { getOktaAuth, isAuthDisabled } from "./auth";
 import {
   AdDraftPayload,
@@ -55,6 +55,26 @@ type RouteState =
       campaignId?: number;
     };
 
+type CampaignFormState = {
+  name: string;
+  objective: string;
+  buyingType: string;
+  campaignSettingsMode: string;
+  budgetStrategy: string;
+  campaignDailyBudgetMinor: string;
+  campaignLifetimeBudgetMinor: string;
+  bidStrategy: string;
+  spendCapMinor: string;
+  specialAdCategories: string;
+  specialAdCategoryCountries: string;
+  promotedObject: string;
+  budgetScheduleSpecs: string;
+  isSkadnetworkAttribution: boolean;
+  abTestEnabled: boolean;
+  liveAdsEnabled: boolean;
+  metaStatus: string;
+};
+
 const campaignObjectives = [
   "OUTCOME_TRAFFIC",
   "OUTCOME_ENGAGEMENT",
@@ -65,6 +85,15 @@ const campaignObjectives = [
 ];
 const buyingTypes = ["AUCTION", "RESERVED"];
 const metaStatuses = ["PAUSED", "ACTIVE"];
+const campaignSettingsModes = [
+  { value: "MANUAL", label: "Manual campaign setup" },
+  { value: "RECOMMENDED", label: "Recommended Meta settings" }
+];
+const budgetStrategies = [
+  { value: "AD_SET", label: "Ad set budget" },
+  { value: "CAMPAIGN", label: "Campaign budget" }
+];
+const bidStrategies = ["", "LOWEST_COST_WITHOUT_CAP", "LOWEST_COST_WITH_BID_CAP", "COST_CAP", "LOWEST_COST_WITH_MIN_ROAS"];
 const optimizationGoals = ["LINK_CLICKS", "LANDING_PAGE_VIEWS", "IMPRESSIONS", "REACH", "OFFSITE_CONVERSIONS"];
 const billingEvents = ["IMPRESSIONS", "LINK_CLICKS"];
 const ctaTypes = ["LEARN_MORE", "SIGN_UP", "SHOP_NOW", "APPLY_NOW", "CONTACT_US", "SUBSCRIBE", "DOWNLOAD", "GET_QUOTE"];
@@ -167,10 +196,39 @@ function optionalPositiveNumber(value: string, label: string) {
   return parsed;
 }
 
+function nullablePositiveNumber(value: string, label: string) {
+  if (!value.trim()) return null;
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    throw new Error(`${label} must be a positive whole number.`);
+  }
+  return parsed;
+}
+
 function parseJsonObject(value: string, label: string): Record<string, unknown> {
   const parsed = JSON.parse(value.trim() || "{}");
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
     throw new Error(`${label} must be a JSON object.`);
+  }
+  return parsed as Record<string, unknown>;
+}
+
+function parseOptionalJsonObject(value: string, label: string) {
+  if (!value.trim()) return null;
+  return parseJsonObject(value, label);
+}
+
+function parseOptionalJsonValue(value: string, label: string): Record<string, unknown> | Array<Record<string, unknown>> | null {
+  if (!value.trim()) return null;
+  const parsed = JSON.parse(value);
+  if (!parsed || typeof parsed !== "object") {
+    throw new Error(`${label} must be a JSON object or an array of objects.`);
+  }
+  if (Array.isArray(parsed)) {
+    if (parsed.some((item) => !item || typeof item !== "object" || Array.isArray(item))) {
+      throw new Error(`${label} must be an array of JSON objects.`);
+    }
+    return parsed as Array<Record<string, unknown>>;
   }
   return parsed as Record<string, unknown>;
 }
@@ -182,8 +240,98 @@ function parseCategories(value: string) {
     .filter(Boolean);
 }
 
+function formatJsonValue(value?: unknown | null) {
+  return value == null ? "" : JSON.stringify(value, null, 2);
+}
+
 function formatCategories(categories?: string[] | null) {
   return categories?.join(", ") ?? "";
+}
+
+function defaultCampaignFormState(): CampaignFormState {
+  return {
+    name: "",
+    objective: "OUTCOME_TRAFFIC",
+    buyingType: "AUCTION",
+    campaignSettingsMode: "MANUAL",
+    budgetStrategy: "AD_SET",
+    campaignDailyBudgetMinor: "",
+    campaignLifetimeBudgetMinor: "",
+    bidStrategy: "",
+    spendCapMinor: "",
+    specialAdCategories: "",
+    specialAdCategoryCountries: "",
+    promotedObject: "",
+    budgetScheduleSpecs: "",
+    isSkadnetworkAttribution: false,
+    abTestEnabled: false,
+    liveAdsEnabled: false,
+    metaStatus: "PAUSED"
+  };
+}
+
+function campaignToFormState(campaign: CampaignDraftTree): CampaignFormState {
+  return {
+    name: campaign.name,
+    objective: campaign.objective,
+    buyingType: campaign.buying_type,
+    campaignSettingsMode: campaign.campaign_settings_mode || "MANUAL",
+    budgetStrategy: campaign.budget_strategy || "AD_SET",
+    campaignDailyBudgetMinor: campaign.campaign_daily_budget_minor?.toString() ?? "",
+    campaignLifetimeBudgetMinor: campaign.campaign_lifetime_budget_minor?.toString() ?? "",
+    bidStrategy: campaign.bid_strategy ?? "",
+    spendCapMinor: campaign.spend_cap_minor?.toString() ?? "",
+    specialAdCategories: formatCategories(campaign.special_ad_categories),
+    specialAdCategoryCountries: formatCategories(campaign.special_ad_category_countries),
+    promotedObject: formatJsonValue(campaign.promoted_object),
+    budgetScheduleSpecs: formatJsonValue(campaign.budget_schedule_specs),
+    isSkadnetworkAttribution: campaign.is_skadnetwork_attribution,
+    abTestEnabled: campaign.a_b_test_enabled,
+    liveAdsEnabled: campaign.live_ads_enabled,
+    metaStatus: campaign.meta_status
+  };
+}
+
+function buildCampaignPayload(draft: CampaignFormState): CampaignDraftPayload & { name: string } {
+  const name = draft.name.trim();
+  if (!name) {
+    throw new Error("Campaign name is required.");
+  }
+
+  const campaignDailyBudgetMinor =
+    draft.budgetStrategy === "CAMPAIGN" ? nullablePositiveNumber(draft.campaignDailyBudgetMinor, "Campaign daily budget") : null;
+  const campaignLifetimeBudgetMinor =
+    draft.budgetStrategy === "CAMPAIGN"
+      ? nullablePositiveNumber(draft.campaignLifetimeBudgetMinor, "Campaign lifetime budget")
+      : null;
+
+  if (campaignDailyBudgetMinor && campaignLifetimeBudgetMinor) {
+    throw new Error("Use either campaign daily budget or campaign lifetime budget, not both.");
+  }
+
+  if (draft.budgetStrategy === "CAMPAIGN" && !campaignDailyBudgetMinor && !campaignLifetimeBudgetMinor) {
+    throw new Error("Campaign budget strategy needs a daily or lifetime campaign budget.");
+  }
+
+  return {
+    name,
+    objective: draft.objective,
+    buyingType: draft.buyingType,
+    campaignSettingsMode: draft.campaignSettingsMode,
+    budgetStrategy: draft.budgetStrategy,
+    campaignDailyBudgetMinor,
+    campaignLifetimeBudgetMinor,
+    bidStrategy: optionalText(draft.bidStrategy) ?? null,
+    spendCapMinor: nullablePositiveNumber(draft.spendCapMinor, "Spend cap"),
+    specialAdCategories: parseCategories(draft.specialAdCategories),
+    specialAdCategoryCountries: parseCategories(draft.specialAdCategoryCountries),
+    promotedObject: parseOptionalJsonObject(draft.promotedObject, "Promoted object"),
+    budgetScheduleSpecs: parseOptionalJsonValue(draft.budgetScheduleSpecs, "Budget schedule specs"),
+    isSkadnetworkAttribution: draft.isSkadnetworkAttribution,
+    abTestEnabled: draft.abTestEnabled,
+    liveAdsEnabled: draft.liveAdsEnabled,
+    metaStatus: draft.metaStatus
+  };
 }
 
 function countAds(campaign: CampaignDraftTree) {
@@ -558,6 +706,230 @@ function CreativeRow({ creative, onLaunch }: { creative: Creative; onLaunch?: (c
   );
 }
 
+function CampaignFieldGroups({
+  draft,
+  setDraft,
+  disabled,
+  autoFocusName = false
+}: {
+  draft: CampaignFormState;
+  setDraft: Dispatch<SetStateAction<CampaignFormState>>;
+  disabled: boolean;
+  autoFocusName?: boolean;
+}) {
+  const update = <Key extends keyof CampaignFormState>(field: Key, value: CampaignFormState[Key]) => {
+    setDraft((current) => ({ ...current, [field]: value }));
+  };
+
+  return (
+    <div className="campaignFieldStack">
+      <section className="formSubsection">
+        <div className="subsectionHeader">
+          <h3>Campaign basics</h3>
+        </div>
+        <div className="formGrid two">
+          <label className="fieldGroup wideField">
+            <span>Campaign name</span>
+            <input
+              value={draft.name}
+              onChange={(event) => update("name", event.target.value)}
+              disabled={disabled}
+              autoFocus={autoFocusName}
+            />
+          </label>
+          <label className="fieldGroup">
+            <span>Meta status</span>
+            <select value={draft.metaStatus} onChange={(event) => update("metaStatus", event.target.value)} disabled={disabled}>
+              {metaStatuses.map((status) => (
+                <option key={status} value={status}>
+                  {status}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="fieldGroup">
+            <span>Objective</span>
+            <select value={draft.objective} onChange={(event) => update("objective", event.target.value)} disabled={disabled}>
+              {campaignObjectives.map((objective) => (
+                <option key={objective} value={objective}>
+                  {objective}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="fieldGroup">
+            <span>Buying type</span>
+            <select value={draft.buyingType} onChange={(event) => update("buyingType", event.target.value)} disabled={disabled}>
+              {buyingTypes.map((type) => (
+                <option key={type} value={type}>
+                  {type}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="fieldGroup">
+            <span>Setup mode</span>
+            <select
+              value={draft.campaignSettingsMode}
+              onChange={(event) => update("campaignSettingsMode", event.target.value)}
+              disabled={disabled}
+            >
+              {campaignSettingsModes.map((mode) => (
+                <option key={mode.value} value={mode.value}>
+                  {mode.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="fieldGroup">
+            <span>Budget strategy</span>
+            <select value={draft.budgetStrategy} onChange={(event) => update("budgetStrategy", event.target.value)} disabled={disabled}>
+              {budgetStrategies.map((strategy) => (
+                <option key={strategy.value} value={strategy.value}>
+                  {strategy.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+      </section>
+
+      <section className="formSubsection">
+        <div className="subsectionHeader">
+          <h3>Campaign budget</h3>
+          <span>{draft.budgetStrategy === "CAMPAIGN" ? "Used at campaign level" : "Budget will be set per ad set"}</span>
+        </div>
+        <div className="formGrid three">
+          <label className="fieldGroup">
+            <span>Campaign daily budget minor</span>
+            <input
+              type="number"
+              min="1"
+              value={draft.campaignDailyBudgetMinor}
+              onChange={(event) => update("campaignDailyBudgetMinor", event.target.value)}
+              disabled={disabled || draft.budgetStrategy !== "CAMPAIGN"}
+            />
+          </label>
+          <label className="fieldGroup">
+            <span>Campaign lifetime budget minor</span>
+            <input
+              type="number"
+              min="1"
+              value={draft.campaignLifetimeBudgetMinor}
+              onChange={(event) => update("campaignLifetimeBudgetMinor", event.target.value)}
+              disabled={disabled || draft.budgetStrategy !== "CAMPAIGN"}
+            />
+          </label>
+          <label className="fieldGroup">
+            <span>Spend cap minor</span>
+            <input
+              type="number"
+              min="1"
+              value={draft.spendCapMinor}
+              onChange={(event) => update("spendCapMinor", event.target.value)}
+              disabled={disabled}
+            />
+          </label>
+          <label className="fieldGroup">
+            <span>Campaign bid strategy</span>
+            <select value={draft.bidStrategy} onChange={(event) => update("bidStrategy", event.target.value)} disabled={disabled}>
+              {bidStrategies.map((strategy) => (
+                <option key={strategy || "default"} value={strategy}>
+                  {strategy || "Meta default"}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+      </section>
+
+      <section className="formSubsection">
+        <div className="subsectionHeader">
+          <h3>Compliance</h3>
+        </div>
+        <div className="formGrid two">
+          <label className="fieldGroup">
+            <span>Special ad categories</span>
+            <input
+              value={draft.specialAdCategories}
+              onChange={(event) => update("specialAdCategories", event.target.value)}
+              placeholder="HOUSING, EMPLOYMENT, CREDIT, ISSUES_ELECTIONS_POLITICS"
+              disabled={disabled}
+            />
+          </label>
+          <label className="fieldGroup">
+            <span>Special ad category countries</span>
+            <input
+              value={draft.specialAdCategoryCountries}
+              onChange={(event) => update("specialAdCategoryCountries", event.target.value)}
+              placeholder="US, UA, PL"
+              disabled={disabled}
+            />
+          </label>
+        </div>
+        <div className="toggleGrid">
+          <label className="checkboxField">
+            <input
+              type="checkbox"
+              checked={draft.isSkadnetworkAttribution}
+              onChange={(event) => update("isSkadnetworkAttribution", event.target.checked)}
+              disabled={disabled}
+            />
+            <span>SKAdNetwork attribution campaign</span>
+          </label>
+          <label className="checkboxField">
+            <input
+              type="checkbox"
+              checked={draft.abTestEnabled}
+              onChange={(event) => update("abTestEnabled", event.target.checked)}
+              disabled={disabled}
+            />
+            <span>A/B testing enabled</span>
+          </label>
+          <label className="checkboxField">
+            <input
+              type="checkbox"
+              checked={draft.liveAdsEnabled}
+              onChange={(event) => update("liveAdsEnabled", event.target.checked)}
+              disabled={disabled}
+            />
+            <span>Live ads campaign</span>
+          </label>
+        </div>
+      </section>
+
+      <section className="formSubsection">
+        <div className="subsectionHeader">
+          <h3>Advanced campaign payload</h3>
+          <span>Promoted object and schedule</span>
+        </div>
+        <label className="fieldGroup">
+          <span>Promoted object JSON</span>
+          <textarea
+            className="codeTextarea"
+            value={draft.promotedObject}
+            onChange={(event) => update("promotedObject", event.target.value)}
+            placeholder='{"pixel_id":"...", "custom_event_type":"LEAD"}'
+            rows={4}
+            disabled={disabled}
+          />
+        </label>
+        <label className="fieldGroup">
+          <span>Budget schedule specs JSON</span>
+          <textarea
+            className="codeTextarea"
+            value={draft.budgetScheduleSpecs}
+            onChange={(event) => update("budgetScheduleSpecs", event.target.value)}
+            placeholder='[{"time_start":1699081200,"time_end":1699167600,"budget_value":100,"budget_value_type":"ABSOLUTE"}]'
+            rows={4}
+            disabled={disabled}
+          />
+        </label>
+      </section>
+    </div>
+  );
+}
+
 function CampaignCreateModal({
   loading,
   onClose,
@@ -567,30 +939,17 @@ function CampaignCreateModal({
   onClose: () => void;
   onSubmit: (payload: CampaignDraftPayload & { name: string }) => void;
 }) {
-  const [draft, setDraft] = useState({
-    name: "",
-    objective: "OUTCOME_TRAFFIC",
-    buyingType: "AUCTION",
-    specialAdCategories: "",
-    metaStatus: "PAUSED"
-  });
+  const [draft, setDraft] = useState<CampaignFormState>(defaultCampaignFormState());
   const [error, setError] = useState<string | null>(null);
 
   function submit(event: FormEvent) {
     event.preventDefault();
-    const name = draft.name.trim();
-    if (!name) {
-      setError("Campaign name is required.");
-      return;
+    try {
+      setError(null);
+      onSubmit(buildCampaignPayload(draft));
+    } catch (submitError) {
+      setError(submitError instanceof Error ? submitError.message : String(submitError));
     }
-    setError(null);
-    onSubmit({
-      name,
-      objective: draft.objective,
-      buyingType: draft.buyingType,
-      specialAdCategories: parseCategories(draft.specialAdCategories),
-      metaStatus: draft.metaStatus
-    });
   }
 
   return (
@@ -606,70 +965,7 @@ function CampaignCreateModal({
           </button>
         </div>
 
-        <div className="detailsForm">
-          <label className="fieldGroup">
-            <span>Campaign name</span>
-            <input
-              value={draft.name}
-              onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))}
-              disabled={loading}
-              autoFocus
-            />
-          </label>
-          <div className="formGrid two">
-            <label className="fieldGroup">
-              <span>Objective</span>
-              <select
-                value={draft.objective}
-                onChange={(event) => setDraft((current) => ({ ...current, objective: event.target.value }))}
-                disabled={loading}
-              >
-                {campaignObjectives.map((objective) => (
-                  <option key={objective} value={objective}>
-                    {objective}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="fieldGroup">
-              <span>Buying type</span>
-              <select
-                value={draft.buyingType}
-                onChange={(event) => setDraft((current) => ({ ...current, buyingType: event.target.value }))}
-                disabled={loading}
-              >
-                {buyingTypes.map((type) => (
-                  <option key={type} value={type}>
-                    {type}
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
-          <label className="fieldGroup">
-            <span>Special ad categories</span>
-            <input
-              value={draft.specialAdCategories}
-              onChange={(event) => setDraft((current) => ({ ...current, specialAdCategories: event.target.value }))}
-              placeholder="Comma-separated, empty by default"
-              disabled={loading}
-            />
-          </label>
-          <label className="fieldGroup">
-            <span>Meta status</span>
-            <select
-              value={draft.metaStatus}
-              onChange={(event) => setDraft((current) => ({ ...current, metaStatus: event.target.value }))}
-              disabled={loading}
-            >
-              {metaStatuses.map((status) => (
-                <option key={status} value={status}>
-                  {status}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
+        <CampaignFieldGroups draft={draft} setDraft={setDraft} disabled={loading} autoFocusName />
 
         {error ? (
           <div className="modalNotice">
@@ -830,37 +1126,18 @@ function CampaignSettingsForm({
   onSave: (payload: CampaignDraftPayload) => void;
   onError: (message: string) => void;
 }) {
-  const [draft, setDraft] = useState({
-    name: campaign.name,
-    objective: campaign.objective,
-    buyingType: campaign.buying_type,
-    specialAdCategories: formatCategories(campaign.special_ad_categories),
-    metaStatus: campaign.meta_status
-  });
+  const [draft, setDraft] = useState<CampaignFormState>(() => campaignToFormState(campaign));
 
   useEffect(() => {
-    setDraft({
-      name: campaign.name,
-      objective: campaign.objective,
-      buyingType: campaign.buying_type,
-      specialAdCategories: formatCategories(campaign.special_ad_categories),
-      metaStatus: campaign.meta_status
-    });
-  }, [campaign.id, campaign.name, campaign.objective, campaign.buying_type, campaign.special_ad_categories, campaign.meta_status]);
+    setDraft(campaignToFormState(campaign));
+  }, [campaign]);
 
   function save() {
-    const name = draft.name.trim();
-    if (!name) {
-      onError("Campaign name is required.");
-      return;
+    try {
+      onSave(buildCampaignPayload(draft));
+    } catch (saveError) {
+      onError(saveError instanceof Error ? saveError.message : String(saveError));
     }
-    onSave({
-      name,
-      objective: draft.objective,
-      buyingType: draft.buyingType,
-      specialAdCategories: parseCategories(draft.specialAdCategories),
-      metaStatus: draft.metaStatus
-    });
   }
 
   return (
@@ -878,67 +1155,7 @@ function CampaignSettingsForm({
           </button>
         </div>
       </div>
-      <div className="formGrid two">
-        <label className="fieldGroup">
-          <span>Campaign name</span>
-          <input
-            value={draft.name}
-            onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))}
-            disabled={saving}
-          />
-        </label>
-        <label className="fieldGroup">
-          <span>Meta status</span>
-          <select
-            value={draft.metaStatus}
-            onChange={(event) => setDraft((current) => ({ ...current, metaStatus: event.target.value }))}
-            disabled={saving}
-          >
-            {metaStatuses.map((status) => (
-              <option key={status} value={status}>
-                {status}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="fieldGroup">
-          <span>Objective</span>
-          <select
-            value={draft.objective}
-            onChange={(event) => setDraft((current) => ({ ...current, objective: event.target.value }))}
-            disabled={saving}
-          >
-            {campaignObjectives.map((objective) => (
-              <option key={objective} value={objective}>
-                {objective}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="fieldGroup">
-          <span>Buying type</span>
-          <select
-            value={draft.buyingType}
-            onChange={(event) => setDraft((current) => ({ ...current, buyingType: event.target.value }))}
-            disabled={saving}
-          >
-            {buyingTypes.map((type) => (
-              <option key={type} value={type}>
-                {type}
-              </option>
-            ))}
-          </select>
-        </label>
-      </div>
-      <label className="fieldGroup">
-        <span>Special ad categories</span>
-        <input
-          value={draft.specialAdCategories}
-          onChange={(event) => setDraft((current) => ({ ...current, specialAdCategories: event.target.value }))}
-          placeholder="Comma-separated"
-          disabled={saving}
-        />
-      </label>
+      <CampaignFieldGroups draft={draft} setDraft={setDraft} disabled={saving} />
     </section>
   );
 }
