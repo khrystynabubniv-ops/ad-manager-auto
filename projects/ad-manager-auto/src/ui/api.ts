@@ -30,7 +30,7 @@ export type Creative = {
 
 const apiBase = getClientConfig("API_BASE_URL");
 
-export type CreativeListKind = "ready" | "launched" | "needs_ad_details" | "upload_failed";
+export type CreativeListKind = "ready" | "launched" | "needs_ad_details" | "upload_failed" | "canceled";
 
 export type MetaCampaign = {
   id: string;

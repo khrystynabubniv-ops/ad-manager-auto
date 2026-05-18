@@ -70,6 +70,9 @@ app.get(
   [
     "/",
     "/dashboard",
+    "/in-use",
+    "/drafts",
+    "/archived",
     "/needs-details",
     "/upload-failed",
     "/launched",

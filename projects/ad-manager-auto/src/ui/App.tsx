@@ -3,7 +3,6 @@ import {
   ArrowLeft,
   Check,
   ChevronRight,
-  ExternalLink,
   ImageIcon,
   Loader2,
   LogOut,
@@ -47,7 +46,7 @@ import {
   updateCampaignDraft
 } from "./api";
 
-type CreativeView = "dashboard" | "needs-details" | "upload-failed" | "launched";
+type CreativeView = "ready" | "in-use" | "drafts" | "archived";
 type RouteState =
   | {
       area: "creatives";
@@ -279,37 +278,37 @@ const viewConfig: Record<
     empty: string;
   }
 > = {
-  dashboard: {
-    title: "Ready to launch",
+  ready: {
+    title: "Ready creatives",
     navLabel: "Ready",
     listKind: "ready",
     path: "/dashboard",
-    summary: "creatives ready",
-    empty: "No creatives ready to launch yet."
+    summary: "ready to set up",
+    empty: "No ready creatives yet."
   },
-  "needs-details": {
-    title: "Needs details",
-    navLabel: "Needs details",
-    listKind: "needs_ad_details",
-    path: "/needs-details",
-    summary: "creatives blocked",
-    empty: "No creatives are waiting on ad details."
-  },
-  "upload-failed": {
-    title: "Upload failed",
-    navLabel: "Upload failed",
-    listKind: "upload_failed",
-    path: "/upload-failed",
-    summary: "upload failures",
-    empty: "No upload failures right now."
-  },
-  launched: {
-    title: "Launched",
-    navLabel: "Launched",
+  "in-use": {
+    title: "In use",
+    navLabel: "In Use",
     listKind: "launched",
-    path: "/launched",
-    summary: "ads launched",
-    empty: "No launched ads yet."
+    path: "/in-use",
+    summary: "used in active ads",
+    empty: "No creatives are in use yet."
+  },
+  drafts: {
+    title: "Draft creatives",
+    navLabel: "Drafts",
+    listKind: "needs_ad_details",
+    path: "/drafts",
+    summary: "need setup details",
+    empty: "No draft creatives right now."
+  },
+  archived: {
+    title: "Archived creatives",
+    navLabel: "Archived",
+    listKind: "canceled",
+    path: "/archived",
+    summary: "no longer in use",
+    empty: "No archived creatives yet."
   }
 };
 
@@ -323,11 +322,14 @@ function activeRoute(): RouteState {
       campaignId: campaignMatch[1] ? Number(campaignMatch[1]) : undefined
     };
   }
-  if (window.location.pathname.includes("needs-details")) return { area: "creatives", view: "needs-details" };
-  if (window.location.pathname.includes("upload-failed")) return { area: "creatives", view: "upload-failed" };
-  return window.location.pathname.includes("launched")
-    ? { area: "creatives", view: "launched" }
-    : { area: "creatives", view: "dashboard" };
+  if (window.location.pathname.includes("in-use") || window.location.pathname.includes("launched")) {
+    return { area: "creatives", view: "in-use" };
+  }
+  if (window.location.pathname.includes("drafts") || window.location.pathname.includes("needs-details")) {
+    return { area: "creatives", view: "drafts" };
+  }
+  if (window.location.pathname.includes("archived")) return { area: "creatives", view: "archived" };
+  return { area: "creatives", view: "ready" };
 }
 
 function formatDate(value?: string | null) {
@@ -849,16 +851,48 @@ function fileToBase64(file: File) {
   });
 }
 
+function googleDriveImageUrl(value?: string | null) {
+  if (!value) return null;
+  const idMatch = value.match(/[?&]id=([^&]+)/) ?? value.match(/\/d\/([^/]+)/);
+  const id = idMatch?.[1] ?? value;
+  return id ? `https://drive.google.com/thumbnail?id=${encodeURIComponent(id)}&sz=w640` : null;
+}
+
+function creativePreviewUrl(creative: Creative) {
+  if (creative.asset_type !== "image") return null;
+  const driveSourceUrl = creative.source_file_id.includes(":") ? null : googleDriveImageUrl(creative.source_file_id);
+  return creative.preview_url || driveSourceUrl || googleDriveImageUrl(creative.google_drive_url);
+}
+
 function CreativePreview({ creative }: { creative: Creative }) {
-  if (creative.preview_url && creative.asset_type === "image") {
-    return <img src={creative.preview_url} alt="" className="previewImage" />;
+  const [previewFailed, setPreviewFailed] = useState(false);
+  const previewUrl = creativePreviewUrl(creative);
+
+  if (previewUrl && !previewFailed) {
+    return (
+      <img
+        src={previewUrl}
+        alt={creative.source_file_name ?? "Creative preview"}
+        className="previewImage"
+        onError={() => setPreviewFailed(true)}
+      />
+    );
   }
 
   return (
     <div className="previewFallback">
-      <span>{creative.asset_type ?? "asset"}</span>
+      <span>{creative.asset_type === "video" ? "Video preview unavailable" : "Preview unavailable"}</span>
     </div>
   );
+}
+
+function UploadStatusBadge({ creative }: { creative: Creative }) {
+  const failed = creative.status.includes("failed");
+  const uploaded = Boolean(creative.asset_id || creative.uploaded_at || creative.status === "ready_to_launch" || creative.status === "launched");
+  const label = failed ? "Upload failed" : uploaded ? "Uploaded" : "Pending upload";
+  const className = failed ? "uploadStatus failed" : uploaded ? "uploadStatus uploaded" : "uploadStatus pending";
+
+  return <span className={className}>{label}</span>;
 }
 
 function StatusChip({ value }: { value: string }) {
@@ -1032,7 +1066,7 @@ function ConfirmModal({
       <div className="modal">
         <div className="modalHeader">
           <div>
-            <p className="eyebrow">Confirm launch</p>
+            <p className="eyebrow">Review & launch</p>
             <input
               className="modalTitleInput"
               aria-label="Project type"
@@ -1135,12 +1169,6 @@ function ConfirmModal({
         ) : null}
 
         <div className="modalActions">
-          {creative.notion_task_url ? (
-            <a className="secondaryButton" href={creative.notion_task_url} target="_blank" rel="noreferrer">
-              <ExternalLink size={16} />
-              Edit in Notion
-            </a>
-          ) : null}
           <button className="secondaryButton" onClick={onClose} disabled={loading}>
             Cancel
           </button>
@@ -1150,7 +1178,7 @@ function ConfirmModal({
             disabled={loading || campaignsLoading || adSetsLoading || !placementReady || !detailsReady}
           >
             {loading ? <Loader2 size={16} className="spin" /> : <Play size={16} />}
-            Launch
+            Launch ad
           </button>
         </div>
       </div>
@@ -1160,7 +1188,9 @@ function ConfirmModal({
 
 function CreativeRow({ creative, onLaunch }: { creative: Creative; onLaunch?: (creative: Creative) => void }) {
   const creativeName = creative.source_file_name ?? creative.project_type ?? `Creative ${creative.id}`;
-  const hasPlacement = Boolean(creative.campaign_id || creative.adset_id || creative.campaign_name || creative.adset_name);
+  const hasCampaign = Boolean(creative.campaign_id || creative.campaign_name);
+  const hasAdSet = Boolean(creative.adset_id || creative.adset_name);
+  const setupReady = hasCampaign && hasAdSet;
 
   return (
     <article className="creativeRow">
@@ -1172,7 +1202,7 @@ function CreativeRow({ creative, onLaunch }: { creative: Creative; onLaunch?: (c
         </div>
         <div className="creativeTitleLine">
           <h3>{creativeName}</h3>
-          <StatusChip value={creative.status} />
+          <UploadStatusBadge creative={creative} />
         </div>
         {creative.project_type && creative.project_type !== creativeName ? (
           <p className="creativeFileName">{creative.project_type}</p>
@@ -1186,24 +1216,20 @@ function CreativeRow({ creative, onLaunch }: { creative: Creative; onLaunch?: (c
         </div>
       </div>
       <div className="creativeContext">
-        <div className={hasPlacement ? "placementSummary" : "placementSummary muted"}>
-          <span>Placement</span>
-          <strong>{creative.campaign_name ?? creative.campaign_id ?? "No campaign"}</strong>
-          <small>{creative.adset_name ?? creative.adset_id ?? "No ad set"}</small>
+        <div className={setupReady ? "campaignSetupSummary" : "campaignSetupSummary missing"}>
+          <span>Campaign</span>
+          <strong>{creative.campaign_name ?? (creative.campaign_id ? "Selected campaign" : "Not selected")}</strong>
+          <span>Ad set</span>
+          <strong>{creative.adset_name ?? (creative.adset_id ? "Selected ad set" : "Not selected")}</strong>
         </div>
         <div className="rowActions">
-          {creative.notion_task_url ? (
-            <a className="iconButton" href={creative.notion_task_url} target="_blank" rel="noreferrer" aria-label="Open Notion">
-              <ExternalLink size={18} />
-            </a>
-          ) : null}
           {onLaunch ? (
             <button className="primaryButton compact" onClick={() => onLaunch(creative)}>
               <Play size={16} />
-              Launch
+              {setupReady ? "Review & launch" : "Select campaign & ad set"}
             </button>
           ) : creative.status === "launched" ? (
-            <span className="stateIcon success" aria-label="Launched">
+            <span className="stateIcon success" aria-label="In use">
               <Check size={18} />
             </span>
           ) : (
@@ -3018,7 +3044,7 @@ function CampaignsPage({
 export function App() {
   const [ready, setReady] = useState(false);
   const [route, setRoute] = useState<RouteState>(activeRoute());
-  const creativeView = route.area === "creatives" ? route.view : "dashboard";
+  const creativeView = route.area === "creatives" ? route.view : "ready";
   const [creatives, setCreatives] = useState<Creative[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -3048,7 +3074,7 @@ export function App() {
       if (window.location.pathname === "/login/callback") {
         await auth.handleLoginRedirect();
         window.history.replaceState({}, "", "/dashboard");
-        setRoute({ area: "creatives", view: "dashboard" });
+        setRoute({ area: "creatives", view: "ready" });
       }
 
       const authenticated = await auth.isAuthenticated();
@@ -3155,7 +3181,7 @@ export function App() {
           <section className="navSection">
             <button
               className={route.area === "creatives" ? "navPrimary active" : "navPrimary"}
-              onClick={() => navigateCreative("dashboard")}
+              onClick={() => navigateCreative("ready")}
             >
               <ImageIcon size={18} />
               <span>
@@ -3225,18 +3251,10 @@ export function App() {
             </div>
           </header>
 
-          <section className="summaryBand">
+          <section className="summaryBand creativeSummaryBand">
             <div>
               <span>{counts.shown}</span>
               <p>{viewConfig[creativeView].summary}</p>
-            </div>
-            <div>
-              <span>Notion</span>
-              <p>Ads view is the source of truth</p>
-            </div>
-            <div>
-              <span>Meta</span>
-              <p>Assets upload before launch</p>
             </div>
           </section>
 
@@ -3260,7 +3278,7 @@ export function App() {
                 <CreativeRow
                   key={creative.id}
                   creative={creative}
-                  onLaunch={creativeView === "dashboard" ? setSelected : undefined}
+                  onLaunch={creativeView === "ready" ? setSelected : undefined}
                 />
               ))
             )}

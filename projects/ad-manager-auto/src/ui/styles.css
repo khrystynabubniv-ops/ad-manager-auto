@@ -341,6 +341,14 @@ button:disabled {
   color: #667085;
 }
 
+.creativeSummaryBand {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.creativeSummaryBand > div {
+  border-right: 0;
+}
+
 .notice {
   margin-bottom: 16px;
   display: flex;
@@ -488,6 +496,29 @@ button:disabled {
   color: #067647;
 }
 
+.uploadStatus {
+  flex: 0 0 auto;
+  border-radius: 999px;
+  padding: 4px 9px;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.uploadStatus.uploaded {
+  color: #067647;
+  background: #e9f9ef;
+}
+
+.uploadStatus.pending {
+  color: #b54708;
+  background: #fff4e5;
+}
+
+.uploadStatus.failed {
+  color: #b42318;
+  background: #ffeceb;
+}
+
 .adText {
   margin: 0;
   color: #344054;
@@ -542,6 +573,42 @@ button:disabled {
   display: grid;
   grid-template-rows: minmax(0, 1fr) auto;
   gap: 12px;
+}
+
+.campaignSetupSummary {
+  min-width: 0;
+  align-self: start;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 6px 10px;
+  border: 1px solid #dce6ee;
+  border-radius: 8px;
+  background: #f8fbff;
+  padding: 12px;
+}
+
+.campaignSetupSummary.missing {
+  background: #fffaf3;
+  border-color: #fed7aa;
+}
+
+.campaignSetupSummary span {
+  color: #667085;
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.campaignSetupSummary strong {
+  min-width: 0;
+  color: #263548;
+  font-size: 13px;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
+.campaignSetupSummary.missing strong {
+  color: #b54708;
 }
 
 .placementSummary {
