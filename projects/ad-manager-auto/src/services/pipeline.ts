@@ -117,9 +117,17 @@ function adName(fields: { notionTaskId: string; projectType?: string; sourceFile
   return `${projectType}_${yearMonth}_${shortTaskId}${source}`;
 }
 
-export async function handleNotionPageChange(pageId: string, requestId?: string) {
-  const fields = await retrieveCreativePage(pageId);
-  logger.info({ requestId, pageId, adStatus: fields.adStatus, designStatus: fields.designStatus }, "Handling Notion page change");
+async function processNotionCreativeFields(fields: NotionCreativeFields, requestId?: string) {
+  logger.info(
+    {
+      requestId,
+      pageId: fields.notionTaskId,
+      parentTaskId: fields.parentTaskId,
+      adStatus: fields.adStatus,
+      designStatus: fields.designStatus
+    },
+    "Handling Notion page change"
+  );
 
   if (fields.designStatus === DESIGN_STATUS.APPROVED_FOR_AD && (!fields.adStatus || fields.adStatus === AD_STATUS.NOT_STARTED)) {
     await updateAdPreparation(fields.notionTaskId, fields.googleDriveLink ?? fields.finalProject);
@@ -145,6 +153,38 @@ export async function handleNotionPageChange(pageId: string, requestId?: string)
   }
 
   return uploadCreativeFromNotion(fields, requestId);
+}
+
+export async function handleNotionPageChange(pageId: string, requestId?: string) {
+  const fields = await retrieveCreativePage(pageId);
+  const result = await processNotionCreativeFields(fields, requestId);
+
+  if (!fields.subItemIds?.length) {
+    return result;
+  }
+
+  const subItems = [];
+  for (const subItemId of fields.subItemIds) {
+    try {
+      const subItemFields = await retrieveCreativePage(subItemId);
+      const subItemResult = await processNotionCreativeFields(subItemFields, requestId);
+      subItems.push({ pageId: subItemFields.notionTaskId, ...subItemResult });
+    } catch (error) {
+      const message = getErrorMessage(error);
+      logger.error({ requestId, parentPageId: fields.notionTaskId, subItemId, error: message }, "Failed to handle Notion sub-item");
+      await recordEvent({
+        requestId,
+        notionTaskId: subItemId,
+        action: "sub_item_processing",
+        status: "failed",
+        error: message,
+        metadata: { parentTaskId: fields.notionTaskId }
+      });
+      subItems.push({ pageId: subItemId, action: "failed", error: message });
+    }
+  }
+
+  return { ...result, subItems };
 }
 
 export async function uploadCreativeFromNotion(fields: NotionCreativeFields, requestId?: string) {

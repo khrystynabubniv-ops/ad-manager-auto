@@ -79,6 +79,9 @@ nav {
   padding: 11px 12px;
   text-align: left;
   cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .navItem.active,
@@ -368,6 +371,14 @@ button:disabled {
   box-shadow: 0 24px 70px rgba(15, 23, 42, 0.22);
 }
 
+.campaignModal {
+  width: min(640px, 100%);
+}
+
+.creativePickerModal {
+  width: min(760px, 100%);
+}
+
 .modalHeader {
   display: flex;
   align-items: flex-start;
@@ -461,6 +472,226 @@ button:disabled {
   box-shadow: 0 0 0 3px rgba(11, 99, 206, 0.14);
 }
 
+.codeTextarea {
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 13px;
+}
+
+.formGrid {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.formGrid.two {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.formGrid.three {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.campaignTable {
+  display: grid;
+  gap: 8px;
+}
+
+.campaignTableGrid {
+  display: grid;
+  grid-template-columns: minmax(220px, 1.5fr) minmax(180px, 1fr) minmax(120px, 0.7fr) 90px minmax(130px, 0.8fr);
+  gap: 14px;
+  align-items: center;
+}
+
+.campaignTableHeader {
+  padding: 0 14px 4px;
+  color: #697586;
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.campaignTableRow {
+  width: 100%;
+  border: 1px solid #dfe5eb;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #1f2933;
+  padding: 14px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.campaignTableRow:hover {
+  border-color: #b8c4d2;
+  background: #f8fafc;
+}
+
+.campaignTableRow span,
+.campaignTableRow strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.backButton {
+  margin: 0 0 12px;
+  border: 0;
+  background: transparent;
+  color: #314155;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.builderStack {
+  display: grid;
+  gap: 14px;
+}
+
+.builderSection,
+.adsetEditor {
+  background: #ffffff;
+  border: 1px solid #dfe5eb;
+  border-radius: 8px;
+  padding: 18px;
+  display: grid;
+  gap: 14px;
+}
+
+.builderSection.flush {
+  padding-bottom: 18px;
+}
+
+.sectionHeader,
+.subsectionHeader {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: center;
+}
+
+.sectionHeader.compact {
+  align-items: flex-start;
+  margin-bottom: 10px;
+}
+
+.subsectionHeader {
+  padding-top: 2px;
+}
+
+.subsectionHeader span {
+  color: #697586;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.adDraftStack {
+  display: grid;
+  gap: 12px;
+  border-top: 1px solid #e5e9ee;
+  padding-top: 16px;
+}
+
+.inlineEmpty {
+  color: #697586;
+  border: 1px dashed #cbd5e1;
+  border-radius: 8px;
+  padding: 18px;
+  background: #f8fafc;
+}
+
+.adDraftEditor {
+  display: grid;
+  grid-template-columns: 180px 1fr;
+  gap: 16px;
+  border-top: 1px solid #e5e9ee;
+  padding-top: 16px;
+}
+
+.adDraftEditor:first-of-type {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.adDraftPreview {
+  display: grid;
+  gap: 10px;
+  align-content: start;
+}
+
+.adDraftPreview .previewImage,
+.adDraftPreview .previewFallback {
+  width: 180px;
+  height: 128px;
+}
+
+.adDraftPreview strong,
+.adDraftPreview span {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.adDraftPreview span {
+  margin-top: 4px;
+  color: #697586;
+  font-size: 13px;
+  text-transform: uppercase;
+}
+
+.adDraftFields {
+  min-width: 0;
+}
+
+.creativePickerList {
+  display: grid;
+  gap: 8px;
+  max-height: 460px;
+  overflow: auto;
+}
+
+.creativePickerRow {
+  width: 100%;
+  border: 1px solid #dfe5eb;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #1f2933;
+  display: grid;
+  grid-template-columns: 96px 1fr;
+  gap: 12px;
+  align-items: center;
+  padding: 10px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.creativePickerRow:hover,
+.creativePickerRow.selected {
+  border-color: #0b63ce;
+  background: #f8fbff;
+}
+
+.creativePickerRow .previewImage,
+.creativePickerRow .previewFallback {
+  width: 96px;
+  height: 68px;
+}
+
+.creativePickerRow strong,
+.creativePickerRow span {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.creativePickerRow span {
+  margin-top: 5px;
+  color: #697586;
+  font-size: 13px;
+  line-height: 1.35;
+}
+
 .modalNotice {
   margin-top: 14px;
   display: flex;
@@ -529,7 +760,12 @@ button:disabled {
 
   .summaryBand,
   .modalGrid,
-  .placementPanel {
+  .placementPanel,
+  .formGrid.two,
+  .formGrid.three,
+  .campaignTableGrid,
+  .adDraftEditor,
+  .creativePickerRow {
     grid-template-columns: 1fr;
   }
 
@@ -552,7 +788,21 @@ button:disabled {
 
   .rowActions,
   .headerActions,
-  .modalActions {
+  .modalActions,
+  .sectionHeader,
+  .subsectionHeader {
     flex-wrap: wrap;
+  }
+
+  .campaignTableHeader {
+    display: none;
+  }
+
+  .adDraftPreview .previewImage,
+  .adDraftPreview .previewFallback,
+  .creativePickerRow .previewImage,
+  .creativePickerRow .previewFallback {
+    width: 100%;
+    height: 180px;
   }
 }

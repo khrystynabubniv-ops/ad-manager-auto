@@ -4,7 +4,16 @@ import { fileURLToPath } from "node:url";
 import { Pool, QueryResultRow } from "pg";
 import { env } from "../config/env.js";
 import { logger } from "../logger.js";
-import { Creative } from "../types.js";
+import {
+  AdDraft,
+  AdDraftWithCreative,
+  AdSetDraft,
+  AdSetDraftWithAds,
+  CampaignDraft,
+  CampaignDraftTree,
+  Creative,
+  DraftStatus
+} from "../types.js";
 
 let pool: Pool | undefined;
 
@@ -261,6 +270,400 @@ export async function listCreatives(statuses: string[]): Promise<Creative[]> {
 export async function getCreativeById(id: number): Promise<Creative | undefined> {
   const result = await query<Creative>("SELECT * FROM creatives WHERE id = $1", [id]);
   return result.rows[0];
+}
+
+type JsonObject = Record<string, unknown>;
+
+export type CreateCampaignDraftInput = {
+  name: string;
+  objective?: string;
+  buyingType?: string;
+  specialAdCategories?: string[];
+  status?: DraftStatus;
+  metaStatus?: string;
+  metadata?: JsonObject;
+};
+
+export async function createCampaignDraft(input: CreateCampaignDraftInput): Promise<CampaignDraft> {
+  const result = await query<CampaignDraft>(
+    `
+      INSERT INTO campaign_drafts (
+        name, objective, buying_type, special_ad_categories, status, meta_status, metadata
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7)
+      RETURNING *
+    `,
+    [
+      input.name,
+      input.objective ?? "OUTCOME_TRAFFIC",
+      input.buyingType ?? "AUCTION",
+      input.specialAdCategories ?? [],
+      input.status ?? "draft",
+      input.metaStatus ?? "PAUSED",
+      JSON.stringify(input.metadata ?? {})
+    ]
+  );
+  return result.rows[0];
+}
+
+export type UpdateCampaignDraftInput = Partial<
+  Pick<CreateCampaignDraftInput, "name" | "objective" | "buyingType" | "specialAdCategories" | "status" | "metaStatus" | "metadata">
+> & {
+  metaCampaignId?: string | null;
+  lastError?: string | null;
+  publishedAt?: Date | null;
+};
+
+export async function updateCampaignDraft(
+  id: number,
+  input: UpdateCampaignDraftInput
+): Promise<CampaignDraft | undefined> {
+  const result = await query<CampaignDraft>(
+    `
+      UPDATE campaign_drafts
+      SET name = COALESCE($2, name),
+        objective = COALESCE($3, objective),
+        buying_type = COALESCE($4, buying_type),
+        special_ad_categories = COALESCE($5, special_ad_categories),
+        status = COALESCE($6, status),
+        meta_status = COALESCE($7, meta_status),
+        meta_campaign_id = COALESCE($8, meta_campaign_id),
+        metadata = COALESCE($9, metadata),
+        last_error = COALESCE($10, last_error),
+        published_at = COALESCE($11, published_at)
+      WHERE id = $1
+      RETURNING *
+    `,
+    [
+      id,
+      input.name ?? null,
+      input.objective ?? null,
+      input.buyingType ?? null,
+      input.specialAdCategories ?? null,
+      input.status ?? null,
+      input.metaStatus ?? null,
+      input.metaCampaignId ?? null,
+      input.metadata ? JSON.stringify(input.metadata) : null,
+      input.lastError ?? null,
+      input.publishedAt ?? null
+    ]
+  );
+  return result.rows[0];
+}
+
+export async function listCampaignDrafts(statuses?: DraftStatus[]): Promise<CampaignDraft[]> {
+  const result = statuses?.length
+    ? await query<CampaignDraft>(
+        "SELECT * FROM campaign_drafts WHERE status = ANY($1::text[]) ORDER BY updated_at DESC",
+        [statuses]
+      )
+    : await query<CampaignDraft>("SELECT * FROM campaign_drafts ORDER BY updated_at DESC");
+  return result.rows;
+}
+
+export async function getCampaignDraftById(id: number): Promise<CampaignDraft | undefined> {
+  const result = await query<CampaignDraft>("SELECT * FROM campaign_drafts WHERE id = $1", [id]);
+  return result.rows[0];
+}
+
+export type CreateAdSetDraftInput = {
+  campaignDraftId: number;
+  name: string;
+  optimizationGoal?: string;
+  billingEvent?: string;
+  bidStrategy?: string;
+  dailyBudgetMinor?: number;
+  lifetimeBudgetMinor?: number;
+  startTime?: Date;
+  endTime?: Date;
+  targeting?: JsonObject;
+  promotedObject?: JsonObject;
+  status?: DraftStatus;
+  metaStatus?: string;
+  sortOrder?: number;
+  metadata?: JsonObject;
+};
+
+export async function createAdSetDraft(input: CreateAdSetDraftInput): Promise<AdSetDraft> {
+  const result = await query<AdSetDraft>(
+    `
+      INSERT INTO adset_drafts (
+        campaign_draft_id, name, optimization_goal, billing_event, bid_strategy, daily_budget_minor,
+        lifetime_budget_minor, start_time, end_time, targeting, promoted_object, status, meta_status,
+        sort_order, metadata
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+      RETURNING *
+    `,
+    [
+      input.campaignDraftId,
+      input.name,
+      input.optimizationGoal ?? "LINK_CLICKS",
+      input.billingEvent ?? "IMPRESSIONS",
+      input.bidStrategy ?? null,
+      input.dailyBudgetMinor ?? null,
+      input.lifetimeBudgetMinor ?? null,
+      input.startTime ?? null,
+      input.endTime ?? null,
+      JSON.stringify(input.targeting ?? {}),
+      input.promotedObject ? JSON.stringify(input.promotedObject) : null,
+      input.status ?? "draft",
+      input.metaStatus ?? "PAUSED",
+      input.sortOrder ?? 0,
+      JSON.stringify(input.metadata ?? {})
+    ]
+  );
+  return result.rows[0];
+}
+
+export async function listAdSetDrafts(campaignDraftId: number): Promise<AdSetDraft[]> {
+  const result = await query<AdSetDraft>(
+    "SELECT * FROM adset_drafts WHERE campaign_draft_id = $1 ORDER BY sort_order ASC, id ASC",
+    [campaignDraftId]
+  );
+  return result.rows;
+}
+
+export async function getAdSetDraftById(id: number): Promise<AdSetDraft | undefined> {
+  const result = await query<AdSetDraft>("SELECT * FROM adset_drafts WHERE id = $1", [id]);
+  return result.rows[0];
+}
+
+export type UpdateAdSetDraftInput = Partial<
+  Pick<
+    CreateAdSetDraftInput,
+    | "name"
+    | "optimizationGoal"
+    | "billingEvent"
+    | "bidStrategy"
+    | "dailyBudgetMinor"
+    | "lifetimeBudgetMinor"
+    | "startTime"
+    | "endTime"
+    | "targeting"
+    | "promotedObject"
+    | "status"
+    | "metaStatus"
+    | "sortOrder"
+    | "metadata"
+  >
+> & {
+  metaAdSetId?: string | null;
+  lastError?: string | null;
+  publishedAt?: Date | null;
+};
+
+export async function updateAdSetDraft(id: number, input: UpdateAdSetDraftInput): Promise<AdSetDraft | undefined> {
+  const result = await query<AdSetDraft>(
+    `
+      UPDATE adset_drafts
+      SET name = COALESCE($2, name),
+        optimization_goal = COALESCE($3, optimization_goal),
+        billing_event = COALESCE($4, billing_event),
+        bid_strategy = COALESCE($5, bid_strategy),
+        daily_budget_minor = COALESCE($6, daily_budget_minor),
+        lifetime_budget_minor = COALESCE($7, lifetime_budget_minor),
+        start_time = COALESCE($8, start_time),
+        end_time = COALESCE($9, end_time),
+        targeting = COALESCE($10, targeting),
+        promoted_object = COALESCE($11, promoted_object),
+        status = COALESCE($12, status),
+        meta_status = COALESCE($13, meta_status),
+        meta_adset_id = COALESCE($14, meta_adset_id),
+        sort_order = COALESCE($15, sort_order),
+        metadata = COALESCE($16, metadata),
+        last_error = COALESCE($17, last_error),
+        published_at = COALESCE($18, published_at)
+      WHERE id = $1
+      RETURNING *
+    `,
+    [
+      id,
+      input.name ?? null,
+      input.optimizationGoal ?? null,
+      input.billingEvent ?? null,
+      input.bidStrategy ?? null,
+      input.dailyBudgetMinor ?? null,
+      input.lifetimeBudgetMinor ?? null,
+      input.startTime ?? null,
+      input.endTime ?? null,
+      input.targeting ? JSON.stringify(input.targeting) : null,
+      input.promotedObject ? JSON.stringify(input.promotedObject) : null,
+      input.status ?? null,
+      input.metaStatus ?? null,
+      input.metaAdSetId ?? null,
+      input.sortOrder ?? null,
+      input.metadata ? JSON.stringify(input.metadata) : null,
+      input.lastError ?? null,
+      input.publishedAt ?? null
+    ]
+  );
+  return result.rows[0];
+}
+
+export type CreateAdDraftInput = {
+  adSetDraftId: number;
+  creativeId: number;
+  name?: string;
+  primaryText?: string;
+  headline?: string;
+  description?: string;
+  ctaType?: string;
+  ctaLink?: string;
+  displayLink?: string;
+  urlTags?: string;
+  status?: DraftStatus;
+  metaStatus?: string;
+  sortOrder?: number;
+  metadata?: JsonObject;
+};
+
+export async function createAdDraft(input: CreateAdDraftInput): Promise<AdDraft> {
+  const result = await query<AdDraft>(
+    `
+      INSERT INTO ad_drafts (
+        adset_draft_id, creative_id, name, primary_text, headline, description, cta_type,
+        cta_link, display_link, url_tags, status, meta_status, sort_order, metadata
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+      RETURNING *
+    `,
+    [
+      input.adSetDraftId,
+      input.creativeId,
+      input.name ?? null,
+      input.primaryText ?? null,
+      input.headline ?? null,
+      input.description ?? null,
+      input.ctaType ?? "LEARN_MORE",
+      input.ctaLink ?? null,
+      input.displayLink ?? null,
+      input.urlTags ?? null,
+      input.status ?? "draft",
+      input.metaStatus ?? "PAUSED",
+      input.sortOrder ?? 0,
+      JSON.stringify(input.metadata ?? {})
+    ]
+  );
+  return result.rows[0];
+}
+
+export async function getAdDraftById(id: number): Promise<AdDraft | undefined> {
+  const result = await query<AdDraft>("SELECT * FROM ad_drafts WHERE id = $1", [id]);
+  return result.rows[0];
+}
+
+export type UpdateAdDraftInput = Partial<
+  Pick<
+    CreateAdDraftInput,
+    | "name"
+    | "creativeId"
+    | "primaryText"
+    | "headline"
+    | "description"
+    | "ctaType"
+    | "ctaLink"
+    | "displayLink"
+    | "urlTags"
+    | "status"
+    | "metaStatus"
+    | "sortOrder"
+    | "metadata"
+  >
+> & {
+  metaAdCreativeId?: string | null;
+  metaAdId?: string | null;
+  lastError?: string | null;
+  publishedAt?: Date | null;
+};
+
+export async function updateAdDraft(id: number, input: UpdateAdDraftInput): Promise<AdDraft | undefined> {
+  const result = await query<AdDraft>(
+    `
+      UPDATE ad_drafts
+      SET creative_id = COALESCE($2, creative_id),
+        name = COALESCE($3, name),
+        primary_text = COALESCE($4, primary_text),
+        headline = COALESCE($5, headline),
+        description = COALESCE($6, description),
+        cta_type = COALESCE($7, cta_type),
+        cta_link = COALESCE($8, cta_link),
+        display_link = COALESCE($9, display_link),
+        url_tags = COALESCE($10, url_tags),
+        status = COALESCE($11, status),
+        meta_status = COALESCE($12, meta_status),
+        meta_adcreative_id = COALESCE($13, meta_adcreative_id),
+        meta_ad_id = COALESCE($14, meta_ad_id),
+        sort_order = COALESCE($15, sort_order),
+        metadata = COALESCE($16, metadata),
+        last_error = COALESCE($17, last_error),
+        published_at = COALESCE($18, published_at)
+      WHERE id = $1
+      RETURNING *
+    `,
+    [
+      id,
+      input.creativeId ?? null,
+      input.name ?? null,
+      input.primaryText ?? null,
+      input.headline ?? null,
+      input.description ?? null,
+      input.ctaType ?? null,
+      input.ctaLink ?? null,
+      input.displayLink ?? null,
+      input.urlTags ?? null,
+      input.status ?? null,
+      input.metaStatus ?? null,
+      input.metaAdCreativeId ?? null,
+      input.metaAdId ?? null,
+      input.sortOrder ?? null,
+      input.metadata ? JSON.stringify(input.metadata) : null,
+      input.lastError ?? null,
+      input.publishedAt ?? null
+    ]
+  );
+  return result.rows[0];
+}
+
+export async function listAdDraftsForAdSets(adSetDraftIds: number[]): Promise<AdDraftWithCreative[]> {
+  if (!adSetDraftIds.length) {
+    return [];
+  }
+
+  const result = await query<AdDraftWithCreative>(
+    `
+      SELECT ad_drafts.*, to_jsonb(creatives.*) AS creative
+      FROM ad_drafts
+      JOIN creatives ON creatives.id = ad_drafts.creative_id
+      WHERE ad_drafts.adset_draft_id = ANY($1::bigint[])
+      ORDER BY ad_drafts.adset_draft_id ASC, ad_drafts.sort_order ASC, ad_drafts.id ASC
+    `,
+    [adSetDraftIds]
+  );
+  return result.rows;
+}
+
+export async function getCampaignDraftTree(id: number): Promise<CampaignDraftTree | undefined> {
+  const campaign = await getCampaignDraftById(id);
+  if (!campaign) {
+    return undefined;
+  }
+
+  const adsets = await listAdSetDrafts(id);
+  const ads = await listAdDraftsForAdSets(adsets.map((adset) => adset.id));
+  const adsByAdSetId = new Map<string, AdDraftWithCreative[]>();
+  for (const ad of ads) {
+    const key = String(ad.adset_draft_id);
+    adsByAdSetId.set(key, [...(adsByAdSetId.get(key) ?? []), ad]);
+  }
+
+  return {
+    ...campaign,
+    adsets: adsets.map<AdSetDraftWithAds>((adset) => ({
+      ...adset,
+      ads: adsByAdSetId.get(String(adset.id)) ?? []
+    }))
+  };
 }
 
 export async function recordEvent(input: {

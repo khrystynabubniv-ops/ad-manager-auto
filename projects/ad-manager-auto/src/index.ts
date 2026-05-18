@@ -5,6 +5,7 @@ import cors from "cors";
 import express from "express";
 import helmet from "helmet";
 import { env } from "./config/env.js";
+import { adDraftsRouter, adSetDraftsRouter, campaignDraftsRouter } from "./api/campaignDrafts.js";
 import { campaignsRouter } from "./api/campaigns.js";
 import { creativesRouter } from "./api/creatives.js";
 import { launchRouter } from "./api/launch.js";
@@ -56,17 +57,34 @@ app.use("/webhook", webhookRouter);
 app.use("/api/creatives", creativesRouter);
 app.use("/api/launch", launchRouter);
 app.use("/api/campaigns", campaignsRouter);
+app.use("/api/campaign-drafts", campaignDraftsRouter);
+app.use("/api/adset-drafts", adSetDraftsRouter);
+app.use("/api/ad-drafts", adDraftsRouter);
 app.use("/api/manual", manualRouter);
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const builtUiDir = path.resolve(process.cwd(), "dist/ui");
 const uiDir = fs.existsSync(builtUiDir) ? builtUiDir : path.resolve(__dirname, "../ui");
 app.use(express.static(uiDir));
-app.get(["/", "/dashboard", "/needs-details", "/upload-failed", "/launched", "/login/callback"], (_req, res, next) => {
-  res.sendFile(path.join(uiDir, "index.html"), (error) => {
-    if (error) next(error);
-  });
-});
+app.get(
+  [
+    "/",
+    "/dashboard",
+    "/needs-details",
+    "/upload-failed",
+    "/launched",
+    "/campaigns",
+    "/campaigns/:id",
+    "/builder",
+    "/builder/:id",
+    "/login/callback"
+  ],
+  (_req, res, next) => {
+    res.sendFile(path.join(uiDir, "index.html"), (error) => {
+      if (error) next(error);
+    });
+  }
+);
 
 app.use(errorHandler);
 

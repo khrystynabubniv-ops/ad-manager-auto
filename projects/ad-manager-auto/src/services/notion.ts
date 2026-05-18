@@ -30,6 +30,29 @@ const campaignIdPropertyAliases = [
   "Facebook Campaign Id"
 ];
 
+const parentItemPropertyAliases = [
+  "Parent item",
+  "Parent Item",
+  "Parent task",
+  "Parent Task",
+  "Parent",
+  "Parent project",
+  "Parent Project"
+];
+
+const subItemPropertyAliases = [
+  "Sub-item",
+  "Sub-items",
+  "Sub Item",
+  "Sub Items",
+  "Subtask",
+  "Subtasks",
+  "Sub-task",
+  "Sub-tasks",
+  "Sub task",
+  "Sub tasks"
+];
+
 export function getNotionClient(): Client {
   notion ??= new Client({ auth: requireEnv("NOTION_TOKEN") });
   return notion;
@@ -153,8 +176,12 @@ function propertyToString(property: any): string | undefined {
 }
 
 function relationPageId(property: any): string | undefined {
-  if (!property?.relation?.length) return undefined;
-  return property.relation[0].id;
+  return relationPageIds(property)[0];
+}
+
+function relationPageIds(property: any): string[] {
+  if (!property?.relation?.length) return [];
+  return property.relation.map((relation: any) => relation.id).filter(Boolean);
 }
 
 function relationName(property: any): string | undefined {
@@ -231,6 +258,8 @@ async function mapNotionPage(page: NotionPage & { properties: Properties; url?: 
   const p = page.properties;
   const campaignProperty = findProperty(p, notionPropertyNames.facebookCampaign, campaignPropertyAliases);
   const campaignPageId = relationPageId(campaignProperty);
+  const parentTaskId = relationPageId(findProperty(p, "Parent item", parentItemPropertyAliases));
+  const subItemIds = relationPageIds(findProperty(p, "Sub-item", subItemPropertyAliases));
   let campaignId = propertyToString(findProperty(p, notionPropertyNames.facebookCampaignId, campaignIdPropertyAliases));
   let campaignName = propertyToString(campaignProperty) ?? relationName(campaignProperty);
 
@@ -244,6 +273,8 @@ async function mapNotionPage(page: NotionPage & { properties: Properties; url?: 
     notionTaskId: page.id,
     notionTaskUrl: page.url,
     name: propertyToString(findProperty(p, "Name")) ?? "Untitled",
+    parentTaskId,
+    subItemIds,
     designStatus: propertyToString(findProperty(p, notionPropertyNames.designStatus)),
     adStatus: propertyToString(findProperty(p, notionPropertyNames.adStatus, ["Ad status"])),
     adText: propertyToString(findProperty(p, notionPropertyNames.adText, ["Ad text"])),

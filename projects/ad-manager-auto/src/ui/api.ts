@@ -51,6 +51,127 @@ export type MetaAdSet = {
   lifetime_budget?: string;
 };
 
+export type DraftStatus = "draft" | "publishing" | "published" | "publish_failed" | "archived";
+
+export type CampaignDraft = {
+  id: number;
+  name: string;
+  objective: string;
+  buying_type: string;
+  special_ad_categories: string[];
+  status: DraftStatus;
+  meta_status: string;
+  meta_campaign_id?: string | null;
+  metadata: Record<string, unknown>;
+  last_error?: string | null;
+  published_at?: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type AdSetDraft = {
+  id: number;
+  campaign_draft_id: number;
+  name: string;
+  optimization_goal: string;
+  billing_event: string;
+  bid_strategy?: string | null;
+  daily_budget_minor?: number | null;
+  lifetime_budget_minor?: number | null;
+  start_time?: string | null;
+  end_time?: string | null;
+  targeting: Record<string, unknown>;
+  promoted_object?: Record<string, unknown> | null;
+  status: DraftStatus;
+  meta_status: string;
+  meta_adset_id?: string | null;
+  sort_order: number;
+  metadata: Record<string, unknown>;
+  last_error?: string | null;
+  published_at?: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type AdDraft = {
+  id: number;
+  adset_draft_id: number;
+  creative_id: number;
+  name?: string | null;
+  primary_text?: string | null;
+  headline?: string | null;
+  description?: string | null;
+  cta_type: string;
+  cta_link?: string | null;
+  display_link?: string | null;
+  url_tags?: string | null;
+  status: DraftStatus;
+  meta_status: string;
+  meta_adcreative_id?: string | null;
+  meta_ad_id?: string | null;
+  sort_order: number;
+  metadata: Record<string, unknown>;
+  last_error?: string | null;
+  published_at?: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type AdDraftWithCreative = AdDraft & {
+  creative: Creative;
+};
+
+export type AdSetDraftWithAds = AdSetDraft & {
+  ads: AdDraftWithCreative[];
+};
+
+export type CampaignDraftTree = CampaignDraft & {
+  adsets: AdSetDraftWithAds[];
+};
+
+export type CampaignDraftPayload = {
+  name?: string;
+  objective?: string;
+  buyingType?: string;
+  specialAdCategories?: string[];
+  status?: DraftStatus;
+  metaStatus?: string;
+  metadata?: Record<string, unknown>;
+};
+
+export type AdSetDraftPayload = {
+  name?: string;
+  optimizationGoal?: string;
+  billingEvent?: string;
+  bidStrategy?: string;
+  dailyBudgetMinor?: number;
+  lifetimeBudgetMinor?: number;
+  startTime?: string;
+  endTime?: string;
+  targeting?: Record<string, unknown>;
+  promotedObject?: Record<string, unknown>;
+  status?: DraftStatus;
+  metaStatus?: string;
+  sortOrder?: number;
+  metadata?: Record<string, unknown>;
+};
+
+export type AdDraftPayload = {
+  creativeId?: number;
+  name?: string;
+  primaryText?: string;
+  headline?: string;
+  description?: string;
+  ctaType?: string;
+  ctaLink?: string;
+  displayLink?: string;
+  urlTags?: string;
+  status?: DraftStatus;
+  metaStatus?: string;
+  sortOrder?: number;
+  metadata?: Record<string, unknown>;
+};
+
 export type LaunchPlacement = {
   campaignId: string;
   campaignName?: string;
@@ -125,4 +246,69 @@ export async function syncCampaigns(): Promise<number> {
     body: JSON.stringify({})
   });
   return response.campaigns.length;
+}
+
+export async function fetchCampaignDrafts(statuses?: DraftStatus[]): Promise<CampaignDraft[]> {
+  const query = statuses?.length ? `?status=${encodeURIComponent(statuses.join(","))}` : "";
+  const response = await apiFetch<{ campaignDrafts: CampaignDraft[] }>(`/api/campaign-drafts${query}`);
+  return response.campaignDrafts;
+}
+
+export async function fetchCampaignDraft(id: number): Promise<CampaignDraftTree> {
+  const response = await apiFetch<{ campaignDraft: CampaignDraftTree }>(`/api/campaign-drafts/${id}`);
+  return response.campaignDraft;
+}
+
+export async function createCampaignDraft(payload: CampaignDraftPayload & { name: string }): Promise<CampaignDraft> {
+  const response = await apiFetch<{ campaignDraft: CampaignDraft }>("/api/campaign-drafts", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+  return response.campaignDraft;
+}
+
+export async function updateCampaignDraft(id: number, payload: CampaignDraftPayload): Promise<CampaignDraft> {
+  const response = await apiFetch<{ campaignDraft: CampaignDraft }>(`/api/campaign-drafts/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload)
+  });
+  return response.campaignDraft;
+}
+
+export async function createAdSetDraft(
+  campaignDraftId: number,
+  payload: AdSetDraftPayload & { name: string }
+): Promise<AdSetDraft> {
+  const response = await apiFetch<{ adSetDraft: AdSetDraft }>(`/api/campaign-drafts/${campaignDraftId}/adsets`, {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+  return response.adSetDraft;
+}
+
+export async function updateAdSetDraft(id: number, payload: AdSetDraftPayload): Promise<AdSetDraft> {
+  const response = await apiFetch<{ adSetDraft: AdSetDraft }>(`/api/adset-drafts/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload)
+  });
+  return response.adSetDraft;
+}
+
+export async function createAdDraft(
+  adSetDraftId: number,
+  payload: AdDraftPayload & { creativeId: number }
+): Promise<AdDraft> {
+  const response = await apiFetch<{ adDraft: AdDraft }>(`/api/adset-drafts/${adSetDraftId}/ads`, {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+  return response.adDraft;
+}
+
+export async function updateAdDraft(id: number, payload: AdDraftPayload): Promise<AdDraft> {
+  const response = await apiFetch<{ adDraft: AdDraft }>(`/api/ad-drafts/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload)
+  });
+  return response.adDraft;
 }

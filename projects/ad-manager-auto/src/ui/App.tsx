@@ -1,23 +1,75 @@
-import { AlertCircle, Check, ExternalLink, Loader2, LogOut, Play, RefreshCw } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  AlertCircle,
+  ArrowLeft,
+  Check,
+  ExternalLink,
+  ImageIcon,
+  Loader2,
+  LogOut,
+  Megaphone,
+  Plus,
+  Play,
+  RefreshCw,
+  Save,
+  X
+} from "lucide-react";
+import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { getOktaAuth, isAuthDisabled } from "./auth";
 import {
+  AdDraftPayload,
+  AdDraftWithCreative,
+  AdSetDraftPayload,
+  AdSetDraftWithAds,
+  CampaignDraft,
+  CampaignDraftPayload,
+  CampaignDraftTree,
   Creative,
   CreativeListKind,
   LaunchRequest,
   MetaAdSet,
   MetaCampaign,
+  createAdDraft,
+  createAdSetDraft,
+  createCampaignDraft,
   fetchAdSets,
+  fetchCampaignDraft,
+  fetchCampaignDrafts,
   fetchCampaigns,
   fetchCreatives,
   launchCreative,
-  syncCampaigns
+  syncCampaigns,
+  updateAdDraft,
+  updateAdSetDraft,
+  updateCampaignDraft
 } from "./api";
 
-type View = "dashboard" | "needs-details" | "upload-failed" | "launched";
+type CreativeView = "dashboard" | "needs-details" | "upload-failed" | "launched";
+type RouteState =
+  | {
+      area: "creatives";
+      view: CreativeView;
+    }
+  | {
+      area: "campaigns";
+      campaignId?: number;
+    };
+
+const campaignObjectives = [
+  "OUTCOME_TRAFFIC",
+  "OUTCOME_ENGAGEMENT",
+  "OUTCOME_LEADS",
+  "OUTCOME_SALES",
+  "OUTCOME_AWARENESS",
+  "OUTCOME_APP_PROMOTION"
+];
+const buyingTypes = ["AUCTION", "RESERVED"];
+const metaStatuses = ["PAUSED", "ACTIVE"];
+const optimizationGoals = ["LINK_CLICKS", "LANDING_PAGE_VIEWS", "IMPRESSIONS", "REACH", "OFFSITE_CONVERSIONS"];
+const billingEvents = ["IMPRESSIONS", "LINK_CLICKS"];
+const ctaTypes = ["LEARN_MORE", "SIGN_UP", "SHOP_NOW", "APPLY_NOW", "CONTACT_US", "SUBSCRIBE", "DOWNLOAD", "GET_QUOTE"];
 
 const viewConfig: Record<
-  View,
+  CreativeView,
   {
     title: string;
     navLabel: string;
@@ -61,10 +113,19 @@ const viewConfig: Record<
   }
 };
 
-function activeView(): View {
-  if (window.location.pathname.includes("needs-details")) return "needs-details";
-  if (window.location.pathname.includes("upload-failed")) return "upload-failed";
-  return window.location.pathname.includes("launched") ? "launched" : "dashboard";
+function activeRoute(): RouteState {
+  const campaignMatch = window.location.pathname.match(/^\/(?:campaigns|builder)(?:\/(\d+))?/);
+  if (campaignMatch) {
+    return {
+      area: "campaigns",
+      campaignId: campaignMatch[1] ? Number(campaignMatch[1]) : undefined
+    };
+  }
+  if (window.location.pathname.includes("needs-details")) return { area: "creatives", view: "needs-details" };
+  if (window.location.pathname.includes("upload-failed")) return { area: "creatives", view: "upload-failed" };
+  return window.location.pathname.includes("launched")
+    ? { area: "creatives", view: "launched" }
+    : { area: "creatives", view: "dashboard" };
 }
 
 function formatDate(value?: string | null) {
@@ -77,6 +138,55 @@ function formatDate(value?: string | null) {
   }).format(new Date(value));
 }
 
+function toDatetimeLocal(value?: string | null) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const localDate = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
+  return localDate.toISOString().slice(0, 16);
+}
+
+function fromDatetimeLocal(value: string) {
+  return value ? new Date(value).toISOString() : undefined;
+}
+
+function optionalText(value: string) {
+  const trimmed = value.trim();
+  return trimmed || undefined;
+}
+
+function optionalPositiveNumber(value: string, label: string) {
+  if (!value.trim()) return undefined;
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    throw new Error(`${label} must be a positive whole number.`);
+  }
+  return parsed;
+}
+
+function parseJsonObject(value: string, label: string): Record<string, unknown> {
+  const parsed = JSON.parse(value.trim() || "{}");
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error(`${label} must be a JSON object.`);
+  }
+  return parsed as Record<string, unknown>;
+}
+
+function parseCategories(value: string) {
+  return value
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function formatCategories(categories?: string[] | null) {
+  return categories?.join(", ") ?? "";
+}
+
+function countAds(campaign: CampaignDraftTree) {
+  return campaign.adsets.reduce((sum, adset) => sum + adset.ads.length, 0);
+}
+
 function CreativePreview({ creative }: { creative: Creative }) {
   if (creative.preview_url && creative.asset_type === "image") {
     return <img src={creative.preview_url} alt="" className="previewImage" />;
@@ -85,6 +195,28 @@ function CreativePreview({ creative }: { creative: Creative }) {
   return (
     <div className="previewFallback">
       <span>{creative.asset_type ?? "asset"}</span>
+    </div>
+  );
+}
+
+function StatusChip({ value }: { value: string }) {
+  return <span className={`statusChip ${value}`}>{value.replaceAll("_", " ")}</span>;
+}
+
+function ErrorNotice({ message }: { message: string }) {
+  return (
+    <div className="notice">
+      <AlertCircle size={18} />
+      {message}
+    </div>
+  );
+}
+
+function SuccessNotice({ message }: { message: string }) {
+  return (
+    <div className="notice success">
+      <Check size={18} />
+      {message}
     </div>
   );
 }
@@ -362,7 +494,7 @@ function CreativeRow({ creative, onLaunch }: { creative: Creative; onLaunch?: (c
       <div className="creativeMain">
         <div className="creativeTitleLine">
           <h3>{creative.project_type ?? "Promo creative"}</h3>
-          <span className={`statusChip ${creative.status}`}>{creative.status.replaceAll("_", " ")}</span>
+          <StatusChip value={creative.status} />
         </div>
         {creative.source_file_name ? <p className="creativeFileName">{creative.source_file_name}</p> : null}
         <p className="adText">{creative.ad_text}</p>
@@ -395,15 +527,1105 @@ function CreativeRow({ creative, onLaunch }: { creative: Creative; onLaunch?: (c
   );
 }
 
+function CampaignCreateModal({
+  loading,
+  onClose,
+  onSubmit
+}: {
+  loading: boolean;
+  onClose: () => void;
+  onSubmit: (payload: CampaignDraftPayload & { name: string }) => void;
+}) {
+  const [draft, setDraft] = useState({
+    name: "",
+    objective: "OUTCOME_TRAFFIC",
+    buyingType: "AUCTION",
+    specialAdCategories: "",
+    metaStatus: "PAUSED"
+  });
+  const [error, setError] = useState<string | null>(null);
+
+  function submit(event: FormEvent) {
+    event.preventDefault();
+    const name = draft.name.trim();
+    if (!name) {
+      setError("Campaign name is required.");
+      return;
+    }
+    setError(null);
+    onSubmit({
+      name,
+      objective: draft.objective,
+      buyingType: draft.buyingType,
+      specialAdCategories: parseCategories(draft.specialAdCategories),
+      metaStatus: draft.metaStatus
+    });
+  }
+
+  return (
+    <div className="modalOverlay" role="dialog" aria-modal="true">
+      <form className="modal campaignModal" onSubmit={submit}>
+        <div className="modalHeader">
+          <div>
+            <p className="eyebrow">New campaign draft</p>
+            <h2>Create campaign</h2>
+          </div>
+          <button type="button" className="iconButton" onClick={onClose} aria-label="Close" disabled={loading}>
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="detailsForm">
+          <label className="fieldGroup">
+            <span>Campaign name</span>
+            <input
+              value={draft.name}
+              onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))}
+              disabled={loading}
+              autoFocus
+            />
+          </label>
+          <div className="formGrid two">
+            <label className="fieldGroup">
+              <span>Objective</span>
+              <select
+                value={draft.objective}
+                onChange={(event) => setDraft((current) => ({ ...current, objective: event.target.value }))}
+                disabled={loading}
+              >
+                {campaignObjectives.map((objective) => (
+                  <option key={objective} value={objective}>
+                    {objective}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="fieldGroup">
+              <span>Buying type</span>
+              <select
+                value={draft.buyingType}
+                onChange={(event) => setDraft((current) => ({ ...current, buyingType: event.target.value }))}
+                disabled={loading}
+              >
+                {buyingTypes.map((type) => (
+                  <option key={type} value={type}>
+                    {type}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+          <label className="fieldGroup">
+            <span>Special ad categories</span>
+            <input
+              value={draft.specialAdCategories}
+              onChange={(event) => setDraft((current) => ({ ...current, specialAdCategories: event.target.value }))}
+              placeholder="Comma-separated, empty by default"
+              disabled={loading}
+            />
+          </label>
+          <label className="fieldGroup">
+            <span>Meta status</span>
+            <select
+              value={draft.metaStatus}
+              onChange={(event) => setDraft((current) => ({ ...current, metaStatus: event.target.value }))}
+              disabled={loading}
+            >
+              {metaStatuses.map((status) => (
+                <option key={status} value={status}>
+                  {status}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+
+        {error ? (
+          <div className="modalNotice">
+            <AlertCircle size={16} />
+            {error}
+          </div>
+        ) : null}
+
+        <div className="modalActions">
+          <button type="button" className="secondaryButton" onClick={onClose} disabled={loading}>
+            Cancel
+          </button>
+          <button className="primaryButton" disabled={loading}>
+            {loading ? <Loader2 size={16} className="spin" /> : <Plus size={16} />}
+            Create campaign
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function CampaignDraftListView({ ready, onOpen }: { ready: boolean; onOpen: (id: number) => void }) {
+  const [drafts, setDrafts] = useState<CampaignDraft[]>([]);
+  const [adSetCounts, setAdSetCounts] = useState<Record<number, number>>({});
+  const [loading, setLoading] = useState(true);
+  const [creating, setCreating] = useState(false);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    if (!ready) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const items = await fetchCampaignDrafts();
+      setDrafts(items);
+      const detailPairs = await Promise.all(
+        items.map(async (draft) => {
+          try {
+            const detail = await fetchCampaignDraft(draft.id);
+            return [draft.id, detail.adsets.length] as const;
+          } catch {
+            return [draft.id, 0] as const;
+          }
+        })
+      );
+      setAdSetCounts(Object.fromEntries(detailPairs));
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : String(loadError));
+    } finally {
+      setLoading(false);
+    }
+  }, [ready]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  async function submitCampaign(payload: CampaignDraftPayload & { name: string }) {
+    setCreating(true);
+    setError(null);
+    try {
+      const campaign = await createCampaignDraft(payload);
+      setCreateOpen(false);
+      onOpen(campaign.id);
+    } catch (createError) {
+      setError(createError instanceof Error ? createError.message : String(createError));
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  return (
+    <main className="content">
+      <header className="pageHeader">
+        <div>
+          <p className="eyebrow">Campaign Builder</p>
+          <h1>Campaign drafts</h1>
+        </div>
+        <div className="headerActions">
+          <button className="secondaryButton" onClick={load} disabled={loading}>
+            <RefreshCw size={16} className={loading ? "spin" : ""} />
+            Refresh
+          </button>
+          <button className="primaryButton" onClick={() => setCreateOpen(true)}>
+            <Plus size={16} />
+            Create campaign
+          </button>
+        </div>
+      </header>
+
+      <section className="summaryBand">
+        <div>
+          <span>{drafts.length}</span>
+          <p>campaign drafts</p>
+        </div>
+        <div>
+          <span>{drafts.filter((draft) => draft.status === "draft").length}</span>
+          <p>open drafts</p>
+        </div>
+        <div>
+          <span>Meta</span>
+          <p>Publish flow coming next</p>
+        </div>
+      </section>
+
+      {error ? <ErrorNotice message={error} /> : null}
+
+      <section className="campaignTable">
+        <div className="campaignTableHeader campaignTableGrid">
+          <span>Name</span>
+          <span>Objective</span>
+          <span>Status</span>
+          <span>Ad sets</span>
+          <span>Updated</span>
+        </div>
+        {loading ? (
+          <div className="emptyState">
+            <Loader2 className="spin" />
+            Loading campaign drafts
+          </div>
+        ) : drafts.length === 0 ? (
+          <div className="emptyState">
+            <Megaphone size={28} />
+            No campaign drafts yet.
+          </div>
+        ) : (
+          drafts.map((draft) => (
+            <button key={draft.id} className="campaignTableRow campaignTableGrid" onClick={() => onOpen(draft.id)}>
+              <strong>{draft.name}</strong>
+              <span>{draft.objective}</span>
+              <span>
+                <StatusChip value={draft.status} />
+              </span>
+              <span>{adSetCounts[draft.id] ?? 0}</span>
+              <span>{formatDate(draft.updated_at)}</span>
+            </button>
+          ))
+        )}
+      </section>
+
+      {createOpen ? (
+        <CampaignCreateModal loading={creating} onClose={() => setCreateOpen(false)} onSubmit={submitCampaign} />
+      ) : null}
+    </main>
+  );
+}
+
+function CampaignSettingsForm({
+  campaign,
+  saving,
+  onSave,
+  onError
+}: {
+  campaign: CampaignDraftTree;
+  saving: boolean;
+  onSave: (payload: CampaignDraftPayload) => void;
+  onError: (message: string) => void;
+}) {
+  const [draft, setDraft] = useState({
+    name: campaign.name,
+    objective: campaign.objective,
+    buyingType: campaign.buying_type,
+    specialAdCategories: formatCategories(campaign.special_ad_categories),
+    metaStatus: campaign.meta_status
+  });
+
+  useEffect(() => {
+    setDraft({
+      name: campaign.name,
+      objective: campaign.objective,
+      buyingType: campaign.buying_type,
+      specialAdCategories: formatCategories(campaign.special_ad_categories),
+      metaStatus: campaign.meta_status
+    });
+  }, [campaign.id, campaign.name, campaign.objective, campaign.buying_type, campaign.special_ad_categories, campaign.meta_status]);
+
+  function save() {
+    const name = draft.name.trim();
+    if (!name) {
+      onError("Campaign name is required.");
+      return;
+    }
+    onSave({
+      name,
+      objective: draft.objective,
+      buyingType: draft.buyingType,
+      specialAdCategories: parseCategories(draft.specialAdCategories),
+      metaStatus: draft.metaStatus
+    });
+  }
+
+  return (
+    <section className="builderSection">
+      <div className="sectionHeader">
+        <div>
+          <p className="eyebrow">Campaign</p>
+          <h2>Settings</h2>
+        </div>
+        <div className="headerActions">
+          <StatusChip value={campaign.status} />
+          <button className="primaryButton" onClick={save} disabled={saving}>
+            {saving ? <Loader2 size={16} className="spin" /> : <Save size={16} />}
+            Save campaign
+          </button>
+        </div>
+      </div>
+      <div className="formGrid two">
+        <label className="fieldGroup">
+          <span>Campaign name</span>
+          <input
+            value={draft.name}
+            onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))}
+            disabled={saving}
+          />
+        </label>
+        <label className="fieldGroup">
+          <span>Meta status</span>
+          <select
+            value={draft.metaStatus}
+            onChange={(event) => setDraft((current) => ({ ...current, metaStatus: event.target.value }))}
+            disabled={saving}
+          >
+            {metaStatuses.map((status) => (
+              <option key={status} value={status}>
+                {status}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="fieldGroup">
+          <span>Objective</span>
+          <select
+            value={draft.objective}
+            onChange={(event) => setDraft((current) => ({ ...current, objective: event.target.value }))}
+            disabled={saving}
+          >
+            {campaignObjectives.map((objective) => (
+              <option key={objective} value={objective}>
+                {objective}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="fieldGroup">
+          <span>Buying type</span>
+          <select
+            value={draft.buyingType}
+            onChange={(event) => setDraft((current) => ({ ...current, buyingType: event.target.value }))}
+            disabled={saving}
+          >
+            {buyingTypes.map((type) => (
+              <option key={type} value={type}>
+                {type}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+      <label className="fieldGroup">
+        <span>Special ad categories</span>
+        <input
+          value={draft.specialAdCategories}
+          onChange={(event) => setDraft((current) => ({ ...current, specialAdCategories: event.target.value }))}
+          placeholder="Comma-separated"
+          disabled={saving}
+        />
+      </label>
+    </section>
+  );
+}
+
+function AdDraftEditor({
+  ad,
+  saving,
+  onSave,
+  onError
+}: {
+  ad: AdDraftWithCreative;
+  saving: boolean;
+  onSave: (id: number, payload: AdDraftPayload) => void;
+  onError: (message: string) => void;
+}) {
+  const [draft, setDraft] = useState({
+    name: ad.name ?? "",
+    primaryText: ad.primary_text ?? "",
+    headline: ad.headline ?? "",
+    description: ad.description ?? "",
+    ctaType: ad.cta_type || "LEARN_MORE",
+    ctaLink: ad.cta_link ?? "",
+    displayLink: ad.display_link ?? "",
+    urlTags: ad.url_tags ?? "",
+    metaStatus: ad.meta_status || "PAUSED"
+  });
+
+  useEffect(() => {
+    setDraft({
+      name: ad.name ?? "",
+      primaryText: ad.primary_text ?? "",
+      headline: ad.headline ?? "",
+      description: ad.description ?? "",
+      ctaType: ad.cta_type || "LEARN_MORE",
+      ctaLink: ad.cta_link ?? "",
+      displayLink: ad.display_link ?? "",
+      urlTags: ad.url_tags ?? "",
+      metaStatus: ad.meta_status || "PAUSED"
+    });
+  }, [ad]);
+
+  function save() {
+    if (!draft.name.trim()) {
+      onError("Ad name is required.");
+      return;
+    }
+    onSave(ad.id, {
+      name: draft.name.trim(),
+      primaryText: optionalText(draft.primaryText),
+      headline: optionalText(draft.headline),
+      description: optionalText(draft.description),
+      ctaType: draft.ctaType,
+      ctaLink: optionalText(draft.ctaLink),
+      displayLink: optionalText(draft.displayLink),
+      urlTags: optionalText(draft.urlTags),
+      metaStatus: draft.metaStatus
+    });
+  }
+
+  return (
+    <article className="adDraftEditor">
+      <div className="adDraftPreview">
+        <CreativePreview creative={ad.creative} />
+        <div>
+          <strong>{ad.creative.source_file_name ?? `Creative ${ad.creative.id}`}</strong>
+          <span>{ad.creative.asset_type ?? "asset"}</span>
+        </div>
+      </div>
+      <div className="adDraftFields">
+        <div className="sectionHeader compact">
+          <div>
+            <p className="eyebrow">Ad draft</p>
+            <h3>{draft.name || "Untitled ad"}</h3>
+          </div>
+          <div className="headerActions">
+            <StatusChip value={ad.status} />
+            <button className="secondaryButton" onClick={save} disabled={saving}>
+              {saving ? <Loader2 size={16} className="spin" /> : <Save size={16} />}
+              Save ad
+            </button>
+          </div>
+        </div>
+        <div className="formGrid two">
+          <label className="fieldGroup">
+            <span>Name</span>
+            <input
+              value={draft.name}
+              onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))}
+              disabled={saving}
+            />
+          </label>
+          <label className="fieldGroup">
+            <span>CTA type</span>
+            <select
+              value={draft.ctaType}
+              onChange={(event) => setDraft((current) => ({ ...current, ctaType: event.target.value }))}
+              disabled={saving}
+            >
+              {ctaTypes.map((type) => (
+                <option key={type} value={type}>
+                  {type}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+        <label className="fieldGroup">
+          <span>Primary text</span>
+          <textarea
+            value={draft.primaryText}
+            onChange={(event) => setDraft((current) => ({ ...current, primaryText: event.target.value }))}
+            rows={3}
+            disabled={saving}
+          />
+        </label>
+        <div className="formGrid two">
+          <label className="fieldGroup">
+            <span>Headline</span>
+            <input
+              value={draft.headline}
+              onChange={(event) => setDraft((current) => ({ ...current, headline: event.target.value }))}
+              disabled={saving}
+            />
+          </label>
+          <label className="fieldGroup">
+            <span>Description</span>
+            <input
+              value={draft.description}
+              onChange={(event) => setDraft((current) => ({ ...current, description: event.target.value }))}
+              disabled={saving}
+            />
+          </label>
+          <label className="fieldGroup">
+            <span>CTA link</span>
+            <input
+              type="url"
+              value={draft.ctaLink}
+              onChange={(event) => setDraft((current) => ({ ...current, ctaLink: event.target.value }))}
+              disabled={saving}
+            />
+          </label>
+          <label className="fieldGroup">
+            <span>Display link</span>
+            <input
+              value={draft.displayLink}
+              onChange={(event) => setDraft((current) => ({ ...current, displayLink: event.target.value }))}
+              disabled={saving}
+            />
+          </label>
+          <label className="fieldGroup">
+            <span>URL tags</span>
+            <input
+              value={draft.urlTags}
+              onChange={(event) => setDraft((current) => ({ ...current, urlTags: event.target.value }))}
+              disabled={saving}
+            />
+          </label>
+          <label className="fieldGroup">
+            <span>Meta status</span>
+            <select
+              value={draft.metaStatus}
+              onChange={(event) => setDraft((current) => ({ ...current, metaStatus: event.target.value }))}
+              disabled={saving}
+            >
+              {metaStatuses.map((status) => (
+                <option key={status} value={status}>
+                  {status}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+      </div>
+    </article>
+  );
+}
+
+function AdSetEditor({
+  adset,
+  saving,
+  onSave,
+  onAddCreative,
+  onSaveAd,
+  onError
+}: {
+  adset: AdSetDraftWithAds;
+  saving: string | null;
+  onSave: (id: number, payload: AdSetDraftPayload) => void;
+  onAddCreative: (adsetId: number) => void;
+  onSaveAd: (id: number, payload: AdDraftPayload) => void;
+  onError: (message: string) => void;
+}) {
+  const [draft, setDraft] = useState({
+    name: adset.name,
+    optimizationGoal: adset.optimization_goal || "LINK_CLICKS",
+    billingEvent: adset.billing_event || "IMPRESSIONS",
+    dailyBudgetMinor: adset.daily_budget_minor?.toString() ?? "",
+    lifetimeBudgetMinor: adset.lifetime_budget_minor?.toString() ?? "",
+    startTime: toDatetimeLocal(adset.start_time),
+    endTime: toDatetimeLocal(adset.end_time),
+    targeting: JSON.stringify(adset.targeting ?? {}, null, 2),
+    metaStatus: adset.meta_status || "PAUSED"
+  });
+
+  useEffect(() => {
+    setDraft({
+      name: adset.name,
+      optimizationGoal: adset.optimization_goal || "LINK_CLICKS",
+      billingEvent: adset.billing_event || "IMPRESSIONS",
+      dailyBudgetMinor: adset.daily_budget_minor?.toString() ?? "",
+      lifetimeBudgetMinor: adset.lifetime_budget_minor?.toString() ?? "",
+      startTime: toDatetimeLocal(adset.start_time),
+      endTime: toDatetimeLocal(adset.end_time),
+      targeting: JSON.stringify(adset.targeting ?? {}, null, 2),
+      metaStatus: adset.meta_status || "PAUSED"
+    });
+  }, [adset]);
+
+  function save() {
+    const name = draft.name.trim();
+    if (!name) {
+      onError("Ad set name is required.");
+      return;
+    }
+
+    try {
+      onSave(adset.id, {
+        name,
+        optimizationGoal: draft.optimizationGoal,
+        billingEvent: draft.billingEvent,
+        dailyBudgetMinor: optionalPositiveNumber(draft.dailyBudgetMinor, "Daily budget"),
+        lifetimeBudgetMinor: optionalPositiveNumber(draft.lifetimeBudgetMinor, "Lifetime budget"),
+        startTime: fromDatetimeLocal(draft.startTime),
+        endTime: fromDatetimeLocal(draft.endTime),
+        targeting: parseJsonObject(draft.targeting, "Targeting"),
+        metaStatus: draft.metaStatus
+      });
+    } catch (saveError) {
+      onError(saveError instanceof Error ? saveError.message : String(saveError));
+    }
+  }
+
+  const adSetSaving = saving === `adset-${adset.id}`;
+
+  return (
+    <section className="adsetEditor">
+      <div className="sectionHeader">
+        <div>
+          <p className="eyebrow">Ad set draft</p>
+          <h2>{adset.name}</h2>
+        </div>
+        <div className="headerActions">
+          <StatusChip value={adset.status} />
+          <button className="secondaryButton" onClick={() => onAddCreative(adset.id)}>
+            <ImageIcon size={16} />
+            Add creative
+          </button>
+          <button className="primaryButton" onClick={save} disabled={adSetSaving}>
+            {adSetSaving ? <Loader2 size={16} className="spin" /> : <Save size={16} />}
+            Save ad set
+          </button>
+        </div>
+      </div>
+
+      <div className="formGrid three">
+        <label className="fieldGroup">
+          <span>Name</span>
+          <input
+            value={draft.name}
+            onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))}
+            disabled={adSetSaving}
+          />
+        </label>
+        <label className="fieldGroup">
+          <span>Optimization goal</span>
+          <select
+            value={draft.optimizationGoal}
+            onChange={(event) => setDraft((current) => ({ ...current, optimizationGoal: event.target.value }))}
+            disabled={adSetSaving}
+          >
+            {optimizationGoals.map((goal) => (
+              <option key={goal} value={goal}>
+                {goal}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="fieldGroup">
+          <span>Billing event</span>
+          <select
+            value={draft.billingEvent}
+            onChange={(event) => setDraft((current) => ({ ...current, billingEvent: event.target.value }))}
+            disabled={adSetSaving}
+          >
+            {billingEvents.map((event) => (
+              <option key={event} value={event}>
+                {event}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="fieldGroup">
+          <span>Daily budget minor</span>
+          <input
+            type="number"
+            min="1"
+            value={draft.dailyBudgetMinor}
+            onChange={(event) => setDraft((current) => ({ ...current, dailyBudgetMinor: event.target.value }))}
+            disabled={adSetSaving}
+          />
+        </label>
+        <label className="fieldGroup">
+          <span>Lifetime budget minor</span>
+          <input
+            type="number"
+            min="1"
+            value={draft.lifetimeBudgetMinor}
+            onChange={(event) => setDraft((current) => ({ ...current, lifetimeBudgetMinor: event.target.value }))}
+            disabled={adSetSaving}
+          />
+        </label>
+        <label className="fieldGroup">
+          <span>Meta status</span>
+          <select
+            value={draft.metaStatus}
+            onChange={(event) => setDraft((current) => ({ ...current, metaStatus: event.target.value }))}
+            disabled={adSetSaving}
+          >
+            {metaStatuses.map((status) => (
+              <option key={status} value={status}>
+                {status}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="fieldGroup">
+          <span>Start time</span>
+          <input
+            type="datetime-local"
+            value={draft.startTime}
+            onChange={(event) => setDraft((current) => ({ ...current, startTime: event.target.value }))}
+            disabled={adSetSaving}
+          />
+        </label>
+        <label className="fieldGroup">
+          <span>End time</span>
+          <input
+            type="datetime-local"
+            value={draft.endTime}
+            onChange={(event) => setDraft((current) => ({ ...current, endTime: event.target.value }))}
+            disabled={adSetSaving}
+          />
+        </label>
+      </div>
+      <label className="fieldGroup">
+        <span>Targeting JSON</span>
+        <textarea
+          className="codeTextarea"
+          value={draft.targeting}
+          onChange={(event) => setDraft((current) => ({ ...current, targeting: event.target.value }))}
+          rows={5}
+          disabled={adSetSaving}
+        />
+      </label>
+
+      <div className="adDraftStack">
+        <div className="subsectionHeader">
+          <h3>Ad drafts</h3>
+          <span>{adset.ads.length} creative{adset.ads.length === 1 ? "" : "s"}</span>
+        </div>
+        {adset.ads.length === 0 ? (
+          <div className="inlineEmpty">No creatives assigned to this ad set yet.</div>
+        ) : (
+          adset.ads.map((ad) => (
+            <AdDraftEditor
+              key={ad.id}
+              ad={ad}
+              saving={saving === `ad-${ad.id}`}
+              onSave={onSaveAd}
+              onError={onError}
+            />
+          ))
+        )}
+      </div>
+    </section>
+  );
+}
+
+function AddCreativeModal({
+  loading,
+  adsetId,
+  onClose,
+  onAdd
+}: {
+  loading: boolean;
+  adsetId: number;
+  onClose: () => void;
+  onAdd: (adsetId: number, creativeId: number) => void;
+}) {
+  const [creatives, setCreatives] = useState<Creative[]>([]);
+  const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [loadingCreatives, setLoadingCreatives] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    setLoadingCreatives(true);
+    setError(null);
+    fetchCreatives("ready")
+      .then((items) => {
+        if (!active) return;
+        setCreatives(items);
+        setSelectedId(items[0]?.id ?? null);
+      })
+      .catch((loadError) => {
+        if (!active) return;
+        setError(loadError instanceof Error ? loadError.message : String(loadError));
+      })
+      .finally(() => {
+        if (active) setLoadingCreatives(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  return (
+    <div className="modalOverlay" role="dialog" aria-modal="true">
+      <div className="modal creativePickerModal">
+        <div className="modalHeader">
+          <div>
+            <p className="eyebrow">Ready creatives</p>
+            <h2>Add creative</h2>
+          </div>
+          <button className="iconButton" onClick={onClose} aria-label="Close" disabled={loading}>
+            <X size={18} />
+          </button>
+        </div>
+
+        {error ? <ErrorNotice message={error} /> : null}
+
+        <div className="creativePickerList">
+          {loadingCreatives ? (
+            <div className="emptyState">
+              <Loader2 className="spin" />
+              Loading ready creatives
+            </div>
+          ) : creatives.length === 0 ? (
+            <div className="emptyState">No ready creatives are available.</div>
+          ) : (
+            creatives.map((creative) => (
+              <button
+                key={creative.id}
+                className={selectedId === creative.id ? "creativePickerRow selected" : "creativePickerRow"}
+                onClick={() => setSelectedId(creative.id)}
+              >
+                <CreativePreview creative={creative} />
+                <div>
+                  <strong>{creative.source_file_name ?? creative.project_type ?? `Creative ${creative.id}`}</strong>
+                  <span>{creative.ad_text ?? "No primary text yet"}</span>
+                </div>
+              </button>
+            ))
+          )}
+        </div>
+
+        <div className="modalActions">
+          <button className="secondaryButton" onClick={onClose} disabled={loading}>
+            Cancel
+          </button>
+          <button className="primaryButton" onClick={() => selectedId && onAdd(adsetId, selectedId)} disabled={loading || !selectedId}>
+            {loading ? <Loader2 size={16} className="spin" /> : <Plus size={16} />}
+            Add creative
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CampaignDetailView({
+  ready,
+  id,
+  onBack
+}: {
+  ready: boolean;
+  id: number;
+  onBack: () => void;
+}) {
+  const [campaign, setCampaign] = useState<CampaignDraftTree | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState<string | null>(null);
+  const [addCreativeAdSetId, setAddCreativeAdSetId] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    if (!ready) return;
+    setLoading(true);
+    setError(null);
+    try {
+      setCampaign(await fetchCampaignDraft(id));
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : String(loadError));
+    } finally {
+      setLoading(false);
+    }
+  }, [id, ready]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  async function runSave(key: string, action: () => Promise<void>, message: string) {
+    setSaving(key);
+    setError(null);
+    setSuccess(null);
+    try {
+      await action();
+      await load();
+      setSuccess(message);
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : String(saveError));
+    } finally {
+      setSaving(null);
+    }
+  }
+
+  function saveCampaign(payload: CampaignDraftPayload) {
+    void runSave("campaign", () => updateCampaignDraft(id, payload).then(() => undefined), "Campaign saved.");
+  }
+
+  function saveAdSet(adsetId: number, payload: AdSetDraftPayload) {
+    void runSave(`adset-${adsetId}`, () => updateAdSetDraft(adsetId, payload).then(() => undefined), "Ad set saved.");
+  }
+
+  function saveAd(adId: number, payload: AdDraftPayload) {
+    void runSave(`ad-${adId}`, () => updateAdDraft(adId, payload).then(() => undefined), "Ad draft saved.");
+  }
+
+  function addAdSet() {
+    if (!campaign) return;
+    void runSave(
+      "create-adset",
+      () =>
+        createAdSetDraft(id, {
+          name: `Ad set ${campaign.adsets.length + 1}`,
+          optimizationGoal: "LINK_CLICKS",
+          billingEvent: "IMPRESSIONS",
+          targeting: {},
+          metaStatus: "PAUSED"
+        }).then(() => undefined),
+      "Ad set added."
+    );
+  }
+
+  function addCreative(adsetId: number, creativeId: number) {
+    void runSave(
+      `add-creative-${adsetId}`,
+      () => createAdDraft(adsetId, { creativeId }).then(() => undefined),
+      "Creative added as an ad draft."
+    );
+    setAddCreativeAdSetId(null);
+  }
+
+  if (loading && !campaign) {
+    return (
+      <main className="content">
+        <div className="emptyState">
+          <Loader2 className="spin" />
+          Loading campaign builder
+        </div>
+      </main>
+    );
+  }
+
+  if (!campaign) {
+    return (
+      <main className="content">
+        <header className="pageHeader">
+          <button className="secondaryButton" onClick={onBack}>
+            <ArrowLeft size={16} />
+            Back
+          </button>
+        </header>
+        {error ? <ErrorNotice message={error} /> : <div className="emptyState">Campaign draft not found.</div>}
+      </main>
+    );
+  }
+
+  return (
+    <main className="content">
+      <header className="pageHeader">
+        <div>
+          <button className="backButton" onClick={onBack}>
+            <ArrowLeft size={16} />
+            Campaign drafts
+          </button>
+          <p className="eyebrow">Campaign Builder</p>
+          <h1>{campaign.name}</h1>
+        </div>
+        <div className="headerActions">
+          <button className="secondaryButton" onClick={load} disabled={loading}>
+            <RefreshCw size={16} className={loading ? "spin" : ""} />
+            Refresh
+          </button>
+          <button className="secondaryButton" disabled title="Meta publish is not implemented yet">
+            <Megaphone size={16} />
+            Review & publish coming next
+          </button>
+        </div>
+      </header>
+
+      <section className="summaryBand">
+        <div>
+          <span>{campaign.adsets.length}</span>
+          <p>ad set drafts</p>
+        </div>
+        <div>
+          <span>{countAds(campaign)}</span>
+          <p>ad drafts</p>
+        </div>
+        <div>
+          <span>{campaign.meta_status}</span>
+          <p>Meta campaign status</p>
+        </div>
+      </section>
+
+      {error ? <ErrorNotice message={error} /> : null}
+      {success ? <SuccessNotice message={success} /> : null}
+
+      <div className="builderStack">
+        <CampaignSettingsForm
+          campaign={campaign}
+          saving={saving === "campaign"}
+          onSave={saveCampaign}
+          onError={setError}
+        />
+
+        <section className="builderSection flush">
+          <div className="sectionHeader">
+            <div>
+              <p className="eyebrow">Structure</p>
+              <h2>Ad sets</h2>
+            </div>
+            <button className="primaryButton" onClick={addAdSet} disabled={saving === "create-adset"}>
+              {saving === "create-adset" ? <Loader2 size={16} className="spin" /> : <Plus size={16} />}
+              Add ad set
+            </button>
+          </div>
+        </section>
+
+        {campaign.adsets.length === 0 ? (
+          <div className="emptyState">No ad sets yet. Add one to start assigning creatives.</div>
+        ) : (
+          campaign.adsets.map((adset) => (
+            <AdSetEditor
+              key={adset.id}
+              adset={adset}
+              saving={saving}
+              onSave={saveAdSet}
+              onAddCreative={setAddCreativeAdSetId}
+              onSaveAd={saveAd}
+              onError={setError}
+            />
+          ))
+        )}
+      </div>
+
+      {addCreativeAdSetId ? (
+        <AddCreativeModal
+          loading={saving === `add-creative-${addCreativeAdSetId}`}
+          adsetId={addCreativeAdSetId}
+          onClose={() => setAddCreativeAdSetId(null)}
+          onAdd={addCreative}
+        />
+      ) : null}
+    </main>
+  );
+}
+
+function CampaignsPage({
+  ready,
+  campaignId,
+  onOpen,
+  onBack
+}: {
+  ready: boolean;
+  campaignId?: number;
+  onOpen: (id: number) => void;
+  onBack: () => void;
+}) {
+  if (campaignId) {
+    return <CampaignDetailView ready={ready} id={campaignId} onBack={onBack} />;
+  }
+  return <CampaignDraftListView ready={ready} onOpen={onOpen} />;
+}
+
 export function App() {
   const [ready, setReady] = useState(false);
-  const [view, setView] = useState<View>(activeView());
+  const [route, setRoute] = useState<RouteState>(activeRoute());
+  const creativeView = route.area === "creatives" ? route.view : "dashboard";
   const [creatives, setCreatives] = useState<Creative[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<Creative | null>(null);
   const [launching, setLaunching] = useState(false);
   const [syncing, setSyncing] = useState(false);
+
+  useEffect(() => {
+    function handlePopstate() {
+      setRoute(activeRoute());
+    }
+
+    window.addEventListener("popstate", handlePopstate);
+    return () => window.removeEventListener("popstate", handlePopstate);
+  }, []);
 
   useEffect(() => {
     async function initAuth() {
@@ -418,6 +1640,7 @@ export function App() {
       if (window.location.pathname === "/login/callback") {
         await auth.handleLoginRedirect();
         window.history.replaceState({}, "", "/dashboard");
+        setRoute({ area: "creatives", view: "dashboard" });
       }
 
       const authenticated = await auth.isAuthenticated();
@@ -436,29 +1659,30 @@ export function App() {
   }, []);
 
   const load = useCallback(async () => {
+    if (route.area !== "creatives") return;
     setLoading(true);
     setError(null);
     try {
-      setCreatives(await fetchCreatives(viewConfig[view].listKind));
+      setCreatives(await fetchCreatives(viewConfig[route.view].listKind));
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : String(loadError));
     } finally {
       setLoading(false);
     }
-  }, [view]);
+  }, [route]);
 
   useEffect(() => {
-    if (ready) {
+    if (ready && route.area === "creatives") {
       void load();
     }
-  }, [load, ready]);
+  }, [load, ready, route.area]);
 
   const counts = useMemo(
     () => ({
       shown: creatives.length,
-      viewLabel: viewConfig[view].title
+      viewLabel: viewConfig[creativeView].title
     }),
-    [creatives.length, view]
+    [creatives.length, creativeView]
   );
 
   async function confirmLaunch(placement: LaunchRequest) {
@@ -494,9 +1718,19 @@ export function App() {
     await auth?.signOut();
   }
 
-  function navigate(nextView: View) {
-    setView(nextView);
+  function navigateCreative(nextView: CreativeView) {
+    setRoute({ area: "creatives", view: nextView });
     window.history.pushState({}, "", viewConfig[nextView].path);
+  }
+
+  function navigateCampaigns() {
+    setRoute({ area: "campaigns" });
+    window.history.pushState({}, "", "/campaigns");
+  }
+
+  function navigateCampaign(id: number) {
+    setRoute({ area: "campaigns", campaignId: id });
+    window.history.pushState({}, "", `/campaigns/${id}`);
   }
 
   return (
@@ -510,15 +1744,19 @@ export function App() {
           </div>
         </div>
         <nav>
-          {(Object.keys(viewConfig) as View[]).map((item) => (
+          {(Object.keys(viewConfig) as CreativeView[]).map((item) => (
             <button
               key={item}
-              className={view === item ? "navItem active" : "navItem"}
-              onClick={() => navigate(item)}
+              className={route.area === "creatives" && creativeView === item ? "navItem active" : "navItem"}
+              onClick={() => navigateCreative(item)}
             >
               {viewConfig[item].navLabel}
             </button>
           ))}
+          <button className={route.area === "campaigns" ? "navItem active" : "navItem"} onClick={navigateCampaigns}>
+            <Megaphone size={16} />
+            Campaigns
+          </button>
         </nav>
         {!isAuthDisabled() ? (
           <button className="secondaryButton sidebarLogout" onClick={logout}>
@@ -528,65 +1766,69 @@ export function App() {
         ) : null}
       </aside>
 
-      <main className="content">
-        <header className="pageHeader">
-          <div>
-            <p className="eyebrow">Facebook promo automation</p>
-            <h1>{counts.viewLabel}</h1>
-          </div>
-          <div className="headerActions">
-            <button className="secondaryButton" onClick={load} disabled={loading}>
-              <RefreshCw size={16} className={loading ? "spin" : ""} />
-              Refresh
-            </button>
-            <button className="secondaryButton" onClick={handleSyncCampaigns} disabled={syncing}>
-              {syncing ? <Loader2 size={16} className="spin" /> : <RefreshCw size={16} />}
-              Sync campaigns
-            </button>
-          </div>
-        </header>
-
-        <section className="summaryBand">
-          <div>
-            <span>{counts.shown}</span>
-            <p>{viewConfig[view].summary}</p>
-          </div>
-          <div>
-            <span>Notion</span>
-            <p>Ads view is the source of truth</p>
-          </div>
-          <div>
-            <span>Meta</span>
-            <p>Assets upload before launch</p>
-          </div>
-        </section>
-
-        {error ? (
-          <div className={error.startsWith("Synced") ? "notice success" : "notice"}>
-            <AlertCircle size={18} />
-            {error}
-          </div>
-        ) : null}
-
-        <section className="listPanel">
-          {loading ? (
-            <div className="emptyState">
-              <Loader2 className="spin" />
-              Loading creatives
+      {route.area === "campaigns" ? (
+        <CampaignsPage ready={ready} campaignId={route.campaignId} onOpen={navigateCampaign} onBack={navigateCampaigns} />
+      ) : (
+        <main className="content">
+          <header className="pageHeader">
+            <div>
+              <p className="eyebrow">Facebook promo automation</p>
+              <h1>{counts.viewLabel}</h1>
             </div>
-          ) : creatives.length === 0 ? (
-            <div className="emptyState">{viewConfig[view].empty}</div>
-          ) : (
-            creatives.map((creative) => (
-              <CreativeRow
-                key={creative.id}
-                creative={creative}
-                onLaunch={view === "dashboard" ? setSelected : undefined}
-              />
-            ))
-          )}
-        </section>
-      </main>
+            <div className="headerActions">
+              <button className="secondaryButton" onClick={load} disabled={loading}>
+                <RefreshCw size={16} className={loading ? "spin" : ""} />
+                Refresh
+              </button>
+              <button className="secondaryButton" onClick={handleSyncCampaigns} disabled={syncing}>
+                {syncing ? <Loader2 size={16} className="spin" /> : <RefreshCw size={16} />}
+                Sync campaigns
+              </button>
+            </div>
+          </header>
+
+          <section className="summaryBand">
+            <div>
+              <span>{counts.shown}</span>
+              <p>{viewConfig[creativeView].summary}</p>
+            </div>
+            <div>
+              <span>Notion</span>
+              <p>Ads view is the source of truth</p>
+            </div>
+            <div>
+              <span>Meta</span>
+              <p>Assets upload before launch</p>
+            </div>
+          </section>
+
+          {error ? (
+            <div className={error.startsWith("Synced") ? "notice success" : "notice"}>
+              <AlertCircle size={18} />
+              {error}
+            </div>
+          ) : null}
+
+          <section className="listPanel">
+            {loading ? (
+              <div className="emptyState">
+                <Loader2 className="spin" />
+                Loading creatives
+              </div>
+            ) : creatives.length === 0 ? (
+              <div className="emptyState">{viewConfig[creativeView].empty}</div>
+            ) : (
+              creatives.map((creative) => (
+                <CreativeRow
+                  key={creative.id}
+                  creative={creative}
+                  onLaunch={creativeView === "dashboard" ? setSelected : undefined}
+                />
+              ))
+            )}
+          </section>
+        </main>
+      )}
 
       {selected ? (
         <ConfirmModal
