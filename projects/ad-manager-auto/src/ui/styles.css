@@ -894,6 +894,10 @@ button:disabled {
   gap: 10px;
 }
 
+.specialCategoryGrid {
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
 .optionChip {
   min-height: 42px;
   border: 1px solid #dfe5eb;
@@ -924,6 +928,15 @@ button:disabled {
 
 .compactHeader {
   margin-top: 4px;
+}
+
+.specialCountryPicker {
+  display: grid;
+  gap: 10px;
+  border: 1px solid #e5e9ee;
+  border-radius: 8px;
+  background: #f8fafc;
+  padding: 12px;
 }
 
 .budgetModeNotice {
@@ -1324,6 +1337,14 @@ button:disabled {
   grid-template-columns: minmax(0, 1fr) auto;
   border-color: #fecdca;
   background: #fff5f4;
+}
+
+.locationChip.countryChip {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.countryChipList {
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
 }
 
 .locationChip strong,

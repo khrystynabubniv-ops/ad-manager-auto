@@ -1,4 +1,4 @@
-import { access, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { build } from "esbuild";
 
@@ -10,7 +10,7 @@ const htmlPath = path.join(root, "src/ui/index.html");
 await rm(outDir, { recursive: true, force: true });
 await mkdir(assetsDir, { recursive: true });
 
-await build({
+const result = await build({
   entryPoints: [path.join(root, "src/ui/main.tsx")],
   bundle: true,
   minify: true,
@@ -20,8 +20,9 @@ await build({
   target: ["es2022"],
   jsx: "automatic",
   outdir: assetsDir,
-  entryNames: "index",
+  entryNames: "index-[hash]",
   assetNames: "[name]-[hash]",
+  metafile: true,
   define: {
     "process.env.NODE_ENV": '"production"'
   },
@@ -37,24 +38,27 @@ await build({
 });
 
 let html = await readFile(htmlPath, "utf8");
-const cssTag = await exists(path.join(assetsDir, "index.css"))
-  ? '    <link rel="stylesheet" href="/assets/index.css" />\n'
-  : "";
+const entryOutput = Object.entries(result.metafile.outputs).find(([, output]) => output.entryPoint);
+
+if (!entryOutput) {
+  throw new Error("UI build did not produce an entry bundle");
+}
+
+const [jsOutputPath, jsOutput] = entryOutput;
+const scriptPath = publicPath(jsOutputPath);
+const cssPath = jsOutput.cssBundle ? publicPath(jsOutput.cssBundle) : null;
+const cssTag = cssPath ? `    <link rel="stylesheet" href="${cssPath}" />\n` : "";
 
 html = html
   .replace("</head>", `${cssTag}  </head>`)
   .replace(
     '    <script src="/config.js"></script>\n    <script type="module" src="/main.tsx"></script>',
-    '    <script src="/config.js"></script>\n    <script type="module" src="/assets/index.js"></script>'
+    `    <script src="/config.js"></script>\n    <script type="module" src="${scriptPath}"></script>`
   );
 
 await writeFile(path.join(outDir, "index.html"), html);
 
-async function exists(filePath) {
-  try {
-    await access(filePath);
-    return true;
-  } catch {
-    return false;
-  }
+function publicPath(outputPath) {
+  const absolutePath = path.isAbsolute(outputPath) ? outputPath : path.resolve(root, outputPath);
+  return `/${path.relative(outDir, absolutePath).split(path.sep).join("/")}`;
 }

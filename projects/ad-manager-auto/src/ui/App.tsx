@@ -69,6 +69,8 @@ type CampaignFormState = {
   spendCapMinor: string;
   specialAdCategories: string;
   specialAdCategoryCountries: string;
+  specialAdCategoryCountrySelections: LocationSelection[];
+  metadata: Record<string, unknown>;
   promotedObject: string;
   budgetScheduleSpecs: string;
   isSkadnetworkAttribution: boolean;
@@ -106,6 +108,7 @@ type AdSetFormState = {
   targeting: string;
   includedLocations: LocationSelection[];
   excludedLocations: LocationSelection[];
+  metadata: Record<string, unknown>;
   promotedObject: string;
   audienceControls: string;
   audienceRecommendations: string;
@@ -256,7 +259,7 @@ const specialAdCategoryOptions = [
   { value: "ISSUES_ELECTIONS_POLITICS", label: "Social issues, elections or politics" }
 ];
 
-const countryOptions = [
+const commonCountryOptions = [
   { code: "US", label: "United States" },
   { code: "UA", label: "Ukraine" },
   { code: "PL", label: "Poland" },
@@ -456,6 +459,14 @@ function locationFromMeta(location: MetaTargetingLocation): LocationSelection {
   };
 }
 
+function countryCodeFromLocation(location: Pick<LocationSelection, "key" | "countryCode">) {
+  return (location.countryCode || location.key).toUpperCase();
+}
+
+function countryNameFromCode(code: string) {
+  return commonCountryOptions.find((country) => country.code === code.toUpperCase())?.label ?? code.toUpperCase();
+}
+
 function locationKey(location: Pick<LocationSelection, "key" | "type">) {
   return `${location.type}:${location.key}`;
 }
@@ -515,6 +526,48 @@ function locationsFromGeoLocations(value: unknown): LocationSelection[] {
   return uniqueLocations([...countries, ...regions, ...cities].filter((location) => location.key));
 }
 
+function locationsFromStoredSelections(value: unknown): LocationSelection[] {
+  return uniqueLocations(
+    readArray(value)
+      .map<LocationSelection>((location) => ({
+        key: String(location.key ?? location.country_code ?? ""),
+        name: String(location.name ?? location.country_name ?? location.key ?? ""),
+        type: String(location.type ?? "country"),
+        countryCode: typeof location.countryCode === "string" ? location.countryCode : typeof location.country_code === "string" ? location.country_code : undefined,
+        countryName: typeof location.countryName === "string" ? location.countryName : typeof location.country_name === "string" ? location.country_name : undefined,
+        region: typeof location.region === "string" ? location.region : undefined,
+        radius: location.radius == null ? undefined : String(location.radius)
+      }))
+      .filter((location) => location.key && location.name)
+  );
+}
+
+function storedTargetingLocations(metadata: Record<string, unknown> | undefined, bucket: "included" | "excluded") {
+  const stored = readObject(metadata?.targetingLocations);
+  return locationsFromStoredSelections(stored?.[bucket]);
+}
+
+function campaignSpecialCountrySelections(campaign: CampaignDraftTree): LocationSelection[] {
+  const stored = readObject(campaign.metadata?.specialAdCategoryCountrySelections);
+  const storedCountries = locationsFromStoredSelections(stored?.countries).filter((location) => location.type === "country");
+  const byCode = new Map(storedCountries.map((location) => [countryCodeFromLocation(location), location]));
+
+  for (const code of campaign.special_ad_category_countries) {
+    const normalized = code.toUpperCase();
+    if (!byCode.has(normalized)) {
+      byCode.set(normalized, {
+        key: normalized,
+        name: countryNameFromCode(normalized),
+        type: "country",
+        countryCode: normalized,
+        countryName: countryNameFromCode(normalized)
+      });
+    }
+  }
+
+  return Array.from(byCode.values());
+}
+
 function buildGeoLocations(locations: LocationSelection[]) {
   const countries: string[] = [];
   const regions: Array<Record<string, unknown>> = [];
@@ -542,9 +595,11 @@ function buildGeoLocations(locations: LocationSelection[]) {
   };
 }
 
-function summarizeTargetingLocations(targeting: Record<string, unknown>) {
-  const included = locationsFromGeoLocations(targeting.geo_locations);
-  const excluded = locationsFromGeoLocations(targeting.excluded_geo_locations);
+function summarizeTargetingLocations(targeting: Record<string, unknown>, metadata?: Record<string, unknown>) {
+  const storedIncluded = storedTargetingLocations(metadata, "included");
+  const storedExcluded = storedTargetingLocations(metadata, "excluded");
+  const included = storedIncluded.length ? storedIncluded : locationsFromGeoLocations(targeting.geo_locations);
+  const excluded = storedExcluded.length ? storedExcluded : locationsFromGeoLocations(targeting.excluded_geo_locations);
   const includeText = included.length ? included.map(locationLabel).join("; ") : "No included locations";
   const excludeText = excluded.length ? excluded.map(locationLabel).join("; ") : "No exclusions";
   return { includeText, excludeText, includedCount: included.length, excludedCount: excluded.length };
@@ -563,6 +618,8 @@ function defaultCampaignFormState(): CampaignFormState {
     spendCapMinor: "",
     specialAdCategories: "",
     specialAdCategoryCountries: "",
+    specialAdCategoryCountrySelections: [],
+    metadata: {},
     promotedObject: "",
     budgetScheduleSpecs: "",
     isSkadnetworkAttribution: false,
@@ -585,6 +642,8 @@ function campaignToFormState(campaign: CampaignDraftTree): CampaignFormState {
     spendCapMinor: minorToDollarInput(campaign.spend_cap_minor),
     specialAdCategories: formatCategories(campaign.special_ad_categories),
     specialAdCategoryCountries: formatCategories(campaign.special_ad_category_countries),
+    specialAdCategoryCountrySelections: campaignSpecialCountrySelections(campaign),
+    metadata: campaign.metadata ?? {},
     promotedObject: formatJsonValue(campaign.promoted_object),
     budgetScheduleSpecs: formatJsonValue(campaign.budget_schedule_specs),
     isSkadnetworkAttribution: campaign.is_skadnetwork_attribution,
@@ -615,6 +674,15 @@ function buildCampaignPayload(draft: CampaignFormState): CampaignDraftPayload & 
     throw new Error("Campaign budget strategy needs a daily or lifetime campaign budget.");
   }
 
+  const specialAdCategories = parseCategories(draft.specialAdCategories);
+  const specialAdCategoryCountries = specialAdCategories.length
+    ? draft.specialAdCategoryCountrySelections.map(countryCodeFromLocation)
+    : [];
+
+  if (specialAdCategories.length && !specialAdCategoryCountries.length) {
+    throw new Error("Choose at least one country for the selected special ad category.");
+  }
+
   return {
     name,
     objective: draft.objective,
@@ -625,19 +693,28 @@ function buildCampaignPayload(draft: CampaignFormState): CampaignDraftPayload & 
     campaignLifetimeBudgetMinor,
     bidStrategy: optionalText(draft.bidStrategy) ?? null,
     spendCapMinor: nullableDollarToMinor(draft.spendCapMinor, "Spend cap"),
-    specialAdCategories: parseCategories(draft.specialAdCategories),
-    specialAdCategoryCountries: parseCategories(draft.specialAdCategoryCountries),
+    specialAdCategories,
+    specialAdCategoryCountries,
     promotedObject: null,
     budgetScheduleSpecs: null,
     isSkadnetworkAttribution: false,
     abTestEnabled: false,
     liveAdsEnabled: false,
-    metaStatus: draft.metaStatus
+    metaStatus: draft.metaStatus,
+    metadata: {
+      ...draft.metadata,
+      specialAdCategoryCountrySelections: {
+        countries: specialAdCategories.length ? draft.specialAdCategoryCountrySelections : []
+      }
+    }
   };
 }
 
 function adSetToFormState(adset: AdSetDraftWithAds): AdSetFormState {
   const targeting = adset.targeting ?? {};
+  const storedIncludedLocations = storedTargetingLocations(adset.metadata, "included");
+  const storedExcludedLocations = storedTargetingLocations(adset.metadata, "excluded");
+
   return {
     name: adset.name,
     destinationType: adset.destination_type || "WEBSITE",
@@ -655,8 +732,9 @@ function adSetToFormState(adset: AdSetDraftWithAds): AdSetFormState {
     useAdvantageAudience: adset.use_advantage_audience,
     savedAudienceId: adset.saved_audience_id ?? "",
     targeting: JSON.stringify(targeting, null, 2),
-    includedLocations: locationsFromGeoLocations(targeting.geo_locations),
-    excludedLocations: locationsFromGeoLocations(targeting.excluded_geo_locations),
+    includedLocations: storedIncludedLocations.length ? storedIncludedLocations : locationsFromGeoLocations(targeting.geo_locations),
+    excludedLocations: storedExcludedLocations.length ? storedExcludedLocations : locationsFromGeoLocations(targeting.excluded_geo_locations),
+    metadata: adset.metadata ?? {},
     promotedObject: formatJsonValue(adset.promoted_object),
     audienceControls: JSON.stringify(adset.audience_controls ?? {}, null, 2),
     audienceRecommendations: JSON.stringify(adset.audience_recommendations ?? {}, null, 2),
@@ -733,7 +811,14 @@ function buildAdSetPayload(draft: AdSetFormState, campaignBudgetStrategy: string
     frequencyControlSpecs: null,
     beneficiary: nullableText(draft.beneficiary),
     payor: nullableText(draft.payor),
-    metaStatus: draft.metaStatus
+    metaStatus: draft.metaStatus,
+    metadata: {
+      ...draft.metadata,
+      targetingLocations: {
+        included: draft.includedLocations,
+        excluded: draft.excludedLocations
+      }
+    }
   };
 }
 
@@ -1243,6 +1328,133 @@ function CreativeRow({ creative, onLaunch }: { creative: Creative; onLaunch?: (c
   );
 }
 
+function SpecialCategoryCountryPicker({
+  selected,
+  disabled,
+  onChange
+}: {
+  selected: LocationSelection[];
+  disabled: boolean;
+  onChange: (countries: LocationSelection[]) => void;
+}) {
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState<MetaTargetingLocation[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const searchCountries = useCallback(async (rawQuery: string) => {
+    const trimmed = rawQuery.trim();
+    if (trimmed.length < 2) {
+      setResults([]);
+      setError(null);
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+    try {
+      const countries = await searchTargetingLocations({
+        query: trimmed,
+        locationTypes: ["country"],
+        limit: 12
+      });
+      setResults(countries);
+    } catch (searchError) {
+      setError(searchError instanceof Error ? searchError.message : String(searchError));
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (disabled) return;
+    const timer = window.setTimeout(() => {
+      void searchCountries(query);
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [disabled, query, searchCountries]);
+
+  async function runSearch(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    void searchCountries(query);
+  }
+
+  function addCountry(country: MetaTargetingLocation) {
+    const next = locationFromMeta(country);
+    onChange(uniqueLocations([...selected, { ...next, type: "country", countryCode: countryCodeFromLocation(next) }]));
+  }
+
+  function removeCountry(country: LocationSelection) {
+    onChange(selected.filter((item) => countryCodeFromLocation(item) !== countryCodeFromLocation(country)));
+  }
+
+  return (
+    <div className="specialCountryPicker">
+      <div className="subsectionHeader compactHeader">
+        <h3>Special category countries</h3>
+        <span>Declaration only, not ad delivery targeting</span>
+      </div>
+
+      <form className="locationSearch" onSubmit={runSearch}>
+        <label className="fieldGroup">
+          <span>Search Meta countries</span>
+          <input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Ukraine, United States, Poland"
+            disabled={disabled}
+          />
+        </label>
+        <button className="secondaryButton" disabled={disabled || loading}>
+          {loading ? <Loader2 size={16} className="spin" /> : <RefreshCw size={16} />}
+          Search
+        </button>
+      </form>
+
+      {error ? <div className="inlineError">{error}</div> : null}
+
+      {results.length ? (
+        <div className="locationResults">
+          {results.map((country) => {
+            const code = countryCodeFromLocation(locationFromMeta(country));
+            return (
+              <article key={`${country.type}:${country.key}`} className="locationResult">
+                <div>
+                  <strong>{country.name}</strong>
+                  <span>{code}</span>
+                </div>
+                <div className="locationActions">
+                  <button type="button" className="secondaryButton compact" onClick={() => addCountry(country)} disabled={disabled}>
+                    Add
+                  </button>
+                </div>
+              </article>
+            );
+          })}
+        </div>
+      ) : null}
+
+      {selected.length ? (
+        <div className="locationChipList countryChipList">
+          {selected.map((country) => (
+            <span className="locationChip countryChip" key={countryCodeFromLocation(country)}>
+              <span>
+                <strong>{locationLabel(country)}</strong>
+                <small>{countryCodeFromLocation(country)}</small>
+              </span>
+              <button type="button" onClick={() => removeCountry(country)} disabled={disabled} aria-label={`Remove ${country.name}`}>
+                <X size={14} />
+              </button>
+            </span>
+          ))}
+        </div>
+      ) : (
+        <div className="inlineEmpty compact">No special category countries selected.</div>
+      )}
+    </div>
+  );
+}
+
 function CampaignFieldGroups({
   draft,
   setDraft,
@@ -1258,7 +1470,7 @@ function CampaignFieldGroups({
     setDraft((current) => ({ ...current, [field]: value }));
   };
   const selectedCategories = categoryList(draft.specialAdCategories);
-  const selectedSpecialCountries = categoryList(draft.specialAdCategoryCountries);
+  const hasSpecialCategory = selectedCategories.length > 0;
 
   function toggleSpecialCategory(category: string) {
     const next = selectedCategories.includes(category)
@@ -1267,11 +1479,22 @@ function CampaignFieldGroups({
     update("specialAdCategories", next.join(", "));
   }
 
-  function toggleSpecialCountry(countryCode: string) {
-    const next = selectedSpecialCountries.includes(countryCode)
-      ? selectedSpecialCountries.filter((item) => item !== countryCode)
-      : [...selectedSpecialCountries, countryCode];
-    update("specialAdCategoryCountries", next.join(", "));
+  function clearSpecialCategories() {
+    setDraft((current) => ({
+      ...current,
+      specialAdCategories: "",
+      specialAdCategoryCountries: "",
+      specialAdCategoryCountrySelections: []
+    }));
+  }
+
+  function updateSpecialCountries(countries: LocationSelection[]) {
+    const next = uniqueLocations(countries.map((country) => ({ ...country, type: "country", countryCode: countryCodeFromLocation(country) })));
+    setDraft((current) => ({
+      ...current,
+      specialAdCategoryCountrySelections: next,
+      specialAdCategoryCountries: next.map(countryCodeFromLocation).join(", ")
+    }));
   }
 
   return (
@@ -1407,9 +1630,17 @@ function CampaignFieldGroups({
       <section className="formSubsection">
         <div className="subsectionHeader">
           <h3>Meta special ad category</h3>
-          <span>Only for housing, jobs, credit, social issues or elections</span>
+          <span>Separate from ad set delivery locations</span>
         </div>
-        <div className="optionGrid">
+        <div className="optionGrid specialCategoryGrid">
+          <button
+            type="button"
+            className={!hasSpecialCategory ? "optionChip selected" : "optionChip"}
+            onClick={clearSpecialCategories}
+            disabled={disabled}
+          >
+            No special category
+          </button>
           {specialAdCategoryOptions.map((category) => (
             <button
               type="button"
@@ -1422,32 +1653,13 @@ function CampaignFieldGroups({
             </button>
           ))}
         </div>
-        <div className="subsectionHeader compactHeader">
-          <h3>Countries where the category applies</h3>
-          <span>{selectedCategories.length ? "Stored as Meta country codes" : "Not needed when no category is selected"}</span>
-        </div>
-        <div className="optionGrid">
-          {countryOptions.map((country) => (
-            <button
-              type="button"
-              key={country.code}
-              className={selectedSpecialCountries.includes(country.code) ? "optionChip selected" : "optionChip"}
-              onClick={() => toggleSpecialCountry(country.code)}
-              disabled={disabled || selectedCategories.length === 0}
-            >
-              {country.label}
-            </button>
-          ))}
-        </div>
-        <label className="fieldGroup">
-          <span>Other country codes</span>
-          <input
-            value={draft.specialAdCategoryCountries}
-            onChange={(event) => update("specialAdCategoryCountries", event.target.value)}
-            placeholder="US, UA, PL"
-            disabled={disabled || selectedCategories.length === 0}
+        {hasSpecialCategory ? (
+          <SpecialCategoryCountryPicker
+            selected={draft.specialAdCategoryCountrySelections}
+            disabled={disabled}
+            onChange={updateSpecialCountries}
           />
-        </label>
+        ) : null}
       </section>
     </div>
   );
@@ -2004,12 +2216,11 @@ function LocationPicker({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function runSearch(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const trimmed = query.trim();
+  const searchLocations = useCallback(async (rawQuery: string) => {
+    const trimmed = rawQuery.trim();
     if (trimmed.length < 2) {
       setResults([]);
-      setError("Type at least 2 characters.");
+      setError(null);
       return;
     }
 
@@ -2027,6 +2238,19 @@ function LocationPicker({
     } finally {
       setLoading(false);
     }
+  }, []);
+
+  useEffect(() => {
+    if (disabled) return;
+    const timer = window.setTimeout(() => {
+      void searchLocations(query);
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [disabled, query, searchLocations]);
+
+  async function runSearch(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    void searchLocations(query);
   }
 
   function addIncluded(location: MetaTargetingLocation) {
@@ -2059,11 +2283,11 @@ function LocationPicker({
     <div className="locationPicker">
       <form className="locationSearch" onSubmit={runSearch}>
         <label className="fieldGroup">
-          <span>Search Meta countries, regions or cities</span>
+          <span>Search delivery locations</span>
           <input
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="Ukraine, Kyiv, Poland, New York"
+            placeholder="Kyiv, Lviv, Ukraine, Warsaw"
             disabled={disabled}
           />
         </label>
@@ -2413,8 +2637,8 @@ function AdSetEditor({
 
         <section className="formSubsection">
           <div className="subsectionHeader">
-            <h3>Audience</h3>
-            <span>Use Meta location keys; exclusions are saved separately</span>
+            <h3>Audience and delivery locations</h3>
+            <span>Countries, regions and cities come from Meta search</span>
           </div>
           <div className="formGrid two">
             <label className="checkboxField">
@@ -2748,7 +2972,7 @@ function CampaignStructure({
       ) : (
         <div className="structureTree">
           {campaign.adsets.map((adset) => {
-            const targetingSummary = summarizeTargetingLocations(adset.targeting ?? {});
+            const targetingSummary = summarizeTargetingLocations(adset.targeting ?? {}, adset.metadata);
             return (
               <article className="adsetNode" key={adset.id}>
                 <div className="adsetNodeHeader">
