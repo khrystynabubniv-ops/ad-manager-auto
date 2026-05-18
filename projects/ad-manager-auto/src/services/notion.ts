@@ -189,6 +189,14 @@ function relationName(property: any): string | undefined {
   return property.relation[0].id;
 }
 
+function looksLikeNotionPageId(value?: string): boolean {
+  if (!value) return false;
+  return (
+    /^[0-9a-f]{32}$/i.test(value) ||
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)
+  );
+}
+
 function richText(value?: string) {
   return {
     rich_text: value
@@ -263,10 +271,10 @@ async function mapNotionPage(page: NotionPage & { properties: Properties; url?: 
   let campaignId = propertyToString(findProperty(p, notionPropertyNames.facebookCampaignId, campaignIdPropertyAliases));
   let campaignName = propertyToString(campaignProperty) ?? relationName(campaignProperty);
 
-  if (!campaignId && campaignPageId) {
+  if (campaignPageId && (!campaignId || !campaignName || campaignName === campaignPageId || looksLikeNotionPageId(campaignName))) {
     const campaign = await retrieveCampaignPage(campaignPageId);
-    campaignId = campaign.facebookCampaignId;
-    campaignName = campaign.name;
+    campaignId = campaignId || campaign.facebookCampaignId;
+    campaignName = campaign.name || campaignName;
   }
 
   return {

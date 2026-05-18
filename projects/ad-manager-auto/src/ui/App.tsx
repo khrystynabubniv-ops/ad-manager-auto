@@ -31,7 +31,6 @@ import {
   CampaignDraftTree,
   Creative,
   CreativeListKind,
-  CreativeUpdateRequest,
   LaunchRequest,
   MetaAdSet,
   MetaCampaign,
@@ -48,7 +47,6 @@ import {
   searchTargetingLocations,
   syncCampaigns,
   uploadCreative,
-  updateCreative,
   updateAdDraft,
   updateAdSetDraft,
   updateCampaignDraft
@@ -64,6 +62,7 @@ type RouteState =
       area: "campaigns";
       campaignId?: number;
     };
+type BuilderStep = "campaign" | "adsets" | "creatives";
 
 type CampaignFormState = {
   name: string;
@@ -259,6 +258,12 @@ const ctaTypes = [
   "NO_BUTTON",
   "WHATSAPP_MESSAGE"
 ];
+
+const builderSteps = [
+  { id: "campaign", label: "Campaign", icon: Megaphone },
+  { id: "adsets", label: "Ad sets", icon: Layers },
+  { id: "creatives", label: "Creatives", icon: ImageIcon }
+] as const;
 
 const specialAdCategoryOptions = [
   { value: "HOUSING", label: "Housing" },
@@ -919,6 +924,29 @@ function countAds(campaign: CampaignDraftTree) {
   return campaign.adsets.reduce((sum, adset) => sum + adset.ads.length, 0);
 }
 
+function campaignStepReady(campaign: CampaignDraftTree) {
+  return campaign.budget_strategy !== "CAMPAIGN" || Boolean(campaign.campaign_daily_budget_minor || campaign.campaign_lifetime_budget_minor);
+}
+
+function adSetsStepReady(campaign: CampaignDraftTree) {
+  return (
+    campaign.adsets.length > 0 &&
+    campaign.adsets.every((adset) => campaign.budget_strategy === "CAMPAIGN" || Boolean(adset.daily_budget_minor || adset.lifetime_budget_minor))
+  );
+}
+
+function creativesStepReady(campaign: CampaignDraftTree) {
+  return campaign.adsets.length > 0 && campaign.adsets.every((adset) => adset.ads.length > 0);
+}
+
+function builderStepCompletion(campaign: CampaignDraftTree): Record<BuilderStep, boolean> {
+  return {
+    campaign: campaignStepReady(campaign),
+    adsets: adSetsStepReady(campaign),
+    creatives: creativesStepReady(campaign)
+  };
+}
+
 function enumToTitle(value?: string | null) {
   return (value ?? "")
     .split("_")
@@ -1101,19 +1129,13 @@ function SuccessNotice({ message }: { message: string }) {
 function ConfirmModal({
   creative,
   loading,
-  saving = false,
-  mode = "launch",
   onClose,
-  onConfirm,
-  onSave
+  onConfirm
 }: {
   creative: Creative;
   loading: boolean;
-  saving?: boolean;
-  mode?: "launch" | "edit";
   onClose: () => void;
-  onConfirm?: (payload: LaunchRequest) => void;
-  onSave?: (payload: CreativeUpdateRequest) => Promise<void> | void;
+  onConfirm: (payload: LaunchRequest) => void;
 }) {
   const [draft, setDraft] = useState({
     projectType: creative.project_type ?? "",
@@ -1202,7 +1224,7 @@ function ConfirmModal({
   const selectedCampaign = campaigns.find((campaign) => campaign.id === campaignId);
   const selectedAdSet = adSets.find((adSet) => adSet.id === adSetId);
   const placementReady = Boolean(campaignId && adSetId);
-  const busy = loading || saving;
+  const busy = loading;
   const detailsReady = Boolean(
     draft.projectType.trim() &&
       draft.adText.trim() &&
@@ -1210,26 +1232,8 @@ function ConfirmModal({
       draft.audience.trim() &&
       draft.location.trim()
   );
-  const savePayload = (): CreativeUpdateRequest => ({
-    projectType: draft.projectType.trim() || null,
-    adText: draft.adText.trim() || null,
-    ctaLink: draft.ctaLink.trim() || null,
-    audience: draft.audience.trim() || null,
-    location: draft.location.trim() || null,
-    campaignId: campaignId || null,
-    campaignName: campaignId ? selectedCampaign?.name ?? creative.campaign_name ?? null : null,
-    adSetId: adSetId || null,
-    adSetName: adSetId ? selectedAdSet?.name ?? creative.adset_name ?? null : null
-  });
-
-  async function saveDetails() {
-    if (!onSave) return;
-    await onSave(savePayload());
-    if (mode === "edit") onClose();
-  }
 
   function confirmPlacement() {
-    if (!onConfirm) return;
     if (!detailsReady) {
       setPlacementError("Fill in project type, ad text, CTA link, audience, and location before launch.");
       return;
@@ -1263,7 +1267,7 @@ function ConfirmModal({
       <div className="modal">
         <div className="modalHeader">
           <div>
-            <p className="eyebrow">{mode === "edit" ? "Edit creative" : "Review & launch"}</p>
+            <p className="eyebrow">Review & launch</p>
             <input
               className="modalTitleInput"
               aria-label="Project type"
@@ -1369,26 +1373,14 @@ function ConfirmModal({
           <button className="secondaryButton" onClick={onClose} disabled={busy}>
             Cancel
           </button>
-          {onSave ? (
-            <button
-              className={mode === "edit" ? "primaryButton" : "secondaryButton"}
-              onClick={() => void saveDetails()}
-              disabled={busy || campaignsLoading || adSetsLoading}
-            >
-              {saving ? <Loader2 size={16} className="spin" /> : <Save size={16} />}
-              Save
-            </button>
-          ) : null}
-          {mode === "launch" ? (
-            <button
-              className="primaryButton"
-              onClick={confirmPlacement}
-              disabled={busy || campaignsLoading || adSetsLoading || !placementReady || !detailsReady}
-            >
-              {loading ? <Loader2 size={16} className="spin" /> : <Play size={16} />}
-              Launch ad
-            </button>
-          ) : null}
+          <button
+            className="primaryButton"
+            onClick={confirmPlacement}
+            disabled={busy || campaignsLoading || adSetsLoading || !placementReady || !detailsReady}
+          >
+            {loading ? <Loader2 size={16} className="spin" /> : <Play size={16} />}
+            Launch ad
+          </button>
         </div>
       </div>
     </div>
@@ -1398,13 +1390,11 @@ function ConfirmModal({
 function CreativeRow({
   creative,
   onLaunch,
-  onEdit,
   campaignNamesById,
   adSetNamesById
 }: {
   creative: Creative;
   onLaunch?: (creative: Creative) => void;
-  onEdit?: (creative: Creative) => void;
   campaignNamesById?: ReadonlyMap<string, string>;
   adSetNamesById?: ReadonlyMap<string, string>;
 }) {
@@ -1446,12 +1436,6 @@ function CreativeRow({
           <strong title={adSetLabel}>{adSetLabel}</strong>
         </div>
         <div className="rowActions">
-          {onEdit ? (
-            <button className="secondaryButton compact" onClick={() => onEdit(creative)}>
-              <Pencil size={16} />
-              Edit
-            </button>
-          ) : null}
           {onLaunch ? (
             <button className="primaryButton compact" onClick={() => onLaunch(creative)}>
               <Play size={16} />
@@ -2037,13 +2021,13 @@ function CampaignSettingsForm({
   saving,
   onSave,
   onError,
-  onClose
+  onNext
 }: {
   campaign: CampaignDraftTree;
   saving: boolean;
-  onSave: (payload: CampaignDraftPayload) => void;
+  onSave: (payload: CampaignDraftPayload) => Promise<boolean>;
   onError: (message: string) => void;
-  onClose: () => void;
+  onNext: () => void;
 }) {
   const [draft, setDraft] = useState<CampaignFormState>(() => campaignToFormState(campaign));
 
@@ -2051,12 +2035,18 @@ function CampaignSettingsForm({
     setDraft(campaignToFormState(campaign));
   }, [campaign]);
 
-  function save() {
+  async function save() {
     try {
-      onSave(buildCampaignPayload(draft));
+      return await onSave(buildCampaignPayload(draft));
     } catch (saveError) {
       onError(saveError instanceof Error ? saveError.message : String(saveError));
+      return false;
     }
+  }
+
+  async function saveAndNext() {
+    const saved = await save();
+    if (saved) onNext();
   }
 
   return (
@@ -2068,16 +2058,23 @@ function CampaignSettingsForm({
         </div>
         <div className="headerActions">
           <StatusChip value={campaign.status} />
-          <button className="secondaryButton" onClick={onClose} disabled={saving}>
-            Close
-          </button>
-          <button className="primaryButton" onClick={save} disabled={saving}>
+          <button className="secondaryButton" onClick={() => void save()} disabled={saving}>
             {saving ? <Loader2 size={16} className="spin" /> : <Save size={16} />}
             Save changes
           </button>
         </div>
       </div>
       <CampaignFieldGroups draft={draft} setDraft={setDraft} disabled={saving} />
+      <div className="stepActionBar">
+        <button className="secondaryButton" onClick={() => void save()} disabled={saving}>
+          {saving ? <Loader2 size={16} className="spin" /> : <Save size={16} />}
+          Save changes
+        </button>
+        <button className="primaryButton" onClick={() => void saveAndNext()} disabled={saving}>
+          {saving ? <Loader2 size={16} className="spin" /> : <ChevronRight size={16} />}
+          Save & next
+        </button>
+      </div>
     </section>
   );
 }
@@ -2090,7 +2087,7 @@ function AdDraftEditor({
 }: {
   ad: AdDraftWithCreative;
   saving: boolean;
-  onSave: (id: number, payload: AdDraftPayload) => void;
+  onSave: (id: number, payload: AdDraftPayload) => Promise<boolean>;
   onError: (message: string) => void;
 }) {
   const [draft, setDraft] = useState<AdDraftFormState>(() => adDraftToFormState(ad));
@@ -2573,19 +2570,23 @@ function LocationPicker({
 function AdSetEditor({
   adset,
   campaignBudgetStrategy,
+  mode,
   saving,
   onSave,
   onAddCreative,
   onSaveAd,
-  onError
+  onError,
+  onNext
 }: {
   adset: AdSetDraftWithAds;
   campaignBudgetStrategy: string;
+  mode: "settings" | "creatives";
   saving: string | null;
-  onSave: (id: number, payload: AdSetDraftPayload) => void;
+  onSave: (id: number, payload: AdSetDraftPayload) => Promise<boolean>;
   onAddCreative: (adsetId: number) => void;
-  onSaveAd: (id: number, payload: AdDraftPayload) => void;
+  onSaveAd: (id: number, payload: AdDraftPayload) => Promise<boolean>;
   onError: (message: string) => void;
+  onNext?: () => void;
 }) {
   const [draft, setDraft] = useState<AdSetFormState>(() => adSetToFormState(adset));
 
@@ -2597,12 +2598,18 @@ function AdSetEditor({
     setDraft((current) => ({ ...current, [field]: value }));
   };
 
-  function save() {
+  async function save() {
     try {
-      onSave(adset.id, buildAdSetPayload(draft, campaignBudgetStrategy));
+      return await onSave(adset.id, buildAdSetPayload(draft, campaignBudgetStrategy));
     } catch (saveError) {
       onError(saveError instanceof Error ? saveError.message : String(saveError));
+      return false;
     }
+  }
+
+  async function saveAndNext() {
+    const saved = await save();
+    if (saved) onNext?.();
   }
 
   const adSetSaving = saving === `adset-${adset.id}`;
@@ -2612,22 +2619,27 @@ function AdSetEditor({
     <section className="adsetEditor">
       <div className="sectionHeader adsetEditorHeader">
         <div>
-          <p className="eyebrow">Ad set draft</p>
+          <p className="eyebrow">{mode === "settings" ? "Ad set draft" : "Creative setup"}</p>
           <h2>{adset.name}</h2>
         </div>
         <div className="headerActions actionGroup">
           <StatusChip value={adset.status} />
-          <button className="secondaryButton" onClick={() => onAddCreative(adset.id)}>
-            <ImageIcon size={16} />
-            Add creative
-          </button>
-          <button className="primaryButton" onClick={save} disabled={adSetSaving}>
-            {adSetSaving ? <Loader2 size={16} className="spin" /> : <Save size={16} />}
-            Save ad set
-          </button>
+          {mode === "creatives" ? (
+            <button className="secondaryButton" onClick={() => onAddCreative(adset.id)}>
+              <ImageIcon size={16} />
+              Add creative
+            </button>
+          ) : null}
+          {mode === "settings" ? (
+            <button className="primaryButton" onClick={() => void save()} disabled={adSetSaving}>
+              {adSetSaving ? <Loader2 size={16} className="spin" /> : <Save size={16} />}
+              Save ad set
+            </button>
+          ) : null}
         </div>
       </div>
 
+      {mode === "settings" ? (
       <div className="campaignFieldStack">
         <section className="formSubsection">
           <div className="subsectionHeader">
@@ -2895,7 +2907,9 @@ function AdSetEditor({
           </div>
         </section>
       </div>
+      ) : null}
 
+      {mode === "creatives" ? (
       <div className="adDraftStack">
         <div className="subsectionHeader">
           <h3>Ad drafts</h3>
@@ -2923,16 +2937,36 @@ function AdSetEditor({
           ))
         )}
       </div>
+      ) : null}
 
       <div className="stickyActionBar">
-        <button className="secondaryButton" onClick={() => onAddCreative(adset.id)}>
-          <ImageIcon size={16} />
-          Add creative
-        </button>
-        <button className="primaryButton" onClick={save} disabled={adSetSaving}>
-          {adSetSaving ? <Loader2 size={16} className="spin" /> : <Save size={16} />}
-          Save ad set
-        </button>
+        {mode === "creatives" ? (
+          <>
+            <button className="secondaryButton" onClick={() => onAddCreative(adset.id)}>
+              <ImageIcon size={16} />
+              Add creative
+            </button>
+            {onNext ? (
+              <button className="primaryButton" onClick={onNext} disabled={adset.ads.length === 0}>
+                <Check size={16} />
+                Finish setup
+              </button>
+            ) : null}
+          </>
+        ) : (
+          <>
+            <button className="secondaryButton" onClick={() => void save()} disabled={adSetSaving}>
+              {adSetSaving ? <Loader2 size={16} className="spin" /> : <Save size={16} />}
+              Save ad set
+            </button>
+            {onNext ? (
+              <button className="primaryButton" onClick={() => void saveAndNext()} disabled={adSetSaving}>
+                {adSetSaving ? <Loader2 size={16} className="spin" /> : <ChevronRight size={16} />}
+                Save & next
+              </button>
+            ) : null}
+          </>
+        )}
       </div>
     </section>
   );
@@ -3128,25 +3162,33 @@ function AddCreativeModal({
   );
 }
 
-function StructureStepper({ activeStep }: { activeStep: number }) {
-  const steps = [
-    { label: "Campaign", icon: Megaphone },
-    { label: "Ad sets", icon: Layers },
-    { label: "Creatives", icon: ImageIcon }
-  ];
-
+function StructureStepper({
+  activeStep,
+  completedSteps,
+  onStepSelect
+}: {
+  activeStep: BuilderStep;
+  completedSteps: Record<BuilderStep, boolean>;
+  onStepSelect: (step: BuilderStep) => void;
+}) {
   return (
     <div className="structureStepper" aria-label="Campaign structure progress">
-      {steps.map((step, index) => {
+      {builderSteps.map((step, index) => {
         const StepIcon = step.icon;
-        const state = index === activeStep ? "active" : index < activeStep ? "complete" : "upcoming";
+        const state = step.id === activeStep ? "active" : completedSteps[step.id] ? "complete" : "upcoming";
+        const isComplete = completedSteps[step.id] && step.id !== activeStep;
         return (
           <div className="stepperItemWrap" key={step.label}>
-            <div className={`stepperItem ${state}`}>
-              <StepIcon size={15} />
+            <button
+              type="button"
+              className={`stepperItem ${state}`}
+              onClick={() => onStepSelect(step.id)}
+              aria-current={step.id === activeStep ? "step" : undefined}
+            >
+              {isComplete ? <Check size={15} /> : <StepIcon size={15} />}
               <span>{step.label}</span>
-            </div>
-            {index < steps.length - 1 ? <ChevronRight size={15} className="stepperArrow" /> : null}
+            </button>
+            {index < builderSteps.length - 1 ? <ChevronRight size={15} className="stepperArrow" /> : null}
           </div>
         );
       })}
@@ -3156,23 +3198,27 @@ function StructureStepper({ activeStep }: { activeStep: number }) {
 
 function CampaignStructure({
   campaign,
+  activeStep,
+  completedSteps,
   onAddAdSet,
   onAddCreative,
+  onStepSelect,
   addingAdSet
 }: {
   campaign: CampaignDraftTree;
+  activeStep: BuilderStep;
+  completedSteps: Record<BuilderStep, boolean>;
   onAddAdSet: () => void;
   onAddCreative: (adsetId: number) => void;
+  onStepSelect: (step: BuilderStep) => void;
   addingAdSet: boolean;
 }) {
-  const activeStep = countAds(campaign) > 0 ? 2 : campaign.adsets.length > 0 ? 1 : 0;
-
   return (
     <section className="builderSection structureSection">
       <div className="sectionHeader">
         <div>
           <p className="eyebrow">Structure</p>
-          <StructureStepper activeStep={activeStep} />
+          <StructureStepper activeStep={activeStep} completedSteps={completedSteps} onStepSelect={onStepSelect} />
         </div>
         <button className="primaryButton compact" onClick={onAddAdSet} disabled={addingAdSet}>
           {addingAdSet ? <Loader2 size={16} className="spin" /> : <Plus size={16} />}
@@ -3295,7 +3341,7 @@ function CampaignDetailView({
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState<string | null>(null);
   const [addCreativeAdSetId, setAddCreativeAdSetId] = useState<number | null>(null);
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [activeBuilderStep, setActiveBuilderStep] = useState<BuilderStep>("campaign");
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [editingCampaignName, setEditingCampaignName] = useState(false);
@@ -3323,6 +3369,15 @@ function CampaignDetailView({
     setCampaignNameDraft(campaign.name);
   }, [campaign, editingCampaignName]);
 
+  const completedSteps = useMemo(() => (campaign ? builderStepCompletion(campaign) : null), [campaign]);
+
+  function selectBuilderStep(step: BuilderStep) {
+    setActiveBuilderStep(step);
+    window.requestAnimationFrame(() => {
+      document.getElementById("builder-step-panel")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  }
+
   async function runSave(key: string, action: () => Promise<void>, message: string) {
     setSaving(key);
     setError(null);
@@ -3331,28 +3386,30 @@ function CampaignDetailView({
       await action();
       await load();
       setSuccess(message);
+      return true;
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : String(saveError));
+      return false;
     } finally {
       setSaving(null);
     }
   }
 
   function saveCampaign(payload: CampaignDraftPayload) {
-    void runSave("campaign", () => updateCampaignDraft(id, payload).then(() => undefined), "Campaign saved.");
+    return runSave("campaign", () => updateCampaignDraft(id, payload).then(() => undefined), "Campaign saved.");
   }
 
   function saveAdSet(adsetId: number, payload: AdSetDraftPayload) {
-    void runSave(`adset-${adsetId}`, () => updateAdSetDraft(adsetId, payload).then(() => undefined), "Ad set saved.");
+    return runSave(`adset-${adsetId}`, () => updateAdSetDraft(adsetId, payload).then(() => undefined), "Ad set saved.");
   }
 
   function saveAd(adId: number, payload: AdDraftPayload) {
-    void runSave(`ad-${adId}`, () => updateAdDraft(adId, payload).then(() => undefined), "Ad draft saved.");
+    return runSave(`ad-${adId}`, () => updateAdDraft(adId, payload).then(() => undefined), "Ad draft saved.");
   }
 
-  function addAdSet() {
+  async function addAdSet() {
     if (!campaign) return;
-    void runSave(
+    const created = await runSave(
       "create-adset",
       () =>
         createAdSetDraft(id, {
@@ -3367,6 +3424,7 @@ function CampaignDetailView({
         }).then(() => undefined),
       "Ad set added."
     );
+    if (created) selectBuilderStep("adsets");
   }
 
   function addCreative(adsetId: number, creativeId: number) {
@@ -3374,8 +3432,21 @@ function CampaignDetailView({
       `add-creative-${adsetId}`,
       () => createAdDraft(adsetId, { creativeId }).then(() => undefined),
       "Creative added as an ad draft."
-    );
+    ).then((created) => {
+      if (created) selectBuilderStep("creatives");
+    });
     setAddCreativeAdSetId(null);
+  }
+
+  function completeSetup() {
+    if (!campaign) return;
+    setError(null);
+    if (!creativesStepReady(campaign)) {
+      setSuccess(null);
+      setError("Add at least one creative to every ad set before finishing setup.");
+      return;
+    }
+    setSuccess("Campaign setup is ready.");
   }
 
   function saveCampaignName() {
@@ -3420,6 +3491,8 @@ function CampaignDetailView({
       </main>
     );
   }
+
+  const activeCompletedSteps = completedSteps ?? builderStepCompletion(campaign);
 
   return (
     <main className="content">
@@ -3497,49 +3570,89 @@ function CampaignDetailView({
       <div className="builderStack">
         <CampaignStructure
           campaign={campaign}
+          activeStep={activeBuilderStep}
+          completedSteps={activeCompletedSteps}
           onAddAdSet={addAdSet}
           onAddCreative={setAddCreativeAdSetId}
+          onStepSelect={selectBuilderStep}
           addingAdSet={saving === "create-adset"}
         />
 
-        {settingsOpen ? (
-          <CampaignSettingsForm
-            campaign={campaign}
-            saving={saving === "campaign"}
-            onSave={saveCampaign}
-            onError={setError}
-            onClose={() => setSettingsOpen(false)}
-          />
-        ) : (
-          <section className="builderSection compactSettings">
-            <div>
-              <p className="eyebrow">Campaign settings</p>
-              <h2>{enumToTitle(campaign.objective) || campaign.objective}</h2>
-              <div className="settingsMeta">
-                <StatusChip value={campaign.meta_status} />
-                <span>{budgetStrategyLabel(campaign.budget_strategy)}</span>
-              </div>
-            </div>
-            <button className="secondaryButton" onClick={() => setSettingsOpen(true)}>
-              Edit settings
-            </button>
-          </section>
-        )}
-
-        {campaign.adsets.length === 0 ? null : (
-          campaign.adsets.map((adset) => (
-            <AdSetEditor
-              key={adset.id}
-              adset={adset}
-              campaignBudgetStrategy={campaign.budget_strategy}
-              saving={saving}
-              onSave={saveAdSet}
-              onAddCreative={setAddCreativeAdSetId}
-              onSaveAd={saveAd}
+        <div id="builder-step-panel" className="builderStepPanel">
+          {activeBuilderStep === "campaign" ? (
+            <CampaignSettingsForm
+              campaign={campaign}
+              saving={saving === "campaign"}
+              onSave={saveCampaign}
               onError={setError}
+              onNext={() => selectBuilderStep("adsets")}
             />
-          ))
-        )}
+          ) : null}
+
+          {activeBuilderStep === "adsets" ? (
+            campaign.adsets.length === 0 ? (
+              <section className="builderSection stepEmptySection">
+                <div className="emptyStructureState">
+                  <div>
+                    <strong>No ad sets yet</strong>
+                    <span>Create the first ad set to open its settings.</span>
+                  </div>
+                  <button className="primaryButton" onClick={() => void addAdSet()} disabled={saving === "create-adset"}>
+                    {saving === "create-adset" ? <Loader2 size={16} className="spin" /> : <Plus size={16} />}
+                    Add ad set
+                  </button>
+                </div>
+              </section>
+            ) : (
+              campaign.adsets.map((adset) => (
+                <AdSetEditor
+                  key={adset.id}
+                  adset={adset}
+                  campaignBudgetStrategy={campaign.budget_strategy}
+                  mode="settings"
+                  saving={saving}
+                  onSave={saveAdSet}
+                  onAddCreative={setAddCreativeAdSetId}
+                  onSaveAd={saveAd}
+                  onError={setError}
+                  onNext={() => selectBuilderStep("creatives")}
+                />
+              ))
+            )
+          ) : null}
+
+          {activeBuilderStep === "creatives" ? (
+            campaign.adsets.length === 0 ? (
+              <section className="builderSection stepEmptySection">
+                <div className="emptyStructureState">
+                  <div>
+                    <strong>Create an ad set first</strong>
+                    <span>Creatives are attached inside an ad set.</span>
+                  </div>
+                  <button className="primaryButton" onClick={() => void addAdSet()} disabled={saving === "create-adset"}>
+                    {saving === "create-adset" ? <Loader2 size={16} className="spin" /> : <Plus size={16} />}
+                    Add ad set
+                  </button>
+                </div>
+              </section>
+            ) : (
+              campaign.adsets.map((adset) => (
+                <AdSetEditor
+                  key={adset.id}
+                  adset={adset}
+                  campaignBudgetStrategy={campaign.budget_strategy}
+                  mode="creatives"
+                  saving={saving}
+                  onSave={saveAdSet}
+                  onAddCreative={setAddCreativeAdSetId}
+                  onSaveAd={saveAd}
+                  onError={setError}
+                  onNext={completeSetup}
+                />
+              ))
+            )
+          ) : null}
+        </div>
       </div>
 
       {addCreativeAdSetId ? (
@@ -3579,9 +3692,7 @@ export function App() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<Creative | null>(null);
-  const [editing, setEditing] = useState<Creative | null>(null);
   const [launching, setLaunching] = useState(false);
-  const [savingCreative, setSavingCreative] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [query, setQuery] = useState("");
   const [campaigns, setCampaigns] = useState<MetaCampaign[]>([]);
@@ -3755,23 +3866,6 @@ export function App() {
       setError(launchError instanceof Error ? launchError.message : String(launchError));
     } finally {
       setLaunching(false);
-    }
-  }
-
-  async function saveCreativeDetails(creativeId: number, payload: CreativeUpdateRequest) {
-    setSavingCreative(true);
-    setError(null);
-    try {
-      const updated = await updateCreative(creativeId, payload);
-      setCreatives((current) => current.map((creative) => (creative.id === updated.id ? updated : creative)));
-      setSelected((current) => (current?.id === updated.id ? updated : current));
-      setEditing((current) => (current?.id === updated.id ? updated : current));
-      setError("Creative saved.");
-    } catch (saveError) {
-      setError(saveError instanceof Error ? saveError.message : String(saveError));
-      throw saveError;
-    } finally {
-      setSavingCreative(false);
     }
   }
 
@@ -3962,7 +4056,7 @@ export function App() {
               </section>
 
               {error ? (
-                <div className={error.startsWith("Synced") || error.endsWith("saved.") ? "notice success" : "notice"}>
+                <div className={error.startsWith("Synced") ? "notice success" : "notice"}>
                   <AlertCircle size={18} />
                   {error}
                 </div>
@@ -3984,7 +4078,6 @@ export function App() {
                       key={creative.id}
                       creative={creative}
                       onLaunch={creativeView === "ready" ? setSelected : undefined}
-                      onEdit={creativeView === "ready" ? setEditing : undefined}
                       campaignNamesById={campaignNamesById}
                       adSetNamesById={adSetNamesById}
                     />
@@ -4000,21 +4093,8 @@ export function App() {
         <ConfirmModal
           creative={selected}
           loading={launching}
-          saving={savingCreative}
-          mode="launch"
           onClose={() => setSelected(null)}
           onConfirm={confirmLaunch}
-          onSave={(payload) => saveCreativeDetails(selected.id, payload)}
-        />
-      ) : null}
-      {editing ? (
-        <ConfirmModal
-          creative={editing}
-          loading={false}
-          saving={savingCreative}
-          mode="edit"
-          onClose={() => setEditing(null)}
-          onSave={(payload) => saveCreativeDetails(editing.id, payload)}
         />
       ) : null}
     </div>

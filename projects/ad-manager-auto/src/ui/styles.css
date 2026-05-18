@@ -2103,6 +2103,16 @@ button:disabled {
     flex-direction: column;
   }
 
+  .stepActionBar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .stepActionBar .primaryButton,
+  .stepActionBar .secondaryButton {
+    width: 100%;
+  }
+
   .summaryBand,
   .campaignSummaryRow,
   .modalGrid,
@@ -3324,12 +3334,49 @@ button:disabled {
   padding: 0 10px;
   font-size: 12px;
   font-weight: 650;
+  cursor: pointer;
+}
+
+.stepperItem:hover {
+  border-color: var(--border-strong);
+  background: var(--surface-alt);
+  color: var(--fg-strong);
+}
+
+.stepperItem:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
 .stepperItem.active {
   border-color: var(--accent);
   background: var(--accent-soft);
   color: var(--accent-text);
+}
+
+.stepperItem.complete {
+  border-color: oklch(0.84 0.10 150);
+  background: var(--ok-soft);
+  color: var(--ok-text);
+}
+
+.builderStepPanel {
+  display: grid;
+  gap: 14px;
+  scroll-margin-top: 18px;
+}
+
+.stepActionBar {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border-soft);
+}
+
+.stepEmptySection .emptyStructureState {
+  min-height: 150px;
 }
 
 .campaignNode {

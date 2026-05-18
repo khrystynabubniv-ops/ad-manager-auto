@@ -1,8 +1,8 @@
 import { Router } from "express";
 import { DB_STATUS } from "../config/statuses.js";
 import { requireAuth } from "../middleware/auth.js";
-import { listCreatives, upsertCreative } from "../services/db.js";
-import { uploadCreativeAsset } from "../services/facebook.js";
+import { getCreativeById, listCreatives, updateCreativeDetails, upsertCreative } from "../services/db.js";
+import { getFacebookAdSet, uploadCreativeAsset } from "../services/facebook.js";
 import { AppError } from "../utils/errors.js";
 
 export const creativesRouter = Router();
@@ -18,6 +18,62 @@ creativesRouter.get("/", requireAuth, async (req, res, next) => {
           : [DB_STATUS.READY_TO_LAUNCH];
     const creatives = await listCreatives(statuses);
     res.json({ creatives });
+  } catch (error) {
+    next(error);
+  }
+});
+
+creativesRouter.patch("/:id", requireAuth, async (req, res, next) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id)) {
+      throw new AppError("Invalid creative id", { statusCode: 400, code: "INVALID_CREATIVE_ID" });
+    }
+
+    const existing = await getCreativeById(id);
+    if (!existing) {
+      throw new AppError(`Creative ${id} not found`, { statusCode: 404, code: "CREATIVE_NOT_FOUND" });
+    }
+
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const optionalText = (name: string) => {
+      if (!(name in body)) return undefined;
+      return typeof body[name] === "string" ? body[name].trim() || null : null;
+    };
+    const nextText = (name: string, current: string | null) => {
+      const value = optionalText(name);
+      return value === undefined ? current : value;
+    };
+
+    const campaignId = nextText("campaignId", existing.campaign_id);
+    const campaignName = campaignId ? nextText("campaignName", existing.campaign_name) : null;
+    const adSetId = campaignId ? nextText("adSetId", existing.adset_id) : null;
+    let adSetName = campaignId && adSetId ? nextText("adSetName", existing.adset_name) : null;
+
+    if (campaignId && adSetId) {
+      const adSet = await getFacebookAdSet(adSetId, req.id as string | undefined);
+      if (adSet.campaign_id !== campaignId) {
+        throw new AppError(`Ad set ${adSetId} belongs to campaign ${adSet.campaign_id}, not ${campaignId}`, {
+          statusCode: 400,
+          code: "ADSET_CAMPAIGN_MISMATCH"
+        });
+      }
+      adSetName = adSetName || adSet.name;
+    }
+
+    const creative = await updateCreativeDetails(id, {
+      projectType: nextText("projectType", existing.project_type),
+      adText: nextText("adText", existing.ad_text),
+      ctaLink: nextText("ctaLink", existing.cta_link),
+      audience: nextText("audience", existing.audience),
+      location: nextText("location", existing.location),
+      campaignId,
+      campaignName,
+      adSetId,
+      adSetName
+    });
+
+    res.json({ creative });
   } catch (error) {
     next(error);
   }

@@ -261,6 +261,51 @@ export async function updateCreativeStatus(
   return result.rows[0];
 }
 
+export async function updateCreativeDetails(
+  id: number,
+  fields: {
+    projectType: string | null;
+    adText: string | null;
+    ctaLink: string | null;
+    audience: string | null;
+    location: string | null;
+    campaignId: string | null;
+    campaignName: string | null;
+    adSetId: string | null;
+    adSetName: string | null;
+  }
+): Promise<Creative | undefined> {
+  const result = await query<Creative>(
+    `
+      UPDATE creatives
+      SET project_type = $2,
+        ad_text = $3,
+        cta_link = $4,
+        audience = $5,
+        location = $6,
+        campaign_id = $7,
+        campaign_name = $8,
+        adset_id = $9,
+        adset_name = $10
+      WHERE id = $1
+      RETURNING *
+    `,
+    [
+      id,
+      fields.projectType,
+      fields.adText,
+      fields.ctaLink,
+      fields.audience,
+      fields.location,
+      fields.campaignId,
+      fields.campaignName,
+      fields.adSetId,
+      fields.adSetName
+    ]
+  );
+  return result.rows[0];
+}
+
 export async function listCreatives(statuses: string[]): Promise<Creative[]> {
   const result = await query<Creative>(
     "SELECT * FROM creatives WHERE status = ANY($1::text[]) ORDER BY updated_at DESC",

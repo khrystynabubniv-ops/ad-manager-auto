@@ -54,7 +54,7 @@ async function graphGet<T>(endpoint: string, params: Record<string, string>, req
           method: "GET",
           endpoint,
           statusCode: axios.isAxiosError(error) ? error.response?.status : undefined,
-          error: getErrorMessage(error),
+          error: facebookErrorMessage(error),
           responseBody: axios.isAxiosError(error) ? error.response?.data : undefined
         });
         throw error;
@@ -63,7 +63,7 @@ async function graphGet<T>(endpoint: string, params: Record<string, string>, req
     {
       shouldRetry: retryable,
       onRetry: (error, attempt, delayMs) =>
-        logger.warn({ requestId, endpoint, attempt, delayMs, error: getErrorMessage(error) }, "Retrying Facebook GET")
+        logger.warn({ requestId, endpoint, attempt, delayMs, error: facebookErrorMessage(error) }, "Retrying Facebook GET")
     }
   );
 }
@@ -99,7 +99,7 @@ async function graphPost<T>(
           statusCode: axios.isAxiosError(error) ? error.response?.status : undefined,
           requestBody: body,
           responseBody: axios.isAxiosError(error) ? error.response?.data : undefined,
-          error: getErrorMessage(error)
+          error: facebookErrorMessage(error)
         });
         throw error;
       }
@@ -107,7 +107,7 @@ async function graphPost<T>(
     {
       shouldRetry: retryable,
       onRetry: (error, attempt, delayMs) =>
-        logger.warn({ requestId, endpoint, attempt, delayMs, error: getErrorMessage(error) }, "Retrying Facebook POST")
+        logger.warn({ requestId, endpoint, attempt, delayMs, error: facebookErrorMessage(error) }, "Retrying Facebook POST")
     }
   );
 }
@@ -146,7 +146,7 @@ async function graphMultipart<T>(
           statusCode: axios.isAxiosError(error) ? error.response?.status : undefined,
           requestBody: requestLog,
           responseBody: axios.isAxiosError(error) ? error.response?.data : undefined,
-          error: getErrorMessage(error)
+          error: facebookErrorMessage(error)
         });
         throw error;
       }
@@ -155,7 +155,7 @@ async function graphMultipart<T>(
       shouldRetry: retryable,
       onRetry: (error, attempt, delayMs) =>
         logger.warn(
-          { requestId, endpoint, attempt, delayMs, error: getErrorMessage(error) },
+          { requestId, endpoint, attempt, delayMs, error: facebookErrorMessage(error) },
           "Retrying Facebook multipart POST"
         )
     }
@@ -165,9 +165,20 @@ async function graphMultipart<T>(
 function facebookErrorMessage(error: unknown): string {
   if (axios.isAxiosError(error)) {
     const data = error.response?.data as any;
-    return data?.error?.message ?? data?.message ?? error.message;
+    const facebookError = data?.error;
+    const message = facebookError?.error_user_msg ?? facebookError?.message ?? data?.message ?? error.message;
+    const details = [
+      facebookError?.code ? `code ${facebookError.code}` : undefined,
+      facebookError?.error_subcode ? `subcode ${facebookError.error_subcode}` : undefined,
+      facebookError?.fbtrace_id ? `trace ${facebookError.fbtrace_id}` : undefined
+    ].filter(Boolean);
+    return details.length ? `${message} (${details.join(", ")})` : message;
   }
   return getErrorMessage(error);
+}
+
+function isMockCreativeAsset(input: { assetId: string; assetType: AssetType }): boolean {
+  return input.assetId.startsWith(`mock_${input.assetType}_`);
 }
 
 export async function uploadCreativeAsset(
@@ -477,6 +488,12 @@ export async function createAd(input: {
     return `mock_ad_${stableHash(`${input.name}:${input.assetId}`)}`;
   }
 
+  if (isMockCreativeAsset(input)) {
+    throw new Error(
+      "Creative was uploaded while MOCK_FACEBOOK was enabled, so it only has a mock Meta asset id. Re-upload the creative with real Meta uploads enabled before launching."
+    );
+  }
+
   const pageId = requireEnv("FB_PAGE_ID");
   const creativeBody =
     input.assetType === "image"
@@ -505,35 +522,39 @@ export async function createAd(input: {
           }
         };
 
-  const creative = await graphPost<any>(
-    `${adAccountId()}/adcreatives`,
-    {
-      name: `${input.name}_creative`,
-      object_story_spec: JSON.stringify(creativeBody)
-    },
-    input.requestId
-  );
+  try {
+    const creative = await graphPost<any>(
+      `${adAccountId()}/adcreatives`,
+      {
+        name: `${input.name}_creative`,
+        object_story_spec: JSON.stringify(creativeBody)
+      },
+      input.requestId
+    );
 
-  if (!creative.id) {
-    throw new Error("Facebook Ad Creative creation response did not include id");
+    if (!creative.id) {
+      throw new Error("Facebook Ad Creative creation response did not include id");
+    }
+
+    const ad = await graphPost<any>(
+      `${adAccountId()}/ads`,
+      {
+        name: input.name,
+        adset_id: input.adSetId,
+        creative: JSON.stringify({ creative_id: creative.id }),
+        status: env.FB_DEFAULT_AD_STATUS
+      },
+      input.requestId
+    );
+
+    if (!ad.id) {
+      throw new Error("Facebook Ad creation response did not include id");
+    }
+
+    return ad.id;
+  } catch (error) {
+    throw new Error(`Facebook ad launch failed: ${facebookErrorMessage(error)}`);
   }
-
-  const ad = await graphPost<any>(
-    `${adAccountId()}/ads`,
-    {
-      name: input.name,
-      adset_id: input.adSetId,
-      creative: JSON.stringify({ creative_id: creative.id }),
-      status: env.FB_DEFAULT_AD_STATUS
-    },
-    input.requestId
-  );
-
-  if (!ad.id) {
-    throw new Error("Facebook Ad creation response did not include id");
-  }
-
-  return ad.id;
 }
 
 export function adSetName(campaignId: string, location: string, audience: string): string {

@@ -1,10 +1,11 @@
 import { AD_STATUS, DB_STATUS, DESIGN_STATUS } from "../config/statuses.js";
+import { env } from "../config/env.js";
 import { logger } from "../logger.js";
 import { Creative, NotionCreativeFields } from "../types.js";
 import { getErrorMessage } from "../utils/errors.js";
 import { detectAssetType } from "../utils/mime.js";
 import { validateAssetFileName } from "../utils/assetNaming.js";
-import { downloadDriveCreatives, extractDriveSourceId } from "./googleDrive.js";
+import { downloadDriveCreatives, downloadDriveFile, extractDriveSourceId } from "./googleDrive.js";
 import { createAd, getFacebookAdSet, listFacebookCampaigns, uploadCreativeAsset } from "./facebook.js";
 import {
   cancelStaleCreativesForTask,
@@ -436,12 +437,85 @@ function isHttpUrl(value: string): boolean {
   }
 }
 
+function isMockCreativeAsset(assetId: string, assetType: string): boolean {
+  return assetId.startsWith(`mock_${assetType}_`);
+}
+
+const launchableStatuses = new Set<string>([DB_STATUS.READY_TO_LAUNCH, DB_STATUS.LAUNCH_FAILED]);
+
+async function downloadLaunchSourceFile(creative: Creative, requestId?: string) {
+  const sourceFileId = cleanText(creative.source_file_id);
+  if (sourceFileId && sourceFileId !== creative.notion_task_id) {
+    return downloadDriveFile(sourceFileId, requestId);
+  }
+
+  const sourceUrl = cleanText(creative.google_drive_url);
+  if (!sourceUrl) {
+    throw new Error(
+      `Creative ${creative.id} has a mock Meta asset id and no Google Drive source to re-upload from. Re-upload the creative with real Meta uploads enabled before launching.`
+    );
+  }
+
+  const files = await downloadDriveCreatives(sourceUrl, requestId);
+  const sourceFileName = cleanText(creative.source_file_name);
+  const matchingFile = sourceFileName ? files.find((file) => file.fileName === sourceFileName) : undefined;
+  if (matchingFile) {
+    return matchingFile;
+  }
+  if (files.length === 1) {
+    return files[0];
+  }
+
+  throw new Error(
+    `Creative ${creative.id} has a mock Meta asset id and its Google Drive folder has multiple creative files. Re-run upload from Notion so the exact file can be matched before launching.`
+  );
+}
+
+async function refreshMockLaunchAsset(creative: Creative, requestId?: string): Promise<Creative> {
+  if (
+    env.MOCK_FACEBOOK ||
+    !creative.asset_id ||
+    !creative.asset_type ||
+    !isMockCreativeAsset(creative.asset_id, creative.asset_type)
+  ) {
+    return creative;
+  }
+
+  logger.warn(
+    { requestId, creativeId: creative.id, notionTaskId: creative.notion_task_id, assetId: creative.asset_id },
+    "Creative has mock Meta asset id; re-uploading asset before launch"
+  );
+
+  const file = await downloadLaunchSourceFile(creative, requestId);
+  const uploaded = await uploadCreativeAsset(file, requestId);
+  const updated = await updateCreativeStatus(creative.id, DB_STATUS.READY_TO_LAUNCH, {
+    assetId: uploaded.assetId,
+    assetType: uploaded.assetType,
+    previewUrl: uploaded.previewUrl,
+    uploadedAt: new Date()
+  });
+  await updateUploadSuccess(creative.notion_task_id, {
+    assetId: uploaded.assetId,
+    assetType: uploaded.assetType,
+    previewUrl: uploaded.previewUrl
+  });
+  await recordEvent({
+    requestId,
+    creativeId: creative.id,
+    notionTaskId: creative.notion_task_id,
+    action: "launch_asset_refreshed",
+    status: "success",
+    metadata: { previousAssetId: creative.asset_id, assetId: uploaded.assetId, assetType: uploaded.assetType }
+  });
+  return updated;
+}
+
 export async function launchCreative(id: number, placementInput?: LaunchPlacementInput, requestId?: string) {
-  const creative = await getCreativeById(id);
+  let creative = await getCreativeById(id);
   if (!creative) {
     throw new Error(`Creative ${id} not found`);
   }
-  if (creative.status !== DB_STATUS.READY_TO_LAUNCH) {
+  if (!launchableStatuses.has(creative.status)) {
     throw new Error(`Creative ${id} is not ready to launch. Current status: ${creative.status}`);
   }
   if (!creative.asset_id || !creative.asset_type) {
@@ -466,6 +540,8 @@ export async function launchCreative(id: number, placementInput?: LaunchPlacemen
   if (!isHttpUrl(ctaLink)) {
     throw new Error(`Creative ${id} CTA link must be a valid http(s) URL`);
   }
+
+  creative = await refreshMockLaunchAsset(creative, requestId);
 
   const adSet = await getFacebookAdSet(adSetId, requestId);
   if (adSet.campaign_id !== campaignId) {
@@ -496,6 +572,12 @@ export async function launchCreative(id: number, placementInput?: LaunchPlacemen
     metadata: { campaignId, adSetId }
   });
 
+  const assetId = creative.asset_id;
+  const assetType = creative.asset_type;
+  if (!assetId || !assetType) {
+    throw new Error(`Creative ${id} is missing launch data`);
+  }
+
   try {
     const facebookAdId = await createAd({
       name: adName({
@@ -504,8 +586,8 @@ export async function launchCreative(id: number, placementInput?: LaunchPlacemen
         sourceFileName: creative.source_file_name ?? undefined
       }),
       adSetId,
-      assetId: creative.asset_id,
-      assetType: creative.asset_type,
+      assetId,
+      assetType,
       adText,
       ctaLink,
       requestId

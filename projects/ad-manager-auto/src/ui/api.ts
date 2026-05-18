@@ -309,6 +309,18 @@ export type LaunchRequest = LaunchPlacement & {
   location: string;
 };
 
+export type CreativeUpdateRequest = {
+  projectType?: string | null;
+  adText?: string | null;
+  ctaLink?: string | null;
+  audience?: string | null;
+  location?: string | null;
+  campaignId?: string | null;
+  campaignName?: string | null;
+  adSetId?: string | null;
+  adSetName?: string | null;
+};
+
 async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
   const token = await getAccessToken();
   const headers = new Headers(init.headers);
@@ -368,6 +380,14 @@ export async function uploadCreative(payload: {
 export async function launchCreative(id: number, payload: LaunchRequest): Promise<Creative> {
   const response = await apiFetch<{ creative: Creative }>(`/api/launch/${id}`, {
     method: "POST",
+    body: JSON.stringify(payload)
+  });
+  return response.creative;
+}
+
+export async function updateCreative(id: number, payload: CreativeUpdateRequest): Promise<Creative> {
+  const response = await apiFetch<{ creative: Creative }>(`/api/creatives/${id}`, {
+    method: "PATCH",
     body: JSON.stringify(payload)
   });
   return response.creative;
