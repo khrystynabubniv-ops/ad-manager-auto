@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { Pool, QueryResultRow } from "pg";
+import { Pool, QueryResultRow, types as pgTypes } from "pg";
 import { env } from "../config/env.js";
 import { logger } from "../logger.js";
 import {
@@ -16,6 +16,8 @@ import {
 } from "../types.js";
 
 let pool: Pool | undefined;
+
+pgTypes.setTypeParser(pgTypes.builtins.INT8, (value) => Number(value));
 
 export function getPool(): Pool {
   if (!env.DATABASE_URL) {

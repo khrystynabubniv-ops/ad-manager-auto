@@ -4,16 +4,20 @@ import {
   Check,
   ChevronRight,
   ImageIcon,
+  Layers,
   Loader2,
   LogOut,
+  MapPin,
+  MapPinOff,
   Megaphone,
+  Pencil,
   Plus,
   Play,
   RefreshCw,
   Save,
   X
 } from "lucide-react";
-import { type Dispatch, type FormEvent, type SetStateAction, useCallback, useEffect, useMemo, useState } from "react";
+import { type Dispatch, type FormEvent, type ReactNode, type SetStateAction, useCallback, useEffect, useMemo, useState } from "react";
 import { getOktaAuth, isAuthDisabled } from "./auth";
 import {
   AdDraftPayload,
@@ -911,6 +915,22 @@ function countAds(campaign: CampaignDraftTree) {
   return campaign.adsets.reduce((sum, adset) => sum + adset.ads.length, 0);
 }
 
+function enumToTitle(value?: string | null) {
+  return (value ?? "")
+    .split("_")
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+    .join(" ");
+}
+
+function budgetStrategyLabel(strategy: string) {
+  return strategy === "CAMPAIGN" ? "Campaign budget" : "Ad set budgets";
+}
+
+function statusClassName(value: string) {
+  return value.toLowerCase().replaceAll("_", "-");
+}
+
 function defaultAdSetPayload(index: number): AdSetDraftPayload & { name: string } {
   return {
     name: `Ad set ${index}`,
@@ -981,7 +1001,17 @@ function UploadStatusBadge({ creative }: { creative: Creative }) {
 }
 
 function StatusChip({ value }: { value: string }) {
-  return <span className={`statusChip ${value}`}>{value.replaceAll("_", " ")}</span>;
+  return <span className={`statusChip ${value} ${statusClassName(value)}`}>{value.replaceAll("_", " ")}</span>;
+}
+
+function BadgeChip({
+  children,
+  tone = "neutral"
+}: {
+  children: ReactNode;
+  tone?: "neutral" | "warning";
+}) {
+  return <span className={`badgeChip ${tone}`}>{children}</span>;
 }
 
 function MetadataItem({ label, value }: { label: string; value?: string | null }) {
@@ -993,11 +1023,29 @@ function MetadataItem({ label, value }: { label: string; value?: string | null }
   );
 }
 
-function ErrorNotice({ message }: { message: string }) {
+function errorNoticeBody(message: string) {
+  const normalized = message.toLowerCase();
+  if (normalized.includes("creativeid") || normalized.includes("creative id")) {
+    return "Поле Creative ID має бути числом. Перевір налаштування креативу.";
+  }
+  return message;
+}
+
+function ErrorNotice({ message, title = "Помилка при збереженні" }: { message: string; title?: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const body = errorNoticeBody(message);
+
   return (
-    <div className="notice">
-      <AlertCircle size={18} />
-      {message}
+    <div className="notice errorNotice" role="alert">
+      <AlertCircle size={20} />
+      <div className="noticeContent">
+        <strong>{title}</strong>
+        <p>{body}</p>
+        {expanded ? <code>{message}</code> : null}
+      </div>
+      <button type="button" className="secondaryButton compact noticeAction" onClick={() => setExpanded((current) => !current)}>
+        {expanded ? "Сховати" : "Детальніше"}
+      </button>
     </div>
   );
 }
@@ -2427,12 +2475,12 @@ function AdSetEditor({
 
   return (
     <section className="adsetEditor">
-      <div className="sectionHeader">
+      <div className="sectionHeader adsetEditorHeader">
         <div>
           <p className="eyebrow">Ad set draft</p>
           <h2>{adset.name}</h2>
         </div>
-        <div className="headerActions">
+        <div className="headerActions actionGroup">
           <StatusChip value={adset.status} />
           <button className="secondaryButton" onClick={() => onAddCreative(adset.id)}>
             <ImageIcon size={16} />
@@ -2450,20 +2498,10 @@ function AdSetEditor({
           <div className="subsectionHeader">
             <h3>Delivery and conversion</h3>
           </div>
-          <div className="formGrid three">
-            <label className="fieldGroup wideField">
+          <div className="formGrid three deliveryGrid">
+            <label className="fieldGroup fullWidthField">
               <span>Ad set name</span>
               <input value={draft.name} onChange={(event) => update("name", event.target.value)} disabled={adSetSaving} />
-            </label>
-            <label className="fieldGroup">
-              <span>Meta status</span>
-              <select value={draft.metaStatus} onChange={(event) => update("metaStatus", event.target.value)} disabled={adSetSaving}>
-                {metaStatuses.map((status) => (
-                  <option key={status} value={status}>
-                    {status}
-                  </option>
-                ))}
-              </select>
             </label>
             <label className="fieldGroup">
               <span>Conversion location</span>
@@ -2531,13 +2569,30 @@ function AdSetEditor({
                 ))}
               </select>
             </label>
+            <label className="fieldGroup metaStatusField">
+              <span>Meta status</span>
+              <select value={draft.metaStatus} onChange={(event) => update("metaStatus", event.target.value)} disabled={adSetSaving}>
+                {metaStatuses.map((status) => (
+                  <option key={status} value={status}>
+                    {status}
+                  </option>
+                ))}
+              </select>
+            </label>
           </div>
         </section>
 
         <section className="formSubsection">
           <div className="subsectionHeader">
             <h3>Budget and schedule</h3>
-            <span>{usesCampaignBudget ? "Campaign budget is active" : "Ad set budget required"}</span>
+            {usesCampaignBudget ? (
+              <span>Campaign budget is active</span>
+            ) : (
+              <span className="inlineWarning">
+                <AlertCircle size={14} />
+                Ad set budget required
+              </span>
+            )}
           </div>
           <div className="formGrid three">
             {usesCampaignBudget ? (
@@ -2624,14 +2679,17 @@ function AdSetEditor({
               </select>
             </label>
           </div>
-          <label className="checkboxField">
+          <label className="checkboxField describedCheckbox">
             <input
               type="checkbox"
               checked={draft.isDynamicCreative}
               onChange={(event) => update("isDynamicCreative", event.target.checked)}
               disabled={adSetSaving}
             />
-            <span>Dynamic creative</span>
+            <span className="checkboxCopy">
+              <strong>Dynamic creative</strong>
+              <small>Meta can automatically combine eligible creative assets, copy variants, and placements.</small>
+            </span>
           </label>
         </section>
 
@@ -2710,7 +2768,9 @@ function AdSetEditor({
         </div>
         {adset.ads.length === 0 ? (
           <div className="emptyCreativeState">
-            <span>No creatives assigned to this ad set yet.</span>
+            <ImageIcon size={34} />
+            <strong>No creatives assigned to this ad set yet</strong>
+            <span>Add a creative to finish this ad set.</span>
             <button className="secondaryButton compact" onClick={() => onAddCreative(adset.id)}>
               <ImageIcon size={16} />
               Add creative
@@ -2727,6 +2787,17 @@ function AdSetEditor({
             />
           ))
         )}
+      </div>
+
+      <div className="stickyActionBar">
+        <button className="secondaryButton" onClick={() => onAddCreative(adset.id)}>
+          <ImageIcon size={16} />
+          Add creative
+        </button>
+        <button className="primaryButton" onClick={save} disabled={adSetSaving}>
+          {adSetSaving ? <Loader2 size={16} className="spin" /> : <Save size={16} />}
+          Save ad set
+        </button>
       </div>
     </section>
   );
@@ -2922,6 +2993,32 @@ function AddCreativeModal({
   );
 }
 
+function StructureStepper({ activeStep }: { activeStep: number }) {
+  const steps = [
+    { label: "Campaign", icon: Megaphone },
+    { label: "Ad sets", icon: Layers },
+    { label: "Creatives", icon: ImageIcon }
+  ];
+
+  return (
+    <div className="structureStepper" aria-label="Campaign structure progress">
+      {steps.map((step, index) => {
+        const StepIcon = step.icon;
+        const state = index === activeStep ? "active" : index < activeStep ? "complete" : "upcoming";
+        return (
+          <div className="stepperItemWrap" key={step.label}>
+            <div className={`stepperItem ${state}`}>
+              <StepIcon size={15} />
+              <span>{step.label}</span>
+            </div>
+            {index < steps.length - 1 ? <ChevronRight size={15} className="stepperArrow" /> : null}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function CampaignStructure({
   campaign,
   onAddAdSet,
@@ -2933,27 +3030,29 @@ function CampaignStructure({
   onAddCreative: (adsetId: number) => void;
   addingAdSet: boolean;
 }) {
+  const activeStep = countAds(campaign) > 0 ? 2 : campaign.adsets.length > 0 ? 1 : 0;
+
   return (
     <section className="builderSection structureSection">
       <div className="sectionHeader">
         <div>
           <p className="eyebrow">Structure</p>
-          <h2>Campaign → ad sets → creatives</h2>
+          <StructureStepper activeStep={activeStep} />
         </div>
-        <button className="primaryButton" onClick={onAddAdSet} disabled={addingAdSet}>
+        <button className="primaryButton compact" onClick={onAddAdSet} disabled={addingAdSet}>
           {addingAdSet ? <Loader2 size={16} className="spin" /> : <Plus size={16} />}
           Add ad set
         </button>
       </div>
 
       <div className="campaignNode">
-        <div>
+        <div className="nodeTitle">
           <span>Campaign</span>
           <strong>{campaign.name}</strong>
         </div>
         <div className="structureMeta">
-          <span>{campaign.objective}</span>
-          <span>{campaign.budget_strategy === "CAMPAIGN" ? "Campaign budget" : "Ad set budgets"}</span>
+          <BadgeChip>{campaign.objective}</BadgeChip>
+          <BadgeChip>{budgetStrategyLabel(campaign.budget_strategy)}</BadgeChip>
           <StatusChip value={campaign.status} />
         </div>
       </div>
@@ -2973,15 +3072,25 @@ function CampaignStructure({
         <div className="structureTree">
           {campaign.adsets.map((adset) => {
             const targetingSummary = summarizeTargetingLocations(adset.targeting ?? {}, adset.metadata);
+            const budget = formatUsdMinor(adset.daily_budget_minor ?? adset.lifetime_budget_minor);
+            const hasBudget = Boolean(adset.daily_budget_minor || adset.lifetime_budget_minor);
             return (
               <article className="adsetNode" key={adset.id}>
                 <div className="adsetNodeHeader">
-                  <div>
+                  <div className="nodeTitle">
                     <span>Ad set</span>
                     <strong>{adset.name}</strong>
-                    <small>
-                      {formatUsdMinor(adset.daily_budget_minor ?? adset.lifetime_budget_minor)} · {adset.optimization_goal}
-                    </small>
+                    <div className="chipRow">
+                      {hasBudget ? (
+                        <BadgeChip>{budget}</BadgeChip>
+                      ) : (
+                        <BadgeChip tone="warning">
+                          <AlertCircle size={12} />
+                          No budget
+                        </BadgeChip>
+                      )}
+                      <BadgeChip>{adset.optimization_goal}</BadgeChip>
+                    </div>
                   </div>
                   <div className="headerActions">
                     <StatusChip value={adset.status} />
@@ -2994,11 +3103,13 @@ function CampaignStructure({
 
                 <div className="targetingSummary">
                   <div>
-                    <span>Included</span>
+                    <MapPin size={16} />
+                    <span>Included locations</span>
                     <strong>{targetingSummary.includeText}</strong>
                   </div>
                   <div>
-                    <span>Excluded</span>
+                    <MapPinOff size={16} />
+                    <span>Excluded locations</span>
                     <strong>{targetingSummary.excludeText}</strong>
                   </div>
                 </div>
@@ -3018,7 +3129,9 @@ function CampaignStructure({
                   </div>
                 ) : (
                   <div className="emptyCreativeState">
-                    <span>No creatives assigned to this ad set yet.</span>
+                    <ImageIcon size={30} />
+                    <strong>No creatives assigned to this ad set yet</strong>
+                    <span>Add a creative to finish this ad set.</span>
                     <button className="secondaryButton compact" onClick={() => onAddCreative(adset.id)}>
                       <ImageIcon size={16} />
                       Add creative
@@ -3050,6 +3163,8 @@ function CampaignDetailView({
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [editingCampaignName, setEditingCampaignName] = useState(false);
+  const [campaignNameDraft, setCampaignNameDraft] = useState("");
 
   const load = useCallback(async () => {
     if (!ready) return;
@@ -3067,6 +3182,11 @@ function CampaignDetailView({
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    if (!campaign || editingCampaignName) return;
+    setCampaignNameDraft(campaign.name);
+  }, [campaign, editingCampaignName]);
 
   async function runSave(key: string, action: () => Promise<void>, message: string) {
     setSaving(key);
@@ -3123,6 +3243,24 @@ function CampaignDetailView({
     setAddCreativeAdSetId(null);
   }
 
+  function saveCampaignName() {
+    if (!campaign) return;
+    const name = campaignNameDraft.trim();
+    if (!name || name === campaign.name) {
+      setCampaignNameDraft(campaign.name);
+      setEditingCampaignName(false);
+      return;
+    }
+    setEditingCampaignName(false);
+    void runSave("campaign-name", () => updateCampaignDraft(campaign.id, { name }).then(() => undefined), "Campaign name saved.");
+  }
+
+  function cancelCampaignNameEdit() {
+    if (!campaign) return;
+    setCampaignNameDraft(campaign.name);
+    setEditingCampaignName(false);
+  }
+
   if (loading && !campaign) {
     return (
       <main className="content">
@@ -3150,41 +3288,73 @@ function CampaignDetailView({
 
   return (
     <main className="content">
-      <header className="pageHeader">
-        <div>
-          <button className="backButton" onClick={onBack}>
-            <ArrowLeft size={16} />
-            Campaign drafts
-          </button>
-          <p className="eyebrow">Campaign Builder</p>
-          <h1>{campaign.name}</h1>
+      <header className="pageHeader campaignDetailHeader">
+        <div className="campaignHeaderMain">
+          <nav className="campaignBreadcrumb" aria-label="Breadcrumb">
+            <button type="button" onClick={onBack}>Campaign drafts</button>
+            <span>/</span>
+            <span>Campaign Builder</span>
+          </nav>
+          {editingCampaignName ? (
+            <form className="campaignNameForm" onSubmit={(event) => {
+              event.preventDefault();
+              saveCampaignName();
+            }}>
+              <input
+                autoFocus
+                value={campaignNameDraft}
+                onChange={(event) => setCampaignNameDraft(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Escape") {
+                    event.preventDefault();
+                    cancelCampaignNameEdit();
+                  }
+                }}
+                disabled={saving === "campaign-name"}
+                aria-label="Campaign name"
+              />
+              <button type="submit" className="iconButton titleEditButton" aria-label="Save campaign name" disabled={saving === "campaign-name"}>
+                <Save size={15} />
+              </button>
+              <button type="button" className="iconButton titleEditButton" onClick={cancelCampaignNameEdit} aria-label="Cancel campaign name edit">
+                <X size={15} />
+              </button>
+            </form>
+          ) : (
+            <div className="campaignTitleLine">
+              <h1>{campaign.name}</h1>
+              <button type="button" className="iconButton titleEditButton" onClick={() => setEditingCampaignName(true)} aria-label="Edit campaign name">
+                <Pencil size={15} />
+              </button>
+            </div>
+          )}
+
+          <section className="campaignSummaryRow" aria-label="Campaign summary">
+            <div>
+              <strong>{campaign.adsets.length}</strong>
+              <span>ad set draft{campaign.adsets.length === 1 ? "" : "s"}</span>
+            </div>
+            <div>
+              <strong>{countAds(campaign)}</strong>
+              <span>ad draft{countAds(campaign) === 1 ? "" : "s"}</span>
+            </div>
+            <div>
+              <StatusChip value={campaign.meta_status} />
+              <span>Meta campaign status</span>
+            </div>
+          </section>
         </div>
         <div className="headerActions">
           <button className="secondaryButton" onClick={load} disabled={loading}>
             <RefreshCw size={16} className={loading ? "spin" : ""} />
             Refresh
           </button>
-          <button className="secondaryButton" disabled title="Meta publish is not implemented yet">
+          <button className="secondaryButton disabledPublishButton" disabled title="Буде доступно після налаштування всіх кроків">
             <Megaphone size={16} />
             Review & publish coming next
           </button>
         </div>
       </header>
-
-      <section className="summaryBand">
-        <div>
-          <span>{campaign.adsets.length}</span>
-          <p>ad set drafts</p>
-        </div>
-        <div>
-          <span>{countAds(campaign)}</span>
-          <p>ad drafts</p>
-        </div>
-        <div>
-          <span>{campaign.meta_status}</span>
-          <p>Meta campaign status</p>
-        </div>
-      </section>
 
       {error ? <ErrorNotice message={error} /> : null}
       {success ? <SuccessNotice message={success} /> : null}
@@ -3209,10 +3379,11 @@ function CampaignDetailView({
           <section className="builderSection compactSettings">
             <div>
               <p className="eyebrow">Campaign settings</p>
-              <h2>{campaign.objective}</h2>
-              <span>
-                {campaign.meta_status} · {campaign.budget_strategy === "CAMPAIGN" ? "Campaign budget" : "Ad set budgets"}
-              </span>
+              <h2>{enumToTitle(campaign.objective) || campaign.objective}</h2>
+              <div className="settingsMeta">
+                <StatusChip value={campaign.meta_status} />
+                <span>{budgetStrategyLabel(campaign.budget_strategy)}</span>
+              </div>
             </div>
             <button className="secondaryButton" onClick={() => setSettingsOpen(true)}>
               Edit settings

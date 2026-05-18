@@ -331,6 +331,14 @@ async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
   return response.json();
 }
 
+function positiveInteger(value: unknown, label: string) {
+  const numberValue = Number(value);
+  if (!Number.isInteger(numberValue) || numberValue <= 0) {
+    throw new Error(`${label} must be a positive whole number.`);
+  }
+  return numberValue;
+}
+
 export async function fetchCreatives(kind: CreativeListKind): Promise<Creative[]> {
   const path =
     kind === "launched"
@@ -456,17 +464,28 @@ export async function createAdDraft(
   adSetDraftId: number,
   payload: AdDraftPayload & { creativeId: number }
 ): Promise<AdDraft> {
+  const requestPayload = {
+    ...payload,
+    creativeId: positiveInteger(payload.creativeId, "Creative ID")
+  };
   const response = await apiFetch<{ adDraft: AdDraft }>(`/api/adset-drafts/${adSetDraftId}/ads`, {
     method: "POST",
-    body: JSON.stringify(payload)
+    body: JSON.stringify(requestPayload)
   });
   return response.adDraft;
 }
 
 export async function updateAdDraft(id: number, payload: AdDraftPayload): Promise<AdDraft> {
+  const requestPayload =
+    payload.creativeId === undefined
+      ? payload
+      : {
+          ...payload,
+          creativeId: positiveInteger(payload.creativeId, "Creative ID")
+        };
   const response = await apiFetch<{ adDraft: AdDraft }>(`/api/ad-drafts/${id}`, {
     method: "PATCH",
-    body: JSON.stringify(payload)
+    body: JSON.stringify(requestPayload)
   });
   return response.adDraft;
 }

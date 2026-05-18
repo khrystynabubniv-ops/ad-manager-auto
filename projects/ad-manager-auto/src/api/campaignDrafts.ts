@@ -24,6 +24,10 @@ const nonEmptyString = z.string().trim().min(1);
 const optionalString = nonEmptyString.optional();
 const nullableString = nonEmptyString.nullable().optional();
 const nullablePositiveInt = z.number().int().positive().nullable().optional();
+const positiveInt = z.preprocess(
+  (value) => (typeof value === "string" && value.trim() ? Number(value) : value),
+  z.number().int().positive()
+);
 const optionalJsonValue = z.union([jsonObjectSchema, z.array(jsonObjectSchema)]).nullable().optional();
 const nullableDate = z.union([z.string().datetime().transform((value) => new Date(value)), z.null()]).optional();
 
@@ -93,7 +97,7 @@ const adSetUpdateSchema = adSetCreateSchema.partial();
 
 const adCreateSchema = z
   .object({
-    creativeId: z.number().int().positive(),
+    creativeId: positiveInt,
     name: nullableString,
     primaryText: nullableString,
     headline: nullableString,

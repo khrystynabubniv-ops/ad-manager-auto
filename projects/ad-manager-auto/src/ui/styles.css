@@ -199,8 +199,8 @@ nav {
 
 .eyebrow {
   margin: 0 0 6px;
-  color: #667085;
-  font-size: 12px;
+  color: #888888;
+  font-size: 11px;
   font-weight: 700;
   text-transform: uppercase;
   display: inline-flex;
@@ -229,12 +229,140 @@ h3 {
   font-size: 18px;
 }
 
+.campaignDetailHeader {
+  align-items: flex-start;
+  margin-bottom: 18px;
+}
+
+.campaignHeaderMain {
+  min-width: 0;
+  display: grid;
+  gap: 9px;
+}
+
+.campaignBreadcrumb {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: #888888;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.campaignBreadcrumb button {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  padding: 0;
+  font-weight: 700;
+}
+
+.campaignBreadcrumb button:hover {
+  color: #314155;
+}
+
+.campaignTitleLine {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.campaignTitleLine h1 {
+  min-width: 0;
+  color: #111111;
+  font-size: 24px;
+  line-height: 1.18;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.campaignNameForm {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.campaignNameForm input {
+  flex: 1 1 420px;
+  width: auto;
+  min-width: min(260px, 100%);
+  max-width: 560px;
+  min-height: 38px;
+  border: 1px solid #b8c4d2;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #111111;
+  padding: 0 11px;
+  font-size: 24px;
+  font-weight: 700;
+}
+
+.campaignNameForm input:focus {
+  outline: none;
+  border-color: #0b63ce;
+  box-shadow: 0 0 0 3px rgba(11, 99, 206, 0.14);
+}
+
+.titleEditButton {
+  width: 32px;
+  min-height: 32px;
+  height: 32px;
+  color: #52606d;
+}
+
+.campaignSummaryRow {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: 0;
+  margin-top: 2px;
+}
+
+.campaignSummaryRow > div {
+  min-width: 116px;
+  display: grid;
+  align-content: center;
+  gap: 3px;
+  padding: 0 18px;
+  border-right: 1px solid #dfe5eb;
+}
+
+.campaignSummaryRow > div:first-child {
+  padding-left: 0;
+}
+
+.campaignSummaryRow > div:last-child {
+  border-right: 0;
+}
+
+.campaignSummaryRow strong {
+  color: #111111;
+  font-size: 20px;
+  line-height: 1;
+  font-weight: 800;
+}
+
+.campaignSummaryRow span:not(.statusChip) {
+  color: #888888;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
 .headerActions,
 .modalActions,
 .rowActions {
   display: flex;
   gap: 10px;
   align-items: center;
+}
+
+.actionGroup {
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .primaryButton,
@@ -308,6 +436,11 @@ button:disabled {
   cursor: not-allowed;
 }
 
+.disabledPublishButton:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
 .summaryBand {
   margin: 0 0 24px;
   display: grid;
@@ -353,7 +486,7 @@ button:disabled {
   margin-bottom: 16px;
   display: flex;
   gap: 10px;
-  align-items: center;
+  align-items: flex-start;
   color: #8a3416;
   background: #fff7ed;
   border: 1px solid #fed7aa;
@@ -361,7 +494,58 @@ button:disabled {
   padding: 12px 14px;
 }
 
+.errorNotice {
+  color: #7f1d1d;
+  background: #fff5f5;
+  border-color: #fecaca;
+  border-left: 4px solid #dc2626;
+}
+
+.errorNotice > svg {
+  flex: 0 0 auto;
+  margin-top: 1px;
+  color: #dc2626;
+}
+
+.noticeContent {
+  min-width: 0;
+  flex: 1;
+  display: grid;
+  gap: 3px;
+}
+
+.noticeContent strong {
+  color: #7f1d1d;
+  font-size: 14px;
+}
+
+.noticeContent p {
+  margin: 0;
+  color: #991b1b;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.noticeContent code {
+  margin-top: 4px;
+  display: block;
+  color: #7f1d1d;
+  background: #ffffff;
+  border: 1px solid #fecaca;
+  border-radius: 6px;
+  padding: 7px 8px;
+  font-size: 12px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.noticeAction {
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+
 .notice.success {
+  align-items: center;
   color: #166534;
   background: #f0fdf4;
   border-color: #bbf7d0;
@@ -455,9 +639,9 @@ button:disabled {
   padding: 4px 9px;
   background: #e9f9ef;
   color: #067647;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 800;
-  text-transform: capitalize;
+  text-transform: uppercase;
 }
 
 .statusChip.launched {
@@ -477,8 +661,18 @@ button:disabled {
 }
 
 .statusChip.draft {
-  background: #eef2f7;
-  color: #344054;
+  background: #fff4e5;
+  color: #9a3412;
+}
+
+.statusChip.paused {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.statusChip.active {
+  background: #e9f9ef;
+  color: #067647;
 }
 
 .statusChip.publishing {
@@ -494,6 +688,25 @@ button:disabled {
 .statusChip.published {
   background: #e9f9ef;
   color: #067647;
+}
+
+.badgeChip {
+  min-height: 24px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border-radius: 999px;
+  background: #f2f5f8;
+  color: #344054;
+  padding: 4px 9px;
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.badgeChip.warning {
+  background: #fff4e5;
+  color: #9a3412;
 }
 
 .uploadStatus {
@@ -782,12 +995,12 @@ button:disabled {
 
 .fieldGroup {
   display: grid;
-  gap: 4px;
+  gap: 5px;
 }
 
 .fieldGroup span {
-  color: #697586;
-  font-size: 12px;
+  color: #888888;
+  font-size: 11px;
   font-weight: 700;
   text-transform: uppercase;
 }
@@ -799,9 +1012,10 @@ button:disabled {
   min-height: 36px;
   border: 1px solid #cfd8e3;
   border-radius: 8px;
-  color: #1f2933;
+  color: #111111;
   background: #ffffff;
   padding: 0 12px;
+  font-size: 14px;
 }
 
 .fieldGroup textarea {
@@ -826,7 +1040,7 @@ button:disabled {
 
 .formGrid {
   display: grid;
-  gap: 10px;
+  gap: 12px;
   margin-bottom: 8px;
 }
 
@@ -846,16 +1060,27 @@ button:disabled {
   grid-column: span 2;
 }
 
+.fullWidthField {
+  grid-column: 1 / -1;
+}
+
+.metaStatusField {
+  border: 1px solid #fed7aa;
+  border-radius: 8px;
+  background: #fff7ed;
+  padding: 10px;
+}
+
 .campaignFieldStack {
   display: grid;
-  gap: 12px;
+  gap: 16px;
 }
 
 .formSubsection {
   display: grid;
-  gap: 10px;
+  gap: 12px;
   border-top: 1px solid #e5e9ee;
-  padding-top: 12px;
+  padding-top: 16px;
 }
 
 .formSubsection:first-child {
@@ -886,6 +1111,29 @@ button:disabled {
   width: 18px;
   height: 18px;
   accent-color: #16794c;
+}
+
+.describedCheckbox {
+  align-items: flex-start;
+}
+
+.checkboxCopy {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.checkboxCopy strong {
+  color: #314155;
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.checkboxCopy small {
+  color: #888888;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.35;
 }
 
 .optionGrid {
@@ -1029,7 +1277,7 @@ button:disabled {
 
 .builderStack {
   display: grid;
-  gap: 12px;
+  gap: 16px;
 }
 
 .builderSection,
@@ -1037,9 +1285,9 @@ button:disabled {
   background: #ffffff;
   border: 1px solid #dfe5eb;
   border-radius: 8px;
-  padding: 14px;
+  padding: 18px;
   display: grid;
-  gap: 12px;
+  gap: 14px;
 }
 
 .builderSection.flush {
@@ -1050,15 +1298,69 @@ button:disabled {
   gap: 12px;
 }
 
+.structureStepper {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.stepperItemWrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.stepperItem {
+  min-height: 32px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid #dfe5eb;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #52606d;
+  padding: 0 11px;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.stepperItem.active {
+  border-color: #16794c;
+  background: #ecfdf3;
+  color: #0f5f3c;
+}
+
+.stepperItem.complete {
+  color: #314155;
+  background: #f2f5f8;
+}
+
+.stepperArrow {
+  color: #9aa8b6;
+}
+
 .compactSettings {
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
 }
 
-.compactSettings span {
-  display: block;
-  margin-top: 5px;
+.compactSettings h2 {
+  color: #111111;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.settingsMeta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 7px;
+}
+
+.settingsMeta span:not(.statusChip) {
   color: #697586;
+  font-size: 13px;
   font-weight: 700;
 }
 
@@ -1074,11 +1376,12 @@ button:disabled {
   justify-content: space-between;
   gap: 14px;
   align-items: center;
-  padding: 12px;
+  padding: 14px 12px;
+  border-bottom-color: #d8e0ea;
 }
 
-.campaignNode span,
-.adsetNode span,
+.campaignNode .nodeTitle > span,
+.adsetNode .nodeTitle > span,
 .targetingSummary span,
 .creativeNode span {
   color: #697586;
@@ -1087,14 +1390,31 @@ button:disabled {
   text-transform: uppercase;
 }
 
-.campaignNode strong,
-.adsetNode strong,
+.campaignNode .nodeTitle > strong,
+.adsetNode .nodeTitle > strong,
 .targetingSummary strong,
 .creativeNode strong {
   display: block;
-  margin-top: 4px;
   color: #1f2933;
   overflow-wrap: anywhere;
+}
+
+.nodeTitle {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.nodeTitle strong {
+  font-size: 15px;
+  font-weight: 800;
+}
+
+.chipRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 1px;
 }
 
 .structureMeta {
@@ -1117,8 +1437,7 @@ button:disabled {
   background: #ffffff;
 }
 
-.emptyStructureState,
-.emptyCreativeState {
+.emptyStructureState {
   display: flex;
   justify-content: space-between;
   gap: 12px;
@@ -1130,8 +1449,7 @@ button:disabled {
 }
 
 .emptyStructureState strong,
-.emptyStructureState span,
-.emptyCreativeState span {
+.emptyStructureState span {
   display: block;
 }
 
@@ -1140,9 +1458,36 @@ button:disabled {
   font-size: 15px;
 }
 
-.emptyStructureState span,
+.emptyStructureState span {
+  color: #697586;
+  font-weight: 700;
+}
+
+.emptyCreativeState {
+  min-height: 152px;
+  display: grid;
+  justify-items: center;
+  align-content: center;
+  gap: 8px;
+  border: 1px dashed #cbd5e1;
+  border-radius: 8px;
+  padding: 18px;
+  background: #f8fafc;
+  text-align: center;
+}
+
+.emptyCreativeState > svg {
+  color: #90a4b8;
+}
+
+.emptyCreativeState strong {
+  color: #1f2933;
+  font-size: 15px;
+}
+
 .emptyCreativeState span {
   color: #697586;
+  font-size: 13px;
   font-weight: 700;
 }
 
@@ -1169,10 +1514,25 @@ button:disabled {
 }
 
 .targetingSummary > div {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  column-gap: 8px;
+  row-gap: 3px;
   border: 1px solid #e5e9ee;
   border-radius: 8px;
   padding: 10px;
   background: #f8fafc;
+}
+
+.targetingSummary > div > svg {
+  grid-row: 1 / 3;
+  color: #64748b;
+  margin-top: 1px;
+}
+
+.targetingSummary > div > span,
+.targetingSummary > div > strong {
+  grid-column: 2;
 }
 
 .creativeNodeGrid {
@@ -1207,6 +1567,24 @@ button:disabled {
   align-items: center;
 }
 
+.builderSection .sectionHeader h2,
+.adsetEditor .sectionHeader h2 {
+  color: #111111;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.adsetEditorHeader h2 {
+  font-size: 20px;
+}
+
+.formSubsection h3,
+.adDraftStack h3 {
+  color: #222222;
+  font-size: 15px;
+  font-weight: 600;
+}
+
 .sectionHeader.compact {
   align-items: flex-start;
   margin-bottom: 10px;
@@ -1214,6 +1592,8 @@ button:disabled {
 
 .subsectionHeader {
   padding-top: 2px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #e5e9ee;
 }
 
 .subsectionHeader span {
@@ -1222,11 +1602,36 @@ button:disabled {
   font-weight: 700;
 }
 
+.subsectionHeader .inlineWarning {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #9a3412;
+  background: #fff4e5;
+  border-radius: 999px;
+  padding: 4px 9px;
+  font-size: 12px;
+}
+
 .adDraftStack {
   display: grid;
   gap: 12px;
   border-top: 1px solid #e5e9ee;
   padding-top: 16px;
+}
+
+.stickyActionBar {
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin: 4px -18px -18px;
+  padding: 12px 24px;
+  background: rgba(255, 255, 255, 0.96);
+  border-top: 1px solid #dfe5eb;
+  border-radius: 0 0 8px 8px;
 }
 
 .inlineEmpty {
@@ -1667,6 +2072,7 @@ button:disabled {
   }
 
   .summaryBand,
+  .campaignSummaryRow,
   .modalGrid,
   .placementPanel,
   .creativeMetaGrid,
@@ -1698,6 +2104,38 @@ button:disabled {
 
   .summaryBand > div:last-child {
     border-bottom: 0;
+  }
+
+  .campaignSummaryRow {
+    display: grid;
+    width: 100%;
+    grid-template-columns: 1fr;
+    border: 1px solid #dfe5eb;
+    border-radius: 8px;
+    overflow: hidden;
+  }
+
+  .campaignSummaryRow > div {
+    padding: 12px;
+    border-right: 0;
+    border-bottom: 1px solid #e5e9ee;
+  }
+
+  .campaignSummaryRow > div:last-child {
+    border-bottom: 0;
+  }
+
+  .stickyActionBar {
+    justify-content: stretch;
+    flex-direction: column;
+    margin-right: -18px;
+    margin-left: -18px;
+    padding: 12px 18px;
+  }
+
+  .stickyActionBar .primaryButton,
+  .stickyActionBar .secondaryButton {
+    width: 100%;
   }
 
   .modalGrid .previewImage,
