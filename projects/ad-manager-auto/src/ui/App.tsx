@@ -3441,9 +3441,23 @@ function CampaignDetailView({
   function completeSetup() {
     if (!campaign) return;
     setError(null);
-    if (!creativesStepReady(campaign)) {
+    const completion = builderStepCompletion(campaign);
+    if (!completion.campaign) {
+      setSuccess(null);
+      setError("Finish campaign settings before completing setup.");
+      selectBuilderStep("campaign");
+      return;
+    }
+    if (!completion.adsets) {
+      setSuccess(null);
+      setError("Finish ad set settings before completing setup.");
+      selectBuilderStep("adsets");
+      return;
+    }
+    if (!completion.creatives) {
       setSuccess(null);
       setError("Add at least one creative to every ad set before finishing setup.");
+      selectBuilderStep("creatives");
       return;
     }
     setSuccess("Campaign setup is ready.");
