@@ -18,6 +18,16 @@ import {
 import { DraftStatus } from "../types.js";
 import { AppError } from "../utils/errors.js";
 
+type AdSetScheduleInput = {
+  startTime?: Date | null;
+  endTime?: Date | null;
+};
+
+type StoredAdSetSchedule = {
+  start_time?: Date | string | null;
+  end_time?: Date | string | null;
+};
+
 const draftStatusSchema = z.enum(["draft", "publishing", "published", "publish_failed", "archived"]);
 const jsonObjectSchema = z.record(z.unknown());
 const nonEmptyString = z.string().trim().min(1);
@@ -185,6 +195,33 @@ function parseStatuses(value: unknown): DraftStatus[] | undefined {
   return parsed.data;
 }
 
+function dateFromStored(value: Date | string | null | undefined) {
+  if (!value) {
+    return null;
+  }
+  return value instanceof Date ? value : new Date(value);
+}
+
+function hasOwn(input: object, field: string) {
+  return Object.prototype.hasOwnProperty.call(input, field);
+}
+
+function validateAdSetScheduleWindow(input: AdSetScheduleInput, existing?: StoredAdSetSchedule) {
+  const startTime = hasOwn(input, "startTime") ? (input.startTime ?? null) : dateFromStored(existing?.start_time);
+  const endTime = hasOwn(input, "endTime") ? (input.endTime ?? null) : dateFromStored(existing?.end_time);
+
+  if (!startTime || !endTime) {
+    return;
+  }
+
+  if (endTime <= startTime) {
+    throw new AppError("Ad set end time must be later than start time.", {
+      statusCode: 400,
+      code: "ADSET_INVALID_SCHEDULE_WINDOW"
+    });
+  }
+}
+
 function ensureCampaignDraft(id: number) {
   return getCampaignDraftById(id).then((campaign) => {
     if (!campaign) {
@@ -269,6 +306,7 @@ campaignDraftsRouter.post("/:id/adsets", requireAuth, async (req, res, next) => 
     const campaignDraftId = parseId(req.params.id, "campaign draft id");
     await ensureCampaignDraft(campaignDraftId);
     const input = parseBody(adSetCreateSchema, req.body);
+    validateAdSetScheduleWindow(input);
     const adSetDraft = await createAdSetDraft({ ...input, campaignDraftId });
     res.status(201).json({ adSetDraft });
   } catch (error) {
@@ -279,8 +317,9 @@ campaignDraftsRouter.post("/:id/adsets", requireAuth, async (req, res, next) => 
 adSetDraftsRouter.patch("/:id", requireAuth, async (req, res, next) => {
   try {
     const id = parseId(req.params.id, "ad set draft id");
-    await ensureAdSetDraft(id);
+    const existing = await ensureAdSetDraft(id);
     const input = parseBody(adSetUpdateSchema, req.body);
+    validateAdSetScheduleWindow(input, existing);
     const adSetDraft = await updateAdSetDraft(id, input);
     res.json({ adSetDraft });
   } catch (error) {
