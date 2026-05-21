@@ -30,6 +30,34 @@ const campaignIdPropertyAliases = [
   "Facebook Campaign Id"
 ];
 
+const adTextPropertyAliases = [
+  "Ad text",
+  "Ad Text (опис оголошення)"
+];
+
+const ctaLinkPropertyAliases = [
+  "CTA link",
+  "Ad link"
+];
+
+const googleDriveLinkPropertyAliases = [
+  "Google Drive link",
+  "Google Drive URL",
+  "Drive Link",
+  "Drive URL",
+  "Link на креативи"
+];
+
+const audiencePropertyAliases = [
+  "Adset Audience",
+  "Ad Set Audience"
+];
+
+const locationPropertyAliases = [
+  "Adset Location",
+  "Ad Set Location"
+];
+
 const parentItemPropertyAliases = [
   "Parent item",
   "Parent Item",
@@ -238,9 +266,9 @@ async function resolveAdPropertyNames(pageId: string) {
 
   return {
     adStatus: resolvePropertyName(p, notionPropertyNames.adStatus, ["Ad status"]),
-    adText: resolvePropertyName(p, notionPropertyNames.adText, ["Ad text"]),
-    ctaLink: resolvePropertyName(p, notionPropertyNames.ctaLink, ["CTA link"]),
-    googleDriveLink: resolvePropertyName(p, notionPropertyNames.googleDriveLink),
+    adText: resolvePropertyName(p, notionPropertyNames.adText, adTextPropertyAliases),
+    ctaLink: resolvePropertyName(p, notionPropertyNames.ctaLink, ctaLinkPropertyAliases),
+    googleDriveLink: resolvePropertyName(p, notionPropertyNames.googleDriveLink, googleDriveLinkPropertyAliases),
     facebookAssetId: resolvePropertyName(p, notionPropertyNames.facebookAssetId),
     facebookAssetType: resolvePropertyName(p, notionPropertyNames.facebookAssetType),
     facebookAdId: resolvePropertyName(p, notionPropertyNames.facebookAdId),
@@ -285,13 +313,13 @@ async function mapNotionPage(page: NotionPage & { properties: Properties; url?: 
     subItemIds,
     designStatus: propertyToString(findProperty(p, notionPropertyNames.designStatus)),
     adStatus: propertyToString(findProperty(p, notionPropertyNames.adStatus, ["Ad status"])),
-    adText: propertyToString(findProperty(p, notionPropertyNames.adText, ["Ad text"])),
-    ctaLink: propertyToString(findProperty(p, notionPropertyNames.ctaLink, ["CTA link"])),
-    googleDriveLink: propertyToString(findProperty(p, notionPropertyNames.googleDriveLink)),
+    adText: propertyToString(findProperty(p, notionPropertyNames.adText, adTextPropertyAliases)),
+    ctaLink: propertyToString(findProperty(p, notionPropertyNames.ctaLink, ctaLinkPropertyAliases)),
+    googleDriveLink: propertyToString(findProperty(p, notionPropertyNames.googleDriveLink, googleDriveLinkPropertyAliases)),
     finalProject: propertyToString(findProperty(p, notionPropertyNames.finalProject)),
     projectType: propertyToString(findProperty(p, notionPropertyNames.projectType)),
-    audience: propertyToString(findProperty(p, notionPropertyNames.audience)),
-    location: propertyToString(findProperty(p, notionPropertyNames.location)),
+    audience: propertyToString(findProperty(p, notionPropertyNames.audience, audiencePropertyAliases)),
+    location: propertyToString(findProperty(p, notionPropertyNames.location, locationPropertyAliases)),
     facebookCampaignName: campaignName,
     facebookCampaignId: campaignId,
     facebookCampaignPageId: campaignPageId,
