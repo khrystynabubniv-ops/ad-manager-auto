@@ -1,4 +1,5 @@
 import { env } from "../config/env.js";
+import { logger } from "../logger.js";
 import { Creative } from "../types.js";
 import { AppError } from "../utils/errors.js";
 import { cleanTextList, normalizeCtaType, normalizeCtaTypeList } from "../shared/creativeCopy.js";
@@ -32,8 +33,27 @@ type OpenRouterResponse = {
     };
   }>;
   error?: {
+    code?: string | number;
     message?: string;
+    metadata?: unknown;
   };
+};
+
+type OpenRouterMessage = {
+  role: "system" | "user";
+  content: string;
+};
+
+type OpenRouterRequestBody = {
+  model?: string;
+  messages: OpenRouterMessage[];
+  temperature: number;
+  max_tokens: number;
+  response_format?: unknown;
+  provider?: {
+    require_parameters: true;
+  };
+  plugins?: Array<{ id: string }>;
 };
 
 const copySchema = {
@@ -118,9 +138,52 @@ const historicalTitles = [
   "Universe Group"
 ];
 
+const responseFormatSchema = {
+  type: "json_schema",
+  json_schema: {
+    name: "creative_copy_suggestions",
+    strict: true,
+    schema: copySchema
+  }
+} as const;
+
 function responseText(response: OpenRouterResponse): string | undefined {
   const text = response.choices?.[0]?.message?.content?.trim();
   return text || undefined;
+}
+
+function loggableAttemptError(error: unknown) {
+  if (error instanceof AppError) {
+    return {
+      message: error.message,
+      code: error.code,
+      statusCode: error.statusCode,
+      details: error.details
+    };
+  }
+
+  if (error instanceof Error) {
+    return {
+      name: error.name,
+      message: error.message
+    };
+  }
+
+  return error;
+}
+
+function upstreamStatus(error: unknown): number | undefined {
+  if (!(error instanceof AppError) || !error.details || typeof error.details !== "object") {
+    return undefined;
+  }
+
+  const details = error.details as Record<string, unknown>;
+  return typeof details.upstreamStatus === "number" ? details.upstreamStatus : undefined;
+}
+
+function shouldRetryOpenRouterAttempt(error: unknown): boolean {
+  const status = upstreamStatus(error);
+  return status === undefined || ![401, 402, 403, 429].includes(status);
 }
 
 function compactContext(input: CopyGenerationInput) {
@@ -208,16 +271,16 @@ function buildPrompt(input: CopyGenerationInput, vacancy?: { url: string; title?
   return `You are an expert Meta Ads copywriter for Universe — це ко-фаундингова IT-компанія, що вже понад 8 років створює та виводить tech-бізнеси на глобальний рівень, користувачами яких є понад 400 млн користувачів у 186 країнах світу.
 Також Universe будує нові tech-бізнеси з нуля до глобального рівня та шукає ко-фаундерів для їх запуску.
 
-Your task: given a job vacancy URL, generate several strong ad copy options for one Meta ad creative.
-Important context: one vacancy can have 4-8 different creative assets. Each creative still needs multiple bodies, titles, and CTA button options so Meta can combine variants.
+Your task: generate several strong ad copy options for one Meta ad creative.
+Important context: one destination can have 4-8 different creative assets. Each creative still needs multiple bodies, titles, and CTA button options so Meta can combine variants.
 
-## Step 1 — Read the vacancy
-The vacancy URL is: ${input.ctaLink ?? input.creative.cta_link ?? "not provided"}
-The backend has already fetched the page. Extract from the provided vacancy page content: job title, key requirements, key benefits, seniority level, team/product.
+## Step 1 — Understand the destination
+The CTA URL is: ${input.ctaLink ?? input.creative.cta_link ?? "not provided"}
+${vacancy ? "The backend fetched the destination page. Extract the relevant offer, role, event, requirements, benefits, seniority level, team/product, or registration details from it." : "The backend could not fetch readable destination page content. Infer the best copy from the current creative context, project type, CTA URL, and existing copy."}
 
 ## Step 2 — Generate body text options
 Generate 3-6 body texts for this creative.
-Reuse or adapt the historical body texts when they fit the vacancy.
+Reuse or adapt the historical body texts when they fit the destination.
 If none fits well, write NEW body texts in the same style and tone as the examples.
 
 ### Historical body texts (ordered by usage frequency):
@@ -252,20 +315,156 @@ Return ONLY a valid JSON object, no explanation, no markdown:
 Current creative context JSON:
 ${JSON.stringify(compactContext(input), null, 2)}
 
-Fetched vacancy page:
+Fetched destination page:
 ${JSON.stringify(vacancy ?? null, null, 2)}`;
 }
 
-export async function generateCreativeCopy(input: CopyGenerationInput): Promise<CopyGenerationResult> {
-  if (!env.OPENROUTER_API_KEY) {
-    throw new AppError("OPENROUTER_API_KEY is not configured", {
-      statusCode: 503,
-      code: "OPENROUTER_NOT_CONFIGURED"
-    });
+async function tryFetchVacancy(url?: string | null): Promise<{ url: string; title?: string; text: string } | undefined> {
+  if (!isHttpUrl(url)) {
+    return undefined;
   }
 
-  const vacancyUrl = input.ctaLink ?? input.creative.cta_link;
-  const vacancy = isHttpUrl(vacancyUrl) ? await fetchVacancy(vacancyUrl) : undefined;
+  try {
+    return await fetchVacancy(url);
+  } catch (error) {
+    logger.warn({ url, error: loggableAttemptError(error) }, "Skipping unreadable CTA URL for copy generation");
+    return undefined;
+  }
+}
+
+function buildMessages(input: CopyGenerationInput, vacancy?: { url: string; title?: string; text: string }): OpenRouterMessage[] {
+  return [
+    {
+      role: "system",
+      content:
+        "You generate Universe Meta ads copy. Follow the user's prompt exactly and return only valid JSON matching the schema."
+    },
+    {
+      role: "user",
+      content: buildPrompt(input, vacancy)
+    }
+  ];
+}
+
+function openRouterAttempts(messages: OpenRouterMessage[]): Array<{ name: string; body: OpenRouterRequestBody }> {
+  const base: OpenRouterRequestBody = {
+    ...(env.OPENROUTER_MODEL ? { model: env.OPENROUTER_MODEL } : {}),
+    messages,
+    temperature: 0.7,
+    max_tokens: 1800
+  };
+
+  return [
+    {
+      name: "json_schema",
+      body: {
+        ...base,
+        response_format: responseFormatSchema,
+        provider: {
+          require_parameters: true
+        },
+        plugins: [{ id: "response-healing" }]
+      }
+    },
+    {
+      name: "json_object",
+      body: {
+        ...base,
+        response_format: {
+          type: "json_object"
+        },
+        plugins: [{ id: "response-healing" }]
+      }
+    },
+    {
+      name: "plain_json",
+      body: base
+    }
+  ];
+}
+
+function openRouterErrorMessage(body: OpenRouterResponse, status: number): string {
+  return body.error?.message?.trim() || `OpenRouter request failed: ${status}`;
+}
+
+function parseJsonCandidate(candidate: string): unknown {
+  return JSON.parse(candidate);
+}
+
+function jsonCandidates(text: string): string[] {
+  const trimmed = text.trim();
+  const candidates = [trimmed];
+  const fence = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1]?.trim();
+  if (fence) {
+    candidates.push(fence);
+  }
+
+  const firstBrace = trimmed.indexOf("{");
+  const lastBrace = trimmed.lastIndexOf("}");
+  if (firstBrace >= 0 && lastBrace > firstBrace) {
+    candidates.push(trimmed.slice(firstBrace, lastBrace + 1));
+  }
+
+  return [...new Set(candidates)].filter(Boolean);
+}
+
+function normalizeGeneratedCta(value: unknown): string | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+
+  const normalized = value.trim().toUpperCase().replace(/[\s-]+/g, "_");
+  return normalized || undefined;
+}
+
+function normalizeGeneratedCopy(value: unknown): GeneratedCopyJson {
+  if (!value || typeof value !== "object") {
+    throw new Error("Generated copy was not an object");
+  }
+
+  const record = value as Record<string, unknown>;
+  const bodies = cleanTextList(record.bodies ?? record.body_texts ?? record.texts, 6);
+  const titles = cleanTextList(record.titles ?? record.headlines, 6).map((title) => title.slice(0, 80));
+  const callToActionTypes = cleanTextList(record.call_to_action_types ?? record.cta_types ?? record.ctas, 3)
+    .map(normalizeGeneratedCta)
+    .filter((type): type is string => Boolean(type));
+  const primaryCallToActionType =
+    normalizeGeneratedCta(record.primary_call_to_action_type ?? record.primary_cta_type ?? record.cta_type) ??
+    callToActionTypes[0] ??
+    "LEARN_MORE";
+  const reasoning = typeof record.reasoning === "string" ? record.reasoning : "";
+
+  if (!bodies.length || !titles.length) {
+    throw new Error("Generated copy did not include body and title options");
+  }
+
+  return {
+    bodies,
+    titles,
+    call_to_action_types: callToActionTypes.length ? callToActionTypes : [primaryCallToActionType],
+    primary_call_to_action_type: primaryCallToActionType,
+    reasoning
+  };
+}
+
+function parseGeneratedCopy(text: string): GeneratedCopyJson {
+  let lastError: unknown;
+  for (const candidate of jsonCandidates(text)) {
+    try {
+      return normalizeGeneratedCopy(parseJsonCandidate(candidate));
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  throw new AppError("OpenRouter response was not valid generated copy JSON", {
+    statusCode: 502,
+    code: "OPENROUTER_INVALID_RESPONSE",
+    details: loggableAttemptError(lastError)
+  });
+}
+
+async function requestOpenRouterCopy(attempt: { name: string; body: OpenRouterRequestBody }): Promise<GeneratedCopyJson> {
   const headers: Record<string, string> = {
     authorization: `Bearer ${env.OPENROUTER_API_KEY}`,
     "content-type": "application/json",
@@ -278,41 +477,19 @@ export async function generateCreativeCopy(input: CopyGenerationInput): Promise<
   const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",
     headers,
-    body: JSON.stringify({
-      ...(env.OPENROUTER_MODEL ? { model: env.OPENROUTER_MODEL } : {}),
-      messages: [
-        {
-          role: "system",
-          content:
-            "You generate Universe Meta ads copy. Follow the user's prompt exactly and return only valid JSON matching the schema."
-        },
-        {
-          role: "user",
-          content: buildPrompt(input, vacancy)
-        }
-      ],
-      temperature: 0.7,
-      max_tokens: 1800,
-      response_format: {
-        type: "json_schema",
-        json_schema: {
-          name: "creative_copy_suggestions",
-          strict: true,
-          schema: copySchema
-        }
-      },
-      provider: {
-        require_parameters: true
-      },
-      plugins: [{ id: "response-healing" }]
-    })
+    body: JSON.stringify(attempt.body)
   });
 
   const body = (await response.json().catch(() => ({}))) as OpenRouterResponse;
   if (!response.ok) {
-    throw new AppError(body.error?.message ?? `OpenRouter request failed: ${response.status}`, {
+    throw new AppError(openRouterErrorMessage(body, response.status), {
       statusCode: 502,
-      code: "OPENROUTER_REQUEST_FAILED"
+      code: "OPENROUTER_REQUEST_FAILED",
+      details: {
+        attempt: attempt.name,
+        upstreamStatus: response.status,
+        providerError: body.error
+      }
     });
   }
 
@@ -320,19 +497,46 @@ export async function generateCreativeCopy(input: CopyGenerationInput): Promise<
   if (!text) {
     throw new AppError("OpenRouter response did not include generated copy", {
       statusCode: 502,
-      code: "OPENROUTER_EMPTY_RESPONSE"
+      code: "OPENROUTER_EMPTY_RESPONSE",
+      details: {
+        attempt: attempt.name
+      }
     });
   }
 
-  let parsed: GeneratedCopyJson;
-  try {
-    parsed = JSON.parse(text) as GeneratedCopyJson;
-  } catch {
-    throw new AppError("OpenRouter response was not valid JSON", {
-      statusCode: 502,
-      code: "OPENROUTER_INVALID_RESPONSE"
+  return parseGeneratedCopy(text);
+}
+
+async function generateWithOpenRouter(messages: OpenRouterMessage[]): Promise<GeneratedCopyJson> {
+  let lastError: unknown;
+  const attempts = openRouterAttempts(messages);
+  for (const [index, attempt] of attempts.entries()) {
+    try {
+      return await requestOpenRouterCopy(attempt);
+    } catch (error) {
+      lastError = error;
+      const hasNextAttempt = index < attempts.length - 1;
+      if (!hasNextAttempt || !shouldRetryOpenRouterAttempt(error)) {
+        break;
+      }
+      logger.warn({ attempt: attempt.name, error: loggableAttemptError(error) }, "Retrying copy generation with a more compatible OpenRouter request");
+    }
+  }
+
+  throw lastError;
+}
+
+export async function generateCreativeCopy(input: CopyGenerationInput): Promise<CopyGenerationResult> {
+  if (!env.OPENROUTER_API_KEY) {
+    throw new AppError("OPENROUTER_API_KEY is not configured", {
+      statusCode: 503,
+      code: "OPENROUTER_NOT_CONFIGURED"
     });
   }
+
+  const vacancyUrl = input.ctaLink ?? input.creative.cta_link;
+  const vacancy = await tryFetchVacancy(vacancyUrl);
+  const parsed = await generateWithOpenRouter(buildMessages(input, vacancy));
 
   return {
     adTextVariants: cleanTextList(parsed.bodies, 6),
