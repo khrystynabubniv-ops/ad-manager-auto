@@ -10,6 +10,11 @@ export type Creative = {
   asset_id?: string | null;
   asset_type?: "image" | "video" | null;
   ad_text?: string | null;
+  headline?: string | null;
+  headline_variants: string[];
+  ad_text_variants: string[];
+  cta_type: string;
+  cta_type_variants: string[];
   cta_link?: string | null;
   audience?: string | null;
   location?: string | null;
@@ -304,6 +309,11 @@ export type LaunchPlacement = {
 export type LaunchRequest = LaunchPlacement & {
   projectType: string;
   adText: string;
+  headline?: string | null;
+  headlineVariants?: string[];
+  adTextVariants?: string[];
+  ctaType?: string;
+  ctaTypeVariants?: string[];
   ctaLink: string;
   audience: string;
   location: string;
@@ -312,6 +322,11 @@ export type LaunchRequest = LaunchPlacement & {
 export type CreativeUpdateRequest = {
   projectType?: string | null;
   adText?: string | null;
+  headline?: string | null;
+  headlineVariants?: string[];
+  adTextVariants?: string[];
+  ctaType?: string | null;
+  ctaTypeVariants?: string[];
   ctaLink?: string | null;
   audience?: string | null;
   location?: string | null;
@@ -368,6 +383,11 @@ export async function uploadCreative(payload: {
   dataBase64: string;
   projectType?: string;
   adText?: string;
+  headline?: string;
+  headlineVariants?: string[];
+  adTextVariants?: string[];
+  ctaType?: string;
+  ctaTypeVariants?: string[];
   ctaLink?: string;
 }): Promise<Creative> {
   const response = await apiFetch<{ creative: Creative }>("/api/creatives/upload", {
@@ -391,6 +411,38 @@ export async function updateCreative(id: number, payload: CreativeUpdateRequest)
     body: JSON.stringify(payload)
   });
   return response.creative;
+}
+
+export type CreativeCopySuggestionRequest = {
+  projectType?: string | null;
+  adText?: string | null;
+  headline?: string | null;
+  headlineVariants?: string[];
+  adTextVariants?: string[];
+  ctaType?: string | null;
+  ctaTypeVariants?: string[];
+  ctaLink?: string | null;
+  audience?: string | null;
+  location?: string | null;
+};
+
+export type CreativeCopySuggestion = {
+  adTextVariants: string[];
+  headline?: string | null;
+  headlineVariants: string[];
+  ctaTypeVariants: string[];
+  reasoning?: string | null;
+};
+
+export async function generateCreativeCopySuggestions(
+  id: number,
+  payload: CreativeCopySuggestionRequest
+): Promise<CreativeCopySuggestion> {
+  const response = await apiFetch<{ suggestions: CreativeCopySuggestion }>(`/api/creatives/${id}/copy-suggestions`, {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+  return response.suggestions;
 }
 
 export async function fetchCampaigns(): Promise<MetaCampaign[]> {

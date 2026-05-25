@@ -57,6 +57,9 @@ const envSchema = z.object({
   FB_DEFAULT_TARGETING_JSON: z.string().default('{"geo_locations":{"countries":["UA"]}}'),
   MOCK_FACEBOOK: booleanFromString.default("false"),
 
+  OPENROUTER_API_KEY: z.string().optional(),
+  OPENROUTER_MODEL: z.string().optional(),
+
   OKTA_ISSUER: z.string().optional(),
   OKTA_CLIENT_ID: z.string().optional()
 });

@@ -7,6 +7,7 @@ import { stableHash } from "../utils/crypto.js";
 import { getErrorMessage } from "../utils/errors.js";
 import { detectAssetType } from "../utils/mime.js";
 import { withRetry } from "../utils/retry.js";
+import { normalizeAdTextList, normalizeCtaTypeList } from "../shared/creativeCopy.js";
 import { recordFacebookRequest } from "./db.js";
 
 type FacebookAssetUploadResult = {
@@ -481,6 +482,11 @@ export async function createAd(input: {
   assetId: string;
   assetType: AssetType;
   adText: string;
+  headline?: string;
+  headlineVariants?: string[];
+  adTextVariants?: string[];
+  ctaType?: string;
+  ctaTypeVariants?: string[];
   ctaLink: string;
   requestId?: string;
 }): Promise<string> {
@@ -495,40 +501,64 @@ export async function createAd(input: {
   }
 
   const pageId = requireEnv("FB_PAGE_ID");
+  const adTexts = normalizeAdTextList(input.adText, input.adTextVariants);
+  const headlines = normalizeAdTextList(input.headline || input.name, input.headlineVariants, 5);
+  const headline = headlines[0] || input.name;
+  const ctaTypes = normalizeCtaTypeList(input.ctaType, input.ctaTypeVariants);
+  const primaryCtaType = ctaTypes[0];
+  const callToAction =
+    primaryCtaType === "NO_BUTTON"
+      ? { type: primaryCtaType }
+      : {
+          type: primaryCtaType,
+          value: { link: input.ctaLink }
+        };
+  const useAssetFeedSpec = adTexts.length > 1 || headlines.length > 1 || ctaTypes.length > 1;
   const creativeBody =
     input.assetType === "image"
       ? {
           page_id: pageId,
           link_data: {
-            message: input.adText,
+            message: adTexts[0],
             link: input.ctaLink,
+            name: headline,
             image_hash: input.assetId,
-            call_to_action: {
-              type: "LEARN_MORE",
-              value: { link: input.ctaLink }
-            }
+            call_to_action: callToAction
           }
         }
       : {
           page_id: pageId,
           video_data: {
             video_id: input.assetId,
-            message: input.adText,
-            title: input.name,
-            call_to_action: {
-              type: "LEARN_MORE",
-              value: { link: input.ctaLink }
-            }
+            message: adTexts[0],
+            title: headline,
+            call_to_action: callToAction
           }
         };
+  const assetFeedSpec = {
+    ad_formats: [input.assetType === "image" ? "SINGLE_IMAGE" : "SINGLE_VIDEO"],
+    bodies: adTexts.map((text) => ({ text })),
+    titles: headlines.map((text) => ({ text })),
+    link_urls: [{ website_url: input.ctaLink }],
+    call_to_action_types: ctaTypes,
+    ...(input.assetType === "image"
+      ? { images: [{ hash: input.assetId }] }
+      : { videos: [{ video_id: input.assetId }] })
+  };
 
   try {
     const creative = await graphPost<any>(
       `${adAccountId()}/adcreatives`,
-      {
-        name: `${input.name}_creative`,
-        object_story_spec: JSON.stringify(creativeBody)
-      },
+      useAssetFeedSpec
+        ? {
+            name: `${input.name}_creative`,
+            object_story_spec: JSON.stringify({ page_id: pageId }),
+            asset_feed_spec: JSON.stringify(assetFeedSpec)
+          }
+        : {
+            name: `${input.name}_creative`,
+            object_story_spec: JSON.stringify(creativeBody)
+          },
       input.requestId
     );
 

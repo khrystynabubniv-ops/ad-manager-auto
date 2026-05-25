@@ -3540,6 +3540,81 @@ button:disabled {
   height: 180px;
 }
 
+.copyToolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  background: var(--surface-alt);
+  padding: 8px 10px;
+}
+
+.copyToolbar span,
+.variantHeader span {
+  color: var(--fg-muted);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.variantBlock {
+  display: grid;
+  gap: 8px;
+}
+
+.variantHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.variantList {
+  display: grid;
+  gap: 8px;
+}
+
+.variantRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 36px;
+  gap: 8px;
+  align-items: start;
+}
+
+.variantRow textarea,
+.variantRow select {
+  width: 100%;
+  min-height: 36px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--fg-strong);
+  background: var(--surface);
+  padding: 8px 10px;
+  font-size: 13px;
+}
+
+.variantRow textarea {
+  min-height: 58px;
+  line-height: 1.4;
+  resize: vertical;
+}
+
+.variantRemove {
+  width: 36px;
+  height: 36px;
+}
+
+.variantEmpty {
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  color: var(--fg-soft);
+  background: var(--surface-alt);
+  padding: 10px;
+  font-size: 12px;
+}
+
 .placementPanel {
   margin-top: 0;
   grid-template-columns: repeat(2, minmax(0, 1fr));

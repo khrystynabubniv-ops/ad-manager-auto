@@ -2,7 +2,9 @@ import { Router } from "express";
 import { DB_STATUS } from "../config/statuses.js";
 import { requireAuth } from "../middleware/auth.js";
 import { getCreativeById, listCreatives, updateCreativeDetails, upsertCreative } from "../services/db.js";
+import { generateCreativeCopy } from "../services/copyGenerator.js";
 import { getFacebookAdSet, uploadCreativeAsset } from "../services/facebook.js";
+import { cleanCtaTypeList, cleanTextList, normalizeCtaType } from "../shared/creativeCopy.js";
 import { AppError } from "../utils/errors.js";
 
 export const creativesRouter = Router();
@@ -40,8 +42,32 @@ creativesRouter.patch("/:id", requireAuth, async (req, res, next) => {
       if (!(name in body)) return undefined;
       return typeof body[name] === "string" ? body[name].trim() || null : null;
     };
+    const optionalTextArray = (name: string) => {
+      if (!(name in body)) return undefined;
+      return cleanTextList(body[name]);
+    };
+    const optionalCtaType = (name: string) => {
+      if (!(name in body)) return undefined;
+      return typeof body[name] === "string" ? normalizeCtaType(body[name]) : normalizeCtaType(null);
+    };
+    const optionalCtaTypeArray = (name: string) => {
+      if (!(name in body)) return undefined;
+      return cleanCtaTypeList(body[name]);
+    };
     const nextText = (name: string, current: string | null) => {
       const value = optionalText(name);
+      return value === undefined ? current : value;
+    };
+    const nextTextArray = (name: string, current: string[]) => {
+      const value = optionalTextArray(name);
+      return value === undefined ? current : value;
+    };
+    const nextCtaType = (name: string, current: string) => {
+      const value = optionalCtaType(name);
+      return value === undefined ? current : value;
+    };
+    const nextCtaTypeArray = (name: string, current: string[]) => {
+      const value = optionalCtaTypeArray(name);
       return value === undefined ? current : value;
     };
 
@@ -64,6 +90,11 @@ creativesRouter.patch("/:id", requireAuth, async (req, res, next) => {
     const creative = await updateCreativeDetails(id, {
       projectType: nextText("projectType", existing.project_type),
       adText: nextText("adText", existing.ad_text),
+      headline: nextText("headline", existing.headline),
+      headlineVariants: nextTextArray("headlineVariants", existing.headline_variants ?? []),
+      adTextVariants: nextTextArray("adTextVariants", existing.ad_text_variants ?? []),
+      ctaType: nextCtaType("ctaType", existing.cta_type),
+      ctaTypeVariants: nextCtaTypeArray("ctaTypeVariants", existing.cta_type_variants ?? []),
       ctaLink: nextText("ctaLink", existing.cta_link),
       audience: nextText("audience", existing.audience),
       location: nextText("location", existing.location),
@@ -74,6 +105,40 @@ creativesRouter.patch("/:id", requireAuth, async (req, res, next) => {
     });
 
     res.json({ creative });
+  } catch (error) {
+    next(error);
+  }
+});
+
+creativesRouter.post("/:id/copy-suggestions", requireAuth, async (req, res, next) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id)) {
+      throw new AppError("Invalid creative id", { statusCode: 400, code: "INVALID_CREATIVE_ID" });
+    }
+
+    const creative = await getCreativeById(id);
+    if (!creative) {
+      throw new AppError(`Creative ${id} not found`, { statusCode: 404, code: "CREATIVE_NOT_FOUND" });
+    }
+
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const text = (name: string) => (typeof body[name] === "string" ? body[name].trim() || null : undefined);
+    const suggestions = await generateCreativeCopy({
+      creative,
+      projectType: text("projectType"),
+      adText: text("adText"),
+      headline: text("headline"),
+      headlineVariants: cleanTextList(body.headlineVariants),
+      adTextVariants: cleanTextList(body.adTextVariants),
+      ctaType: text("ctaType"),
+      ctaTypeVariants: cleanCtaTypeList(body.ctaTypeVariants),
+      ctaLink: text("ctaLink"),
+      audience: text("audience"),
+      location: text("location")
+    });
+
+    res.json({ suggestions });
   } catch (error) {
     next(error);
   }
@@ -128,6 +193,11 @@ creativesRouter.post("/upload", requireAuth, async (req, res, next) => {
       uploadedAt: new Date(),
       projectType: typeof req.body?.projectType === "string" ? req.body.projectType.trim() : undefined,
       adText: typeof req.body?.adText === "string" ? req.body.adText.trim() : undefined,
+      headline: typeof req.body?.headline === "string" ? req.body.headline.trim() : undefined,
+      headlineVariants: Array.isArray(req.body?.headlineVariants) ? cleanTextList(req.body.headlineVariants) : undefined,
+      adTextVariants: Array.isArray(req.body?.adTextVariants) ? cleanTextList(req.body.adTextVariants) : undefined,
+      ctaType: typeof req.body?.ctaType === "string" ? normalizeCtaType(req.body.ctaType) : undefined,
+      ctaTypeVariants: Array.isArray(req.body?.ctaTypeVariants) ? cleanCtaTypeList(req.body.ctaTypeVariants) : undefined,
       ctaLink: typeof req.body?.ctaLink === "string" ? req.body.ctaLink.trim() : undefined
     });
 

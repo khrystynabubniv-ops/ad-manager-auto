@@ -338,6 +338,10 @@ adSetDraftsRouter.post("/:id/ads", requireAuth, async (req, res, next) => {
       adSetDraftId,
       name: input.name ?? creative.source_file_name ?? creative.project_type ?? `Creative ${creative.id}`,
       primaryText: input.primaryText ?? creative.ad_text ?? undefined,
+      headline: input.headline ?? creative.headline ?? undefined,
+      headlineVariants: input.headlineVariants ?? creative.headline_variants ?? undefined,
+      primaryTextVariants: input.primaryTextVariants ?? creative.ad_text_variants ?? undefined,
+      ctaType: input.ctaType ?? creative.cta_type ?? undefined,
       ctaLink: input.ctaLink ?? creative.cta_link ?? undefined
     });
     res.status(201).json({ adDraft });

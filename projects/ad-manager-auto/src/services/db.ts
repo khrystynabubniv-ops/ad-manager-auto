@@ -14,6 +14,7 @@ import {
   Creative,
   DraftStatus
 } from "../types.js";
+import { DEFAULT_CTA_TYPE } from "../shared/creativeCopy.js";
 
 let pool: Pool | undefined;
 
@@ -98,6 +99,11 @@ export type CreativeUpsertInput = {
   assetId?: string;
   assetType?: string;
   adText?: string;
+  headline?: string;
+  headlineVariants?: string[];
+  adTextVariants?: string[];
+  ctaType?: string;
+  ctaTypeVariants?: string[];
   ctaLink?: string;
   audience?: string;
   location?: string;
@@ -118,11 +124,17 @@ export async function upsertCreative(input: CreativeUpsertInput): Promise<Creati
   const result = await query<Creative>(
     `
       INSERT INTO creatives (
-        notion_task_id, notion_task_url, source_file_id, source_file_name, status, asset_id, asset_type, ad_text, cta_link,
+        notion_task_id, notion_task_url, source_file_id, source_file_name, status, asset_id, asset_type, ad_text,
+        headline, headline_variants, ad_text_variants, cta_type, cta_type_variants, cta_link,
         audience, location, campaign_id, campaign_name, adset_id, adset_name, project_type, google_drive_url,
         preview_url, facebook_ad_id, uploaded_at, launched_at
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
+      VALUES (
+        $1, $2, $3, $4, $5, $6, $7, $8,
+        $9, COALESCE($10, '{}'::text[]), COALESCE($11, '{}'::text[]), COALESCE($12, 'LEARN_MORE'), COALESCE($13, '{}'::text[]), $14,
+        $15, $16, $17, $18, $19, $20, $21, $22,
+        $23, $24, $25, $26
+      )
       ON CONFLICT (notion_task_id, source_file_id) DO UPDATE SET
         notion_task_url = COALESCE(EXCLUDED.notion_task_url, creatives.notion_task_url),
         source_file_name = COALESCE(EXCLUDED.source_file_name, creatives.source_file_name),
@@ -130,6 +142,11 @@ export async function upsertCreative(input: CreativeUpsertInput): Promise<Creati
         asset_id = COALESCE(EXCLUDED.asset_id, creatives.asset_id),
         asset_type = COALESCE(EXCLUDED.asset_type, creatives.asset_type),
         ad_text = COALESCE(EXCLUDED.ad_text, creatives.ad_text),
+        headline = COALESCE(EXCLUDED.headline, creatives.headline),
+        headline_variants = COALESCE($10, creatives.headline_variants),
+        ad_text_variants = COALESCE($11, creatives.ad_text_variants),
+        cta_type = COALESCE($12, creatives.cta_type),
+        cta_type_variants = COALESCE($13, creatives.cta_type_variants),
         cta_link = COALESCE(EXCLUDED.cta_link, creatives.cta_link),
         audience = COALESCE(EXCLUDED.audience, creatives.audience),
         location = COALESCE(EXCLUDED.location, creatives.location),
@@ -154,6 +171,11 @@ export async function upsertCreative(input: CreativeUpsertInput): Promise<Creati
       input.assetId ?? null,
       input.assetType ?? null,
       input.adText ?? null,
+      input.headline ?? null,
+      input.headlineVariants ?? null,
+      input.adTextVariants ?? null,
+      input.ctaType ?? null,
+      input.ctaTypeVariants ?? null,
       input.ctaLink ?? null,
       input.audience ?? null,
       input.location ?? null,
@@ -209,6 +231,11 @@ export async function updateCreativeStatus(
       | "adSetId"
       | "adSetName"
       | "adText"
+      | "headline"
+      | "headlineVariants"
+      | "adTextVariants"
+      | "ctaType"
+      | "ctaTypeVariants"
       | "ctaLink"
       | "audience"
       | "location"
@@ -231,10 +258,15 @@ export async function updateCreativeStatus(
         adset_id = COALESCE($11, adset_id),
         adset_name = COALESCE($12, adset_name),
         ad_text = COALESCE($13, ad_text),
-        cta_link = COALESCE($14, cta_link),
-        audience = COALESCE($15, audience),
-        location = COALESCE($16, location),
-        project_type = COALESCE($17, project_type)
+        headline = COALESCE($14, headline),
+        headline_variants = COALESCE($15, headline_variants),
+        ad_text_variants = COALESCE($16, ad_text_variants),
+        cta_type = COALESCE($17, cta_type),
+        cta_type_variants = COALESCE($18, cta_type_variants),
+        cta_link = COALESCE($19, cta_link),
+        audience = COALESCE($20, audience),
+        location = COALESCE($21, location),
+        project_type = COALESCE($22, project_type)
       WHERE id = $1
       RETURNING *
     `,
@@ -252,6 +284,11 @@ export async function updateCreativeStatus(
       fields.adSetId ?? null,
       fields.adSetName ?? null,
       fields.adText ?? null,
+      fields.headline ?? null,
+      fields.headlineVariants ?? null,
+      fields.adTextVariants ?? null,
+      fields.ctaType ?? null,
+      fields.ctaTypeVariants ?? null,
       fields.ctaLink ?? null,
       fields.audience ?? null,
       fields.location ?? null,
@@ -266,6 +303,11 @@ export async function updateCreativeDetails(
   fields: {
     projectType: string | null;
     adText: string | null;
+    headline: string | null;
+    headlineVariants: string[];
+    adTextVariants: string[];
+    ctaType: string | null;
+    ctaTypeVariants: string[];
     ctaLink: string | null;
     audience: string | null;
     location: string | null;
@@ -280,13 +322,18 @@ export async function updateCreativeDetails(
       UPDATE creatives
       SET project_type = $2,
         ad_text = $3,
-        cta_link = $4,
-        audience = $5,
-        location = $6,
-        campaign_id = $7,
-        campaign_name = $8,
-        adset_id = $9,
-        adset_name = $10
+        headline = $4,
+        headline_variants = $5,
+        ad_text_variants = $6,
+        cta_type = $7,
+        cta_type_variants = $8,
+        cta_link = $9,
+        audience = $10,
+        location = $11,
+        campaign_id = $12,
+        campaign_name = $13,
+        adset_id = $14,
+        adset_name = $15
       WHERE id = $1
       RETURNING *
     `,
@@ -294,6 +341,11 @@ export async function updateCreativeDetails(
       id,
       fields.projectType,
       fields.adText,
+      fields.headline,
+      fields.headlineVariants,
+      fields.adTextVariants,
+      fields.ctaType ?? DEFAULT_CTA_TYPE,
+      fields.ctaTypeVariants,
       fields.ctaLink,
       fields.audience,
       fields.location,

@@ -15,9 +15,11 @@ import {
   RefreshCw,
   Save,
   Search,
+  Sparkles,
+  Trash2,
   X
 } from "lucide-react";
-import { type Dispatch, type FormEvent, type ReactNode, type SetStateAction, useCallback, useEffect, useMemo, useState } from "react";
+import { type Dispatch, type FormEvent, type ReactNode, type SetStateAction, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getOktaAuth, isAuthDisabled } from "./auth";
 import {
   AdDraftPayload,
@@ -43,6 +45,7 @@ import {
   fetchCampaigns,
   fetchCreatives,
   launchCreative,
+  generateCreativeCopySuggestions,
   searchTargetingLocations,
   syncCampaigns,
   uploadCreative,
@@ -51,6 +54,7 @@ import {
   updateAdSetDraft,
   updateCampaignDraft
 } from "./api";
+import { CTA_TYPES, DEFAULT_CTA_TYPE, cleanCtaTypeList, cleanTextList, normalizeCtaType } from "../shared/creativeCopy";
 
 type CreativeView = "ready" | "in-use" | "drafts" | "archived";
 type RouteState =
@@ -168,6 +172,19 @@ type AdDraftFormState = {
   metaStatus: string;
 };
 
+type CreativeDetailsDraft = {
+  projectType: string;
+  adText: string;
+  headline: string;
+  headlineVariants: string[];
+  adTextVariants: string[];
+  ctaType: string;
+  ctaTypeVariants: string[];
+  ctaLink: string;
+  audience: string;
+  location: string;
+};
+
 const campaignObjectives = [
   "OUTCOME_TRAFFIC",
   "OUTCOME_ENGAGEMENT",
@@ -241,23 +258,7 @@ const adDestinationTypes = [
   "INSTAGRAM_DIRECT",
   "PHONE_CALL"
 ];
-const ctaTypes = [
-  "LEARN_MORE",
-  "SIGN_UP",
-  "SHOP_NOW",
-  "APPLY_NOW",
-  "CONTACT_US",
-  "SUBSCRIBE",
-  "DOWNLOAD",
-  "GET_QUOTE",
-  "BOOK_TRAVEL",
-  "CALL_NOW",
-  "DONATE",
-  "GET_DIRECTIONS",
-  "MESSAGE_PAGE",
-  "NO_BUTTON",
-  "WHATSAPP_MESSAGE"
-];
+const ctaTypes = [...CTA_TYPES];
 
 const builderSteps = [
   { id: "campaign", label: "Campaign", icon: Megaphone },
@@ -458,6 +459,30 @@ function formatCategories(categories?: string[] | null) {
 
 function categoryList(value: string) {
   return parseCategories(value);
+}
+
+function formatCtaTypeLabel(value?: string | null) {
+  return (value ?? DEFAULT_CTA_TYPE)
+    .split("_")
+    .filter(Boolean)
+    .map((part) => part.charAt(0) + part.slice(1).toLowerCase())
+    .join(" ");
+}
+
+function creativeToDetailsDraft(creative: Creative): CreativeDetailsDraft {
+  const ctaType = normalizeCtaType(creative.cta_type);
+  return {
+    projectType: creative.project_type ?? "",
+    adText: creative.ad_text ?? "",
+    headline: creative.headline ?? "",
+    headlineVariants: cleanTextList(creative.headline_variants ?? []).filter((text) => text !== (creative.headline ?? "").trim()),
+    adTextVariants: cleanTextList(creative.ad_text_variants ?? []).filter((text) => text !== (creative.ad_text ?? "").trim()),
+    ctaType,
+    ctaTypeVariants: cleanCtaTypeList(creative.cta_type_variants ?? []).filter((type) => type !== ctaType),
+    ctaLink: creative.cta_link ?? "",
+    audience: creative.audience ?? "",
+    location: creative.location ?? ""
+  };
 }
 
 function locationFromMeta(location: MetaTargetingLocation): LocationSelection {
@@ -1126,6 +1151,114 @@ function SuccessNotice({ message }: { message: string }) {
   );
 }
 
+function TextVariantList({
+  label = "Text variants",
+  addLabel = "Add text",
+  emptyLabel = "No variants yet",
+  rows = 2,
+  values,
+  disabled,
+  onChange
+}: {
+  label?: string;
+  addLabel?: string;
+  emptyLabel?: string;
+  rows?: number;
+  values: string[];
+  disabled: boolean;
+  onChange: (values: string[]) => void;
+}) {
+  const update = (index: number, value: string) => {
+    onChange(values.map((item, itemIndex) => (itemIndex === index ? value : item)));
+  };
+  const remove = (index: number) => {
+    onChange(values.filter((_, itemIndex) => itemIndex !== index));
+  };
+
+  return (
+    <div className="variantBlock">
+      <div className="variantHeader">
+        <span>{label}</span>
+        <button type="button" className="secondaryButton compact" onClick={() => onChange([...values, ""])} disabled={disabled}>
+          <Plus size={14} />
+          {addLabel}
+        </button>
+      </div>
+      {values.length ? (
+        <div className="variantList">
+          {values.map((value, index) => (
+            <div className="variantRow" key={`text-${index}`}>
+              <textarea value={value} onChange={(event) => update(index, event.target.value)} rows={rows} disabled={disabled} />
+              <button type="button" className="iconButton variantRemove" onClick={() => remove(index)} aria-label={`Remove ${label}`} disabled={disabled}>
+                <Trash2 size={15} />
+              </button>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="variantEmpty">{emptyLabel}</div>
+      )}
+    </div>
+  );
+}
+
+function CtaVariantList({
+  values,
+  primary,
+  disabled,
+  onChange
+}: {
+  values: string[];
+  primary: string;
+  disabled: boolean;
+  onChange: (values: string[]) => void;
+}) {
+  const selectable = ctaTypes.filter((type) => type !== primary);
+  const update = (index: number, value: string) => {
+    onChange(cleanCtaTypeList(values.map((item, itemIndex) => (itemIndex === index ? value : item))).filter((type) => type !== primary));
+  };
+  const remove = (index: number) => {
+    onChange(values.filter((_, itemIndex) => itemIndex !== index));
+  };
+
+  return (
+    <div className="variantBlock">
+      <div className="variantHeader">
+        <span>CTA variants</span>
+        <button
+          type="button"
+          className="secondaryButton compact"
+          onClick={() => onChange(cleanCtaTypeList([...values, selectable[0] ?? DEFAULT_CTA_TYPE]).filter((type) => type !== primary))}
+          disabled={disabled || !selectable.length}
+        >
+          <Plus size={14} />
+          Add CTA
+        </button>
+      </div>
+      {values.length ? (
+        <div className="variantList">
+          {values.map((value, index) => (
+            <div className="variantRow" key={`cta-${index}`}>
+              <select value={value} onChange={(event) => update(index, event.target.value)} disabled={disabled}>
+                {selectable.map((type) => (
+                  <option key={type} value={type}>
+                    {formatCtaTypeLabel(type)}
+                  </option>
+                ))}
+              </select>
+              <button type="button" className="iconButton variantRemove" onClick={() => remove(index)} aria-label="Remove CTA" disabled={disabled}>
+                <Trash2 size={15} />
+              </button>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="variantEmpty">No CTA variants yet</div>
+      )}
+    </div>
+  );
+}
+
 function ConfirmModal({
   creative,
   loading,
@@ -1143,29 +1276,19 @@ function ConfirmModal({
   onConfirm?: (payload: LaunchRequest) => void;
   onSave?: (payload: CreativeUpdateRequest) => Promise<void> | void;
 }) {
-  const [draft, setDraft] = useState({
-    projectType: creative.project_type ?? "",
-    adText: creative.ad_text ?? "",
-    ctaLink: creative.cta_link ?? "",
-    audience: creative.audience ?? "",
-    location: creative.location ?? ""
-  });
+  const [draft, setDraft] = useState<CreativeDetailsDraft>(() => creativeToDetailsDraft(creative));
   const [campaigns, setCampaigns] = useState<MetaCampaign[]>([]);
   const [adSets, setAdSets] = useState<MetaAdSet[]>([]);
   const [campaignId, setCampaignId] = useState("");
   const [adSetId, setAdSetId] = useState("");
   const [campaignsLoading, setCampaignsLoading] = useState(false);
   const [adSetsLoading, setAdSetsLoading] = useState(false);
+  const [generatingCopy, setGeneratingCopy] = useState(false);
   const [placementError, setPlacementError] = useState<string | null>(null);
+  const autoGenerateCreativeIdRef = useRef<number | null>(null);
 
   useEffect(() => {
-    setDraft({
-      projectType: creative.project_type ?? "",
-      adText: creative.ad_text ?? "",
-      ctaLink: creative.cta_link ?? "",
-      audience: creative.audience ?? "",
-      location: creative.location ?? ""
-    });
+    setDraft(creativeToDetailsDraft(creative));
   }, [creative]);
 
   useEffect(() => {
@@ -1230,19 +1353,26 @@ function ConfirmModal({
   const selectedCampaign = campaigns.find((campaign) => campaign.id === campaignId);
   const selectedAdSet = adSets.find((adSet) => adSet.id === adSetId);
   const placementReady = Boolean(campaignId && adSetId);
-  const busy = loading || saving;
+  const busy = loading || saving || generatingCopy;
   const detailsReady = Boolean(
     draft.projectType.trim() &&
       draft.adText.trim() &&
+      draft.ctaType.trim() &&
       draft.ctaLink.trim() &&
       draft.audience.trim() &&
       draft.location.trim()
   );
 
   function savePayload(): CreativeUpdateRequest {
+    const ctaType = normalizeCtaType(draft.ctaType);
     return {
       projectType: draft.projectType.trim() || null,
       adText: draft.adText.trim() || null,
+      headline: draft.headline.trim() || null,
+      headlineVariants: cleanTextList(draft.headlineVariants).filter((text) => text !== draft.headline.trim()),
+      adTextVariants: cleanTextList(draft.adTextVariants).filter((text) => text !== draft.adText.trim()),
+      ctaType,
+      ctaTypeVariants: cleanCtaTypeList(draft.ctaTypeVariants).filter((type) => type !== ctaType),
       ctaLink: draft.ctaLink.trim() || null,
       audience: draft.audience.trim() || null,
       location: draft.location.trim() || null,
@@ -1263,7 +1393,7 @@ function ConfirmModal({
     if (!onConfirm) return;
 
     if (!detailsReady) {
-      setPlacementError("Fill in project type, ad text, CTA link, audience, and location before launch.");
+      setPlacementError("Fill in project type, ad text, CTA, CTA link, audience, and location before launch.");
       return;
     }
 
@@ -1279,6 +1409,11 @@ function ConfirmModal({
       adSetName: selectedAdSet?.name,
       projectType: draft.projectType.trim(),
       adText: draft.adText.trim(),
+      headline: draft.headline.trim() || null,
+      headlineVariants: cleanTextList(draft.headlineVariants).filter((text) => text !== draft.headline.trim()),
+      adTextVariants: cleanTextList(draft.adTextVariants).filter((text) => text !== draft.adText.trim()),
+      ctaType: normalizeCtaType(draft.ctaType),
+      ctaTypeVariants: cleanCtaTypeList(draft.ctaTypeVariants).filter((type) => type !== normalizeCtaType(draft.ctaType)),
       ctaLink: draft.ctaLink.trim(),
       audience: draft.audience.trim(),
       location: draft.location.trim()
@@ -1289,6 +1424,63 @@ function ConfirmModal({
     setDraft((current) => ({ ...current, [field]: value }));
     setPlacementError(null);
   }
+
+  async function generateCopy(auto = false) {
+    setGeneratingCopy(true);
+    setPlacementError(null);
+    try {
+      const suggestions = await generateCreativeCopySuggestions(creative.id, savePayload());
+      setDraft((current) => {
+        const generatedTexts = cleanTextList(suggestions.adTextVariants, 4);
+        const generatedText = generatedTexts[0] || "";
+        const primaryText = generatedText || current.adText.trim();
+        const nextTextVariants = cleanTextList([
+          ...current.adTextVariants,
+          ...(current.adText.trim() && generatedText && generatedText !== current.adText.trim() ? [current.adText.trim()] : []),
+          ...generatedTexts.slice(1)
+        ]).filter((text) => text !== primaryText);
+        const generatedHeadlines = cleanTextList([suggestions.headline ?? "", ...suggestions.headlineVariants], 6);
+        const generatedHeadline = generatedHeadlines[0] || "";
+        const primaryHeadline = generatedHeadline || current.headline.trim();
+        const nextHeadlineVariants = cleanTextList([
+          ...current.headlineVariants,
+          ...(current.headline.trim() && generatedHeadline && generatedHeadline !== current.headline.trim() ? [current.headline.trim()] : []),
+          ...generatedHeadlines.slice(1)
+        ]).filter((title) => title !== primaryHeadline);
+        const generatedCta = suggestions.ctaTypeVariants[0] ? normalizeCtaType(suggestions.ctaTypeVariants[0]) : normalizeCtaType(current.ctaType);
+        const previousCta = normalizeCtaType(current.ctaType);
+        const nextCtaVariants = cleanCtaTypeList([
+          ...current.ctaTypeVariants,
+          ...(generatedCta !== previousCta ? [previousCta] : []),
+          ...suggestions.ctaTypeVariants.slice(1)
+        ]).filter((type) => type !== generatedCta);
+
+        return {
+          ...current,
+          adText: primaryText,
+          headline: primaryHeadline,
+          headlineVariants: nextHeadlineVariants,
+          adTextVariants: nextTextVariants,
+          ctaType: generatedCta,
+          ctaTypeVariants: nextCtaVariants
+        };
+      });
+    } catch (error) {
+      if (!auto) {
+        setPlacementError(error instanceof Error ? error.message : String(error));
+      }
+    } finally {
+      setGeneratingCopy(false);
+    }
+  }
+
+  useEffect(() => {
+    if (autoGenerateCreativeIdRef.current === creative.id || generatingCopy) return;
+    if (!draft.ctaLink.trim() || draft.adText.trim()) return;
+
+    autoGenerateCreativeIdRef.current = creative.id;
+    void generateCopy(true);
+  }, [creative.id, draft.adText, draft.ctaLink, generatingCopy]);
 
   return (
     <div className="modalOverlay" role="dialog" aria-modal="true">
@@ -1306,13 +1498,23 @@ function ConfirmModal({
             />
           </div>
           <button className="iconButton" onClick={onClose} aria-label="Close" disabled={busy}>
-            ×
+            <X size={18} />
           </button>
         </div>
 
         <div className="modalGrid">
           <CreativePreview creative={creative} />
           <div className="detailsForm">
+            <div className="copyToolbar">
+              <span>
+                {1 + cleanTextList(draft.adTextVariants).length} text · {1 + cleanTextList(draft.headlineVariants).length} title ·{" "}
+                {1 + cleanCtaTypeList(draft.ctaTypeVariants).length} CTA
+              </span>
+              <button type="button" className="secondaryButton compact" onClick={() => void generateCopy()} disabled={busy}>
+                {generatingCopy ? <Loader2 size={15} className="spin" /> : <Sparkles size={15} />}
+                Generate copy
+              </button>
+            </div>
             <label className="fieldGroup">
               <span>Ad text</span>
               <textarea
@@ -1323,14 +1525,66 @@ function ConfirmModal({
               />
             </label>
             <label className="fieldGroup">
-              <span>CTA link</span>
+              <span>Title</span>
               <input
-                type="url"
-                value={draft.ctaLink}
-                onChange={(event) => updateDraft("ctaLink", event.target.value)}
+                value={draft.headline}
+                onChange={(event) => updateDraft("headline", event.target.value)}
                 disabled={busy}
+                placeholder="Відгукуйся на вакансію"
               />
             </label>
+            <TextVariantList
+              label="Title variants"
+              addLabel="Add title"
+              emptyLabel="No title variants yet"
+              rows={1}
+              values={draft.headlineVariants}
+              onChange={(values) => {
+                setDraft((current) => ({ ...current, headlineVariants: values }));
+                setPlacementError(null);
+              }}
+              disabled={busy}
+            />
+            <TextVariantList
+              label="Text variants"
+              addLabel="Add text"
+              values={draft.adTextVariants}
+              onChange={(values) => {
+                setDraft((current) => ({ ...current, adTextVariants: values }));
+                setPlacementError(null);
+              }}
+              disabled={busy}
+            />
+            <div className="formGrid two compactGrid">
+              <label className="fieldGroup">
+                <span>CTA type</span>
+                <select value={draft.ctaType} onChange={(event) => updateDraft("ctaType", event.target.value)} disabled={busy}>
+                  {ctaTypes.map((type) => (
+                    <option key={type} value={type}>
+                      {formatCtaTypeLabel(type)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="fieldGroup">
+                <span>CTA link</span>
+                <input
+                  type="url"
+                  value={draft.ctaLink}
+                  onChange={(event) => updateDraft("ctaLink", event.target.value)}
+                  disabled={busy}
+                />
+              </label>
+            </div>
+            <CtaVariantList
+              values={draft.ctaTypeVariants}
+              primary={normalizeCtaType(draft.ctaType)}
+              onChange={(values) => {
+                setDraft((current) => ({ ...current, ctaTypeVariants: values }));
+                setPlacementError(null);
+              }}
+              disabled={busy}
+            />
             <label className="fieldGroup">
               <span>Audience</span>
               <textarea
@@ -1446,6 +1700,9 @@ function CreativeRow({
   const setupReady = hasCampaign && hasAdSet;
   const campaignLabel = displayCampaignName(creative, campaignNamesById);
   const adSetLabel = displayAdSetName(creative, adSetNamesById);
+  const textCount = 1 + cleanTextList(creative.ad_text_variants ?? []).length;
+  const titleCount = 1 + cleanTextList(creative.headline_variants ?? []).length;
+  const ctaCount = 1 + cleanCtaTypeList(creative.cta_type_variants ?? []).length;
 
   return (
     <article className="creativeRow">
@@ -1462,12 +1719,13 @@ function CreativeRow({
         {creative.project_type && creative.project_type !== creativeName ? (
           <p className="creativeFileName">{creative.project_type}</p>
         ) : null}
+        {creative.headline ? <p className="creativeFileName">{creative.headline}</p> : null}
         <p className="adText">{creative.ad_text || "No primary text yet."}</p>
         <div className="creativeMetaGrid">
-          <MetadataItem label="CTA" value={creative.cta_link} />
+          <MetadataItem label="Texts" value={`${textCount} variant${textCount === 1 ? "" : "s"}`} />
+          <MetadataItem label="Titles" value={`${titleCount} variant${titleCount === 1 ? "" : "s"}`} />
+          <MetadataItem label="CTA" value={`${formatCtaTypeLabel(creative.cta_type)}${ctaCount > 1 ? ` +${ctaCount - 1}` : ""}`} />
           <MetadataItem label="Audience" value={creative.audience} />
-          <MetadataItem label="Location" value={creative.location} />
-          <MetadataItem label="Updated" value={formatDate(creative.uploaded_at ?? creative.updated_at)} />
         </div>
       </div>
       <div className="creativeContext">
@@ -3860,6 +4118,12 @@ export function App() {
         creative.project_type,
         creative.source_file_name,
         creative.ad_text,
+        creative.headline,
+        ...(creative.headline_variants ?? []),
+        ...(creative.ad_text_variants ?? []),
+        creative.cta_type,
+        ...(creative.cta_type_variants ?? []),
+        creative.cta_link,
         creative.audience,
         creative.location,
         creative.campaign_name,

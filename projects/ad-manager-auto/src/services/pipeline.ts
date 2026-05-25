@@ -5,6 +5,7 @@ import { Creative, NotionCreativeFields } from "../types.js";
 import { getErrorMessage } from "../utils/errors.js";
 import { detectAssetType } from "../utils/mime.js";
 import { validateAssetFileName } from "../utils/assetNaming.js";
+import { normalizeAdTextList, normalizeCtaTypeList } from "../shared/creativeCopy.js";
 import { downloadDriveCreatives, downloadDriveFile, extractDriveSourceId } from "./googleDrive.js";
 import { createAd, getFacebookAdSet, listFacebookCampaigns, uploadCreativeAsset } from "./facebook.js";
 import {
@@ -248,6 +249,11 @@ export async function uploadCreativeFromNotion(fields: NotionCreativeFields, req
     sourceFileName: fields.name,
     status: missing.length ? DB_STATUS.NEEDS_DETAILS : DB_STATUS.UPLOADING,
     adText: fields.adText,
+    headline: fields.headline,
+    headlineVariants: fields.headlineVariants,
+    adTextVariants: fields.adTextVariants,
+    ctaType: fields.ctaType,
+    ctaTypeVariants: fields.ctaTypeVariants,
     ctaLink: fields.ctaLink,
     audience: fields.audience,
     location: fields.location,
@@ -302,6 +308,11 @@ export async function uploadCreativeFromNotion(fields: NotionCreativeFields, req
         sourceFileId: file.fileId,
         sourceFileName: file.fileName,
         adText: fields.adText,
+        headline: fields.headline,
+        headlineVariants: fields.headlineVariants,
+        adTextVariants: fields.adTextVariants,
+        ctaType: fields.ctaType,
+        ctaTypeVariants: fields.ctaTypeVariants,
         ctaLink: fields.ctaLink,
         audience: fields.audience,
         location: fields.location,
@@ -427,6 +438,11 @@ export async function uploadCreativeFromNotion(fields: NotionCreativeFields, req
       sourceFileName: fields.name,
       status: DB_STATUS.UPLOAD_FAILED,
       adText: fields.adText,
+      headline: fields.headline,
+      headlineVariants: fields.headlineVariants,
+      adTextVariants: fields.adTextVariants,
+      ctaType: fields.ctaType,
+      ctaTypeVariants: fields.ctaTypeVariants,
       ctaLink: fields.ctaLink,
       audience: fields.audience,
       location: fields.location,
@@ -455,6 +471,11 @@ export type LaunchPlacementInput = {
   adSetName?: string;
   projectType?: string;
   adText?: string;
+  headline?: string;
+  headlineVariants?: string[];
+  adTextVariants?: string[];
+  ctaType?: string;
+  ctaTypeVariants?: string[];
   ctaLink?: string;
   audience?: string;
   location?: string;
@@ -473,6 +494,11 @@ function cleanLaunchInput(input?: LaunchPlacementInput) {
     adSetName: cleanText(input?.adSetName),
     projectType: cleanText(input?.projectType),
     adText: cleanText(input?.adText),
+    headline: cleanText(input?.headline),
+    headlineVariants: input?.headlineVariants,
+    adTextVariants: input?.adTextVariants,
+    ctaType: cleanText(input?.ctaType),
+    ctaTypeVariants: input?.ctaTypeVariants,
     ctaLink: cleanText(input?.ctaLink),
     audience: cleanText(input?.audience),
     location: cleanText(input?.location)
@@ -582,6 +608,11 @@ export async function launchCreative(id: number, placementInput?: LaunchPlacemen
 
   const projectType = launchInput.projectType ?? cleanText(creative.project_type);
   const adText = launchInput.adText ?? cleanText(creative.ad_text);
+  const headline = launchInput.headline ?? cleanText(creative.headline);
+  const headlineVariants = launchInput.headlineVariants ?? creative.headline_variants ?? [];
+  const adTextVariants = launchInput.adTextVariants ?? creative.ad_text_variants ?? [];
+  const ctaType = launchInput.ctaType ?? cleanText(creative.cta_type);
+  const ctaTypeVariants = launchInput.ctaTypeVariants ?? creative.cta_type_variants ?? [];
   const ctaLink = launchInput.ctaLink ?? cleanText(creative.cta_link);
   const audience = launchInput.audience ?? cleanText(creative.audience);
   const location = launchInput.location ?? cleanText(creative.location);
@@ -609,6 +640,11 @@ export async function launchCreative(id: number, placementInput?: LaunchPlacemen
     adSetName,
     projectType,
     adText,
+    headline,
+    headlineVariants,
+    adTextVariants,
+    ctaType,
+    ctaTypeVariants,
     ctaLink,
     audience,
     location
@@ -640,6 +676,11 @@ export async function launchCreative(id: number, placementInput?: LaunchPlacemen
       assetId,
       assetType,
       adText,
+      headline,
+      headlineVariants: normalizeAdTextList(headline, headlineVariants, 5),
+      adTextVariants: normalizeAdTextList(adText, adTextVariants),
+      ctaType,
+      ctaTypeVariants: normalizeCtaTypeList(ctaType, ctaTypeVariants),
       ctaLink,
       requestId
     });

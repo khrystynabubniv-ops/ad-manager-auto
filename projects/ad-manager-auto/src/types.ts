@@ -9,6 +9,11 @@ export type Creative = {
   asset_id: string | null;
   asset_type: AssetType | null;
   ad_text: string | null;
+  headline: string | null;
+  headline_variants: string[];
+  ad_text_variants: string[];
+  cta_type: string;
+  cta_type_variants: string[];
   cta_link: string | null;
   audience: string | null;
   location: string | null;
@@ -36,6 +41,11 @@ export type NotionCreativeFields = {
   designStatus?: string;
   adStatus?: string;
   adText?: string;
+  headline?: string;
+  headlineVariants?: string[];
+  adTextVariants?: string[];
+  ctaType?: string;
+  ctaTypeVariants?: string[];
   ctaLink?: string;
   googleDriveLink?: string;
   finalProject?: string;

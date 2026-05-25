@@ -22,6 +22,8 @@ Notion Activities task
 6. PR/marketing opens `/dashboard`, reviews the ad, chooses the Meta Campaign + AdSet, and clicks `Launch`.
 7. This service creates the Meta ad and sets `Ad Status = Launched`.
 
+Ready creatives can now store multiple primary text variants and multiple Meta CTA button types. A single text/CTA still launches through the original `object_story_spec` path; multiple variants launch through Meta `asset_feed_spec`.
+
 ## Notion Fields
 
 The service expects these fields in `Activities`:
@@ -161,6 +163,17 @@ Launch behavior:
 - After a Campaign is selected, the dashboard reads that Campaign's existing AdSets from Meta.
 - Launch creates the ad in the selected AdSet ID. The backend validates that the selected AdSet belongs to the selected Campaign.
 - Creating Campaigns/AdSets from scratch is intentionally left for a later iteration.
+
+## AI Copy Generation
+
+The ready creative modal can generate primary text and CTA type variants from the creative's existing context through OpenRouter.
+
+```text
+OPENROUTER_API_KEY=
+OPENROUTER_MODEL=anthropic/claude-sonnet-4.6
+```
+
+Claude Sonnet 4.6 is the recommended starting model for this workflow. If `OPENROUTER_MODEL` is empty, OpenRouter uses the account default.
 
 ## Okta
 

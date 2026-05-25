@@ -1,0 +1,2 @@
+ALTER TABLE creatives
+ADD COLUMN IF NOT EXISTS headline TEXT;
