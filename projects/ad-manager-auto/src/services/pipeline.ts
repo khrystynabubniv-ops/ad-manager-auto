@@ -119,16 +119,35 @@ function adName(fields: { notionTaskId: string; projectType?: string; sourceFile
 }
 
 async function processNotionCreativeFields(fields: NotionCreativeFields, requestId?: string) {
+  const subItemCount = fields.subItemIds?.length ?? 0;
   logger.info(
     {
       requestId,
       pageId: fields.notionTaskId,
+      pageName: fields.name,
       parentTaskId: fields.parentTaskId,
+      subItemCount,
       adStatus: fields.adStatus,
       designStatus: fields.designStatus
     },
     "Handling Notion page change"
   );
+
+  if (subItemCount > 0) {
+    await recordEvent({
+      requestId,
+      notionTaskId: fields.notionTaskId,
+      action: "container_task_ignored",
+      status: "ignored",
+      metadata: {
+        name: fields.name,
+        adStatus: fields.adStatus,
+        designStatus: fields.designStatus,
+        subItemCount
+      }
+    });
+    return { action: "ignored_container", pageId: fields.notionTaskId, adStatus: fields.adStatus, subItemCount };
+  }
 
   if (fields.designStatus === DESIGN_STATUS.APPROVED_FOR_AD && (!fields.adStatus || fields.adStatus === AD_STATUS.NOT_STARTED)) {
     await updateAdPreparation(fields.notionTaskId, fields.googleDriveLink ?? fields.finalProject);
@@ -151,6 +170,38 @@ async function processNotionCreativeFields(fields: NotionCreativeFields, request
       metadata: { adStatus: fields.adStatus, designStatus: fields.designStatus }
     });
     return { action: "ignored", pageId: fields.notionTaskId, adStatus: fields.adStatus };
+  }
+
+  if (fields.designStatus !== DESIGN_STATUS.APPROVED_FOR_AD) {
+    logger.warn(
+      {
+        requestId,
+        notionTaskId: fields.notionTaskId,
+        name: fields.name,
+        adStatus: fields.adStatus,
+        designStatus: fields.designStatus,
+        requiredDesignStatus: DESIGN_STATUS.APPROVED_FOR_AD
+      },
+      "Ready to upload ignored because design is not approved for ads"
+    );
+    await recordEvent({
+      requestId,
+      notionTaskId: fields.notionTaskId,
+      action: "upload_blocked_design_status",
+      status: "ignored",
+      metadata: {
+        name: fields.name,
+        adStatus: fields.adStatus,
+        designStatus: fields.designStatus,
+        requiredDesignStatus: DESIGN_STATUS.APPROVED_FOR_AD
+      }
+    });
+    return {
+      action: "ignored",
+      pageId: fields.notionTaskId,
+      adStatus: fields.adStatus,
+      reason: "design_status_not_approved"
+    };
   }
 
   return uploadCreativeFromNotion(fields, requestId);

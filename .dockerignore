@@ -1,0 +1,13 @@
+**
+!projects/
+!projects/ad-manager-auto/
+!projects/ad-manager-auto/**
+
+**/.env
+**/.env.*
+**/.DS_Store
+**/node_modules
+**/dist
+**/.npm-cache
+**/coverage
+**/*.tsbuildinfo
