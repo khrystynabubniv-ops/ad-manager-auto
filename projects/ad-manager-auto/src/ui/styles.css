@@ -3522,7 +3522,6 @@ button:disabled {
 
 .modalGrid,
 .detailsForm,
-.placementPanel,
 .campaignFieldStack,
 .uploadCreativePanel {
   padding: 18px;
@@ -3540,85 +3539,87 @@ button:disabled {
   height: 180px;
 }
 
-.copyToolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  border: 1px solid var(--border-soft);
-  border-radius: 8px;
-  background: var(--surface-alt);
-  padding: 8px 10px;
-}
-
-.copyToolbar span,
-.variantHeader span {
-  color: var(--fg-muted);
-  font-size: 11px;
-  font-weight: 700;
-  text-transform: uppercase;
-}
-
-.variantBlock {
+.placementPanel,
+.aiCopyPanel,
+.copyFieldGroup {
   display: grid;
-  gap: 8px;
-}
-
-.variantHeader {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-}
-
-.variantList {
-  display: grid;
-  gap: 8px;
-}
-
-.variantRow {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 36px;
-  gap: 8px;
-  align-items: start;
-}
-
-.variantRow textarea,
-.variantRow select {
-  width: 100%;
-  min-height: 36px;
+  gap: 12px;
   border: 1px solid var(--border);
   border-radius: 8px;
-  color: var(--fg-strong);
   background: var(--surface);
-  padding: 8px 10px;
-  font-size: 13px;
-}
-
-.variantRow textarea {
-  min-height: 58px;
-  line-height: 1.4;
-  resize: vertical;
-}
-
-.variantRemove {
-  width: 36px;
-  height: 36px;
-}
-
-.variantEmpty {
-  border: 1px dashed var(--border);
-  border-radius: 8px;
-  color: var(--fg-soft);
-  background: var(--surface-alt);
-  padding: 10px;
-  font-size: 12px;
+  padding: 14px;
 }
 
 .placementPanel {
-  margin-top: 0;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  padding-top: 0;
+  grid-template-columns: 1fr;
+  margin: 0;
+  border-color: oklch(0.78 0.08 var(--accent-hue));
+  background: linear-gradient(180deg, var(--accent-soft), var(--surface) 68%);
+  box-shadow: 0 10px 26px -22px var(--accent);
+}
+
+.placementPanelHeader,
+.aiCopyPanel,
+.copyFieldHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.placementPanelHeader div,
+.aiCopyPanel div {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.placementPanelHeader span,
+.aiCopyPanel span,
+.copyFieldHeader span {
+  color: var(--fg-muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.placementPanelHeader strong,
+.aiCopyPanel strong {
+  color: var(--fg-strong);
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.aiCopyPanel {
+  grid-template-columns: minmax(0, 1fr) auto;
+  background: var(--surface-alt);
+}
+
+.generateCopyButton {
+  min-height: 38px;
+  padding-inline: 14px;
+}
+
+.copyFieldList {
+  display: grid;
+  gap: 10px;
+}
+
+.copyFieldItem {
+  position: relative;
+}
+
+.removableCopyField {
+  padding-right: 44px;
+}
+
+.copyFieldRemove {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 34px;
+  height: 34px;
 }
 
 .modalActions {

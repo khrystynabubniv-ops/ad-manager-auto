@@ -616,7 +616,7 @@ export async function launchCreative(id: number, placementInput?: LaunchPlacemen
   const ctaLink = launchInput.ctaLink ?? cleanText(creative.cta_link);
   const audience = launchInput.audience ?? cleanText(creative.audience);
   const location = launchInput.location ?? cleanText(creative.location);
-  if (!projectType || !adText || !ctaLink || !audience || !location) {
+  if (!projectType || !adText || !ctaLink) {
     throw new Error(`Creative ${id} is missing required launch fields`);
   }
   if (!isHttpUrl(ctaLink)) {

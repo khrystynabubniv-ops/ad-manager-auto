@@ -315,8 +315,8 @@ export type LaunchRequest = LaunchPlacement & {
   ctaType?: string;
   ctaTypeVariants?: string[];
   ctaLink: string;
-  audience: string;
-  location: string;
+  audience?: string;
+  location?: string;
 };
 
 export type CreativeUpdateRequest = {

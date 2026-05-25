@@ -1151,111 +1151,137 @@ function SuccessNotice({ message }: { message: string }) {
   );
 }
 
-function TextVariantList({
-  label = "Text variants",
-  addLabel = "Add text",
-  emptyLabel = "No variants yet",
-  rows = 2,
-  values,
+function CopyTextStack({
+  label,
+  addLabel,
+  primary,
+  variants,
+  rows = 1,
+  placeholder,
   disabled,
-  onChange
+  onPrimaryChange,
+  onVariantsChange
 }: {
-  label?: string;
-  addLabel?: string;
-  emptyLabel?: string;
+  label: string;
+  addLabel: string;
+  primary: string;
+  variants: string[];
   rows?: number;
-  values: string[];
+  placeholder?: string;
   disabled: boolean;
-  onChange: (values: string[]) => void;
+  onPrimaryChange: (value: string) => void;
+  onVariantsChange: (values: string[]) => void;
 }) {
-  const update = (index: number, value: string) => {
-    onChange(values.map((item, itemIndex) => (itemIndex === index ? value : item)));
+  const updateVariant = (index: number, value: string) => {
+    onVariantsChange(variants.map((item, itemIndex) => (itemIndex === index ? value : item)));
   };
-  const remove = (index: number) => {
-    onChange(values.filter((_, itemIndex) => itemIndex !== index));
+  const removeVariant = (index: number) => {
+    onVariantsChange(variants.filter((_, itemIndex) => itemIndex !== index));
   };
+  const isTextarea = rows > 1;
 
   return (
-    <div className="variantBlock">
-      <div className="variantHeader">
+    <section className="copyFieldGroup">
+      <div className="copyFieldHeader">
         <span>{label}</span>
-        <button type="button" className="secondaryButton compact" onClick={() => onChange([...values, ""])} disabled={disabled}>
+        <button type="button" className="secondaryButton compact" onClick={() => onVariantsChange([...variants, ""])} disabled={disabled}>
           <Plus size={14} />
           {addLabel}
         </button>
       </div>
-      {values.length ? (
-        <div className="variantList">
-          {values.map((value, index) => (
-            <div className="variantRow" key={`text-${index}`}>
-              <textarea value={value} onChange={(event) => update(index, event.target.value)} rows={rows} disabled={disabled} />
-              <button type="button" className="iconButton variantRemove" onClick={() => remove(index)} aria-label={`Remove ${label}`} disabled={disabled}>
-                <Trash2 size={15} />
-              </button>
-            </div>
-          ))}
-        </div>
-      ) : (
-        <div className="variantEmpty">{emptyLabel}</div>
-      )}
-    </div>
+      <div className="copyFieldList">
+        <label className="fieldGroup copyFieldItem">
+          <span>{label} 1</span>
+          {isTextarea ? (
+            <textarea value={primary} onChange={(event) => onPrimaryChange(event.target.value)} rows={rows} disabled={disabled} />
+          ) : (
+            <input value={primary} onChange={(event) => onPrimaryChange(event.target.value)} placeholder={placeholder} disabled={disabled} />
+          )}
+        </label>
+        {variants.map((value, index) => (
+          <label className="fieldGroup copyFieldItem removableCopyField" key={`${label}-${index}`}>
+            <span>{label} {index + 2}</span>
+            {isTextarea ? (
+              <textarea value={value} onChange={(event) => updateVariant(index, event.target.value)} rows={rows} disabled={disabled} />
+            ) : (
+              <input value={value} onChange={(event) => updateVariant(index, event.target.value)} disabled={disabled} />
+            )}
+            <button type="button" className="iconButton copyFieldRemove" onClick={() => removeVariant(index)} aria-label={`Remove ${label} ${index + 2}`} disabled={disabled}>
+              <Trash2 size={15} />
+            </button>
+          </label>
+        ))}
+      </div>
+    </section>
   );
 }
 
-function CtaVariantList({
-  values,
+function CtaStack({
   primary,
+  variants,
   disabled,
-  onChange
+  onPrimaryChange,
+  onVariantsChange
 }: {
-  values: string[];
   primary: string;
+  variants: string[];
   disabled: boolean;
-  onChange: (values: string[]) => void;
+  onPrimaryChange: (value: string) => void;
+  onVariantsChange: (values: string[]) => void;
 }) {
-  const selectable = ctaTypes.filter((type) => type !== primary);
-  const update = (index: number, value: string) => {
-    onChange(cleanCtaTypeList(values.map((item, itemIndex) => (itemIndex === index ? value : item))).filter((type) => type !== primary));
+  const normalizedPrimary = normalizeCtaType(primary);
+  const addable = ctaTypes.find((type) => type !== normalizedPrimary && !variants.includes(type)) ?? ctaTypes.find((type) => type !== normalizedPrimary);
+  const updateVariant = (index: number, value: string) => {
+    onVariantsChange(cleanCtaTypeList(variants.map((item, itemIndex) => (itemIndex === index ? value : item))).filter((type) => type !== normalizedPrimary));
   };
-  const remove = (index: number) => {
-    onChange(values.filter((_, itemIndex) => itemIndex !== index));
+  const removeVariant = (index: number) => {
+    onVariantsChange(variants.filter((_, itemIndex) => itemIndex !== index));
   };
 
   return (
-    <div className="variantBlock">
-      <div className="variantHeader">
-        <span>CTA variants</span>
+    <section className="copyFieldGroup">
+      <div className="copyFieldHeader">
+        <span>CTA</span>
         <button
           type="button"
           className="secondaryButton compact"
-          onClick={() => onChange(cleanCtaTypeList([...values, selectable[0] ?? DEFAULT_CTA_TYPE]).filter((type) => type !== primary))}
-          disabled={disabled || !selectable.length}
+          onClick={() => addable && onVariantsChange(cleanCtaTypeList([...variants, addable]).filter((type) => type !== normalizedPrimary))}
+          disabled={disabled || !addable}
         >
           <Plus size={14} />
           Add CTA
         </button>
       </div>
-      {values.length ? (
-        <div className="variantList">
-          {values.map((value, index) => (
-            <div className="variantRow" key={`cta-${index}`}>
-              <select value={value} onChange={(event) => update(index, event.target.value)} disabled={disabled}>
-                {selectable.map((type) => (
+      <div className="copyFieldList">
+        <label className="fieldGroup copyFieldItem">
+          <span>CTA 1</span>
+          <select value={normalizedPrimary} onChange={(event) => onPrimaryChange(event.target.value)} disabled={disabled}>
+            {ctaTypes.map((type) => (
+              <option key={type} value={type}>
+                {formatCtaTypeLabel(type)}
+              </option>
+            ))}
+          </select>
+        </label>
+        {variants.map((value, index) => (
+          <label className="fieldGroup copyFieldItem removableCopyField" key={`cta-${index}`}>
+            <span>CTA {index + 2}</span>
+            <select value={value} onChange={(event) => updateVariant(index, event.target.value)} disabled={disabled}>
+              {ctaTypes
+                .filter((type) => type !== normalizedPrimary)
+                .map((type) => (
                   <option key={type} value={type}>
                     {formatCtaTypeLabel(type)}
                   </option>
                 ))}
-              </select>
-              <button type="button" className="iconButton variantRemove" onClick={() => remove(index)} aria-label="Remove CTA" disabled={disabled}>
-                <Trash2 size={15} />
-              </button>
-            </div>
-          ))}
-        </div>
-      ) : (
-        <div className="variantEmpty">No CTA variants yet</div>
-      )}
-    </div>
+            </select>
+            <button type="button" className="iconButton copyFieldRemove" onClick={() => removeVariant(index)} aria-label={`Remove CTA ${index + 2}`} disabled={disabled}>
+              <Trash2 size={15} />
+            </button>
+          </label>
+        ))}
+      </div>
+    </section>
   );
 }
 
@@ -1357,10 +1383,9 @@ function ConfirmModal({
   const detailsReady = Boolean(
     draft.projectType.trim() &&
       draft.adText.trim() &&
+      draft.headline.trim() &&
       draft.ctaType.trim() &&
-      draft.ctaLink.trim() &&
-      draft.audience.trim() &&
-      draft.location.trim()
+      draft.ctaLink.trim()
   );
 
   function savePayload(): CreativeUpdateRequest {
@@ -1374,8 +1399,6 @@ function ConfirmModal({
       ctaType,
       ctaTypeVariants: cleanCtaTypeList(draft.ctaTypeVariants).filter((type) => type !== ctaType),
       ctaLink: draft.ctaLink.trim() || null,
-      audience: draft.audience.trim() || null,
-      location: draft.location.trim() || null,
       campaignId: campaignId || null,
       campaignName: campaignId ? selectedCampaign?.name ?? creative.campaign_name ?? null : null,
       adSetId: adSetId || null,
@@ -1393,7 +1416,7 @@ function ConfirmModal({
     if (!onConfirm) return;
 
     if (!detailsReady) {
-      setPlacementError("Fill in project type, ad text, CTA, CTA link, audience, and location before launch.");
+      setPlacementError("Fill in project type, text, title, CTA, and CTA link before launch.");
       return;
     }
 
@@ -1414,9 +1437,7 @@ function ConfirmModal({
       adTextVariants: cleanTextList(draft.adTextVariants).filter((text) => text !== draft.adText.trim()),
       ctaType: normalizeCtaType(draft.ctaType),
       ctaTypeVariants: cleanCtaTypeList(draft.ctaTypeVariants).filter((type) => type !== normalizeCtaType(draft.ctaType)),
-      ctaLink: draft.ctaLink.trim(),
-      audience: draft.audience.trim(),
-      location: draft.location.trim()
+      ctaLink: draft.ctaLink.trim()
     });
   }
 
@@ -1505,143 +1526,119 @@ function ConfirmModal({
         <div className="modalGrid">
           <CreativePreview creative={creative} />
           <div className="detailsForm">
-            <div className="copyToolbar">
-              <span>
-                {1 + cleanTextList(draft.adTextVariants).length} text · {1 + cleanTextList(draft.headlineVariants).length} title ·{" "}
-                {1 + cleanCtaTypeList(draft.ctaTypeVariants).length} CTA
-              </span>
-              <button type="button" className="secondaryButton compact" onClick={() => void generateCopy()} disabled={busy}>
-                {generatingCopy ? <Loader2 size={15} className="spin" /> : <Sparkles size={15} />}
-                Generate copy
-              </button>
-            </div>
-            <label className="fieldGroup">
-              <span>Ad text</span>
-              <textarea
-                value={draft.adText}
-                onChange={(event) => updateDraft("adText", event.target.value)}
-                rows={3}
-                disabled={busy}
-              />
-            </label>
-            <label className="fieldGroup">
-              <span>Title</span>
-              <input
-                value={draft.headline}
-                onChange={(event) => updateDraft("headline", event.target.value)}
-                disabled={busy}
-                placeholder="Відгукуйся на вакансію"
-              />
-            </label>
-            <TextVariantList
-              label="Title variants"
-              addLabel="Add title"
-              emptyLabel="No title variants yet"
-              rows={1}
-              values={draft.headlineVariants}
-              onChange={(values) => {
-                setDraft((current) => ({ ...current, headlineVariants: values }));
-                setPlacementError(null);
-              }}
-              disabled={busy}
-            />
-            <TextVariantList
-              label="Text variants"
-              addLabel="Add text"
-              values={draft.adTextVariants}
-              onChange={(values) => {
-                setDraft((current) => ({ ...current, adTextVariants: values }));
-                setPlacementError(null);
-              }}
-              disabled={busy}
-            />
-            <div className="formGrid two compactGrid">
+            <section className="placementPanel">
+              <div className="placementPanelHeader">
+                <div>
+                  <span>Launch placement</span>
+                  <strong>{placementReady ? "Ready to launch" : "Choose campaign and ad set"}</strong>
+                </div>
+                <StatusChip value={placementReady ? "ready" : "draft"} />
+              </div>
               <label className="fieldGroup">
-                <span>CTA type</span>
-                <select value={draft.ctaType} onChange={(event) => updateDraft("ctaType", event.target.value)} disabled={busy}>
-                  {ctaTypes.map((type) => (
-                    <option key={type} value={type}>
-                      {formatCtaTypeLabel(type)}
+                <span>Campaign</span>
+                <select
+                  value={campaignId}
+                  onChange={(event) => {
+                    setCampaignId(event.target.value);
+                    setAdSetId("");
+                  }}
+                  disabled={busy || campaignsLoading}
+                >
+                  <option value="">{campaignsLoading ? "Loading campaigns..." : "Select campaign"}</option>
+                  {campaigns.map((campaign) => (
+                    <option key={campaign.id} value={campaign.id}>
+                      {campaign.name} {campaign.status ? `(${campaign.status})` : ""}
                     </option>
                   ))}
                 </select>
               </label>
               <label className="fieldGroup">
-                <span>CTA link</span>
-                <input
-                  type="url"
-                  value={draft.ctaLink}
-                  onChange={(event) => updateDraft("ctaLink", event.target.value)}
-                  disabled={busy}
-                />
+                <span>Ad set</span>
+                <select
+                  value={adSetId}
+                  onChange={(event) => setAdSetId(event.target.value)}
+                  disabled={busy || adSetsLoading || !campaignId}
+                >
+                  <option value="">
+                    {!campaignId ? "Select campaign first" : adSetsLoading ? "Loading ad sets..." : "Select ad set"}
+                  </option>
+                  {adSets.map((adSet) => (
+                    <option key={adSet.id} value={adSet.id}>
+                      {adSet.name} {adSet.effective_status || adSet.status ? `(${adSet.effective_status ?? adSet.status})` : ""}
+                    </option>
+                  ))}
+                </select>
               </label>
-            </div>
-            <CtaVariantList
-              values={draft.ctaTypeVariants}
-              primary={normalizeCtaType(draft.ctaType)}
-              onChange={(values) => {
+            </section>
+
+            <section className="aiCopyPanel">
+              <div>
+                <span>AI copy</span>
+                <strong>
+                  {1 + cleanTextList(draft.adTextVariants).length} text · {1 + cleanTextList(draft.headlineVariants).length} title ·{" "}
+                  {1 + cleanCtaTypeList(draft.ctaTypeVariants).length} CTA
+                </strong>
+              </div>
+              <button type="button" className="primaryButton generateCopyButton" onClick={() => void generateCopy()} disabled={busy}>
+                {generatingCopy ? <Loader2 size={16} className="spin" /> : <Sparkles size={16} />}
+                Generate copy
+              </button>
+            </section>
+
+            <CopyTextStack
+              label="Text"
+              addLabel="Add text"
+              primary={draft.adText}
+              variants={draft.adTextVariants}
+              rows={3}
+              onPrimaryChange={(value) => updateDraft("adText", value)}
+              onVariantsChange={(values) => {
+                setDraft((current) => ({ ...current, adTextVariants: values }));
+                setPlacementError(null);
+              }}
+              disabled={busy}
+            />
+            <CopyTextStack
+              label="Title"
+              addLabel="Add title"
+              primary={draft.headline}
+              variants={draft.headlineVariants}
+              placeholder="Відгукуйся на вакансію"
+              onPrimaryChange={(value) => updateDraft("headline", value)}
+              onVariantsChange={(values) => {
+                setDraft((current) => ({ ...current, headlineVariants: values }));
+                setPlacementError(null);
+              }}
+              disabled={busy}
+            />
+            <CtaStack
+              primary={draft.ctaType}
+              variants={draft.ctaTypeVariants}
+              onPrimaryChange={(value) => {
+                const nextCtaType = normalizeCtaType(value);
+                setDraft((current) => ({
+                  ...current,
+                  ctaType: nextCtaType,
+                  ctaTypeVariants: cleanCtaTypeList(current.ctaTypeVariants).filter((type) => type !== nextCtaType)
+                }));
+                setPlacementError(null);
+              }}
+              onVariantsChange={(values) => {
                 setDraft((current) => ({ ...current, ctaTypeVariants: values }));
                 setPlacementError(null);
               }}
               disabled={busy}
             />
             <label className="fieldGroup">
-              <span>Audience</span>
-              <textarea
-                value={draft.audience}
-                onChange={(event) => updateDraft("audience", event.target.value)}
-                rows={2}
-                disabled={busy}
-              />
-            </label>
-            <label className="fieldGroup">
-              <span>Location</span>
+              <span>CTA link</span>
               <input
-                value={draft.location}
-                onChange={(event) => updateDraft("location", event.target.value)}
+                type="url"
+                value={draft.ctaLink}
+                onChange={(event) => updateDraft("ctaLink", event.target.value)}
                 disabled={busy}
               />
             </label>
           </div>
-        </div>
-
-        <div className="placementPanel">
-          <label className="fieldGroup">
-            <span>Campaign</span>
-            <select
-              value={campaignId}
-              onChange={(event) => {
-                setCampaignId(event.target.value);
-                setAdSetId("");
-              }}
-              disabled={busy || campaignsLoading}
-            >
-              <option value="">{campaignsLoading ? "Loading campaigns..." : "Select campaign"}</option>
-              {campaigns.map((campaign) => (
-                <option key={campaign.id} value={campaign.id}>
-                  {campaign.name} {campaign.status ? `(${campaign.status})` : ""}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label className="fieldGroup">
-            <span>Ad set</span>
-            <select
-              value={adSetId}
-              onChange={(event) => setAdSetId(event.target.value)}
-              disabled={busy || adSetsLoading || !campaignId}
-            >
-              <option value="">
-                {!campaignId ? "Select campaign first" : adSetsLoading ? "Loading ad sets..." : "Select ad set"}
-              </option>
-              {adSets.map((adSet) => (
-                <option key={adSet.id} value={adSet.id}>
-                  {adSet.name} {adSet.effective_status || adSet.status ? `(${adSet.effective_status ?? adSet.status})` : ""}
-                </option>
-              ))}
-            </select>
-          </label>
         </div>
 
         {placementError ? (
