@@ -469,6 +469,46 @@ function formatCtaTypeLabel(value?: string | null) {
     .join(" ");
 }
 
+function mergeGeneratedTextVariation(primary: string, variants: string[], generated: string) {
+  const currentPrimary = primary.trim();
+  const generatedText = generated.trim();
+  const currentVariants = cleanTextList(variants).filter((value) => value !== currentPrimary);
+
+  if (!generatedText) {
+    return { primary: currentPrimary, variants: currentVariants };
+  }
+
+  if (!currentPrimary) {
+    return {
+      primary: generatedText,
+      variants: currentVariants.filter((value) => value !== generatedText)
+    };
+  }
+
+  return {
+    primary: currentPrimary,
+    variants: cleanTextList([...currentVariants, generatedText]).filter((value) => value !== currentPrimary)
+  };
+}
+
+function mergeGeneratedCtaVariation(primary: string, variants: string[], generated: string, replacePrimary: boolean) {
+  const currentPrimary = normalizeCtaType(primary);
+  const generatedCta = normalizeCtaType(generated);
+  const currentVariants = cleanCtaTypeList(variants).filter((value) => value !== currentPrimary);
+
+  if (replacePrimary) {
+    return {
+      primary: generatedCta,
+      variants: currentVariants.filter((value) => value !== generatedCta)
+    };
+  }
+
+  return {
+    primary: currentPrimary,
+    variants: cleanCtaTypeList([...currentVariants, generatedCta]).filter((value) => value !== currentPrimary)
+  };
+}
+
 function creativeToDetailsDraft(creative: Creative): CreativeDetailsDraft {
   const ctaType = normalizeCtaType(creative.cta_type);
   return {
@@ -1312,6 +1352,7 @@ function ConfirmModal({
   const [generatingCopy, setGeneratingCopy] = useState(false);
   const [placementError, setPlacementError] = useState<string | null>(null);
   const autoGenerateCreativeIdRef = useRef<number | null>(null);
+  const generatingCopyRequestRef = useRef(false);
 
   useEffect(() => {
     setDraft(creativeToDetailsDraft(creative));
@@ -1447,25 +1488,35 @@ function ConfirmModal({
   }
 
   async function generateCopy(auto = false) {
+    if (generatingCopyRequestRef.current) return;
+
+    generatingCopyRequestRef.current = true;
     setGeneratingCopy(true);
     setPlacementError(null);
     try {
       const suggestions = await generateCreativeCopySuggestions(creative.id, savePayload());
       setDraft((current) => {
         const generatedText = cleanTextList(suggestions.adTextVariants, 1)[0] || "";
-        const primaryText = generatedText || current.adText.trim();
         const generatedHeadline = cleanTextList([suggestions.headline ?? "", ...suggestions.headlineVariants], 1)[0] || "";
-        const primaryHeadline = generatedHeadline || current.headline.trim();
         const generatedCta = suggestions.ctaTypeVariants[0] ? normalizeCtaType(suggestions.ctaTypeVariants[0]) : normalizeCtaType(current.ctaType);
+        const hasExistingCopy = Boolean(
+          current.adText.trim() ||
+            current.headline.trim() ||
+            cleanTextList(current.adTextVariants).length ||
+            cleanTextList(current.headlineVariants).length
+        );
+        const text = mergeGeneratedTextVariation(current.adText, current.adTextVariants, generatedText);
+        const headline = mergeGeneratedTextVariation(current.headline, current.headlineVariants, generatedHeadline);
+        const cta = mergeGeneratedCtaVariation(current.ctaType, current.ctaTypeVariants, generatedCta, !hasExistingCopy);
 
         return {
           ...current,
-          adText: primaryText,
-          headline: primaryHeadline,
-          headlineVariants: [],
-          adTextVariants: [],
-          ctaType: generatedCta,
-          ctaTypeVariants: []
+          adText: text.primary,
+          headline: headline.primary,
+          headlineVariants: headline.variants,
+          adTextVariants: text.variants,
+          ctaType: cta.primary,
+          ctaTypeVariants: cta.variants
         };
       });
     } catch (error) {
@@ -1473,6 +1524,7 @@ function ConfirmModal({
         setPlacementError(error instanceof Error ? error.message : String(error));
       }
     } finally {
+      generatingCopyRequestRef.current = false;
       setGeneratingCopy(false);
     }
   }
@@ -1563,7 +1615,7 @@ function ConfirmModal({
               </div>
               <button type="button" className="primaryButton generateCopyButton" onClick={() => void generateCopy()} disabled={busy}>
                 {generatingCopy ? <Loader2 size={16} className="spin" /> : <Sparkles size={16} />}
-                Generate copy
+                {generatingCopy ? "Generating..." : "Generate copy"}
               </button>
             </section>
 

@@ -276,6 +276,7 @@ function buildPrompt(input: CopyGenerationInput, vacancy?: { url: string; title?
 Також Universe будує нові tech-бізнеси з нуля до глобального рівня та шукає ко-фаундерів для їх запуску. (Guru Apps, Wisey, FORMA).
 
 Your task: given a job vacancy URL, generate the best ad copy for a Meta ad creative that matches Universe Group's brand positioning and tone of voice.
+Generate exactly one new variation per request. Do not repeat the existing primary text, title, or variants from the current creative context.
 
 ---
 
