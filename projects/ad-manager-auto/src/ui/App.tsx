@@ -1505,7 +1505,7 @@ function ConfirmModal({
 
   return (
     <div className="modalOverlay" role="dialog" aria-modal="true">
-      <div className="modal">
+      <div className="modal creativeReviewModal">
         <div className="modalHeader">
           <div>
             <p className="eyebrow">{mode === "edit" ? "Edit creative" : "Review & launch"}</p>
