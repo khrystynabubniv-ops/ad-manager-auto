@@ -4,7 +4,7 @@ import { requireAuth } from "../middleware/auth.js";
 import { getCreativeById, listCreatives, updateCreativeDetails, upsertCreative } from "../services/db.js";
 import { generateCreativeCopy } from "../services/copyGenerator.js";
 import { getFacebookAdSet, uploadCreativeAsset } from "../services/facebook.js";
-import { cleanCtaTypeList, cleanTextList, normalizeCtaType } from "../shared/creativeCopy.js";
+import { cleanTextSequence, normalizeCtaType, normalizeCtaTypeSequence } from "../shared/creativeCopy.js";
 import { AppError } from "../utils/errors.js";
 
 export const creativesRouter = Router();
@@ -44,7 +44,7 @@ creativesRouter.patch("/:id", requireAuth, async (req, res, next) => {
     };
     const optionalTextArray = (name: string) => {
       if (!(name in body)) return undefined;
-      return cleanTextList(body[name]);
+      return cleanTextSequence(body[name]);
     };
     const optionalCtaType = (name: string) => {
       if (!(name in body)) return undefined;
@@ -52,7 +52,7 @@ creativesRouter.patch("/:id", requireAuth, async (req, res, next) => {
     };
     const optionalCtaTypeArray = (name: string) => {
       if (!(name in body)) return undefined;
-      return cleanCtaTypeList(body[name]);
+      return normalizeCtaTypeSequence(body[name]);
     };
     const nextText = (name: string, current: string | null) => {
       const value = optionalText(name);
@@ -129,10 +129,10 @@ creativesRouter.post("/:id/copy-suggestions", requireAuth, async (req, res, next
       projectType: text("projectType"),
       adText: text("adText"),
       headline: text("headline"),
-      headlineVariants: cleanTextList(body.headlineVariants),
-      adTextVariants: cleanTextList(body.adTextVariants),
+      headlineVariants: cleanTextSequence(body.headlineVariants),
+      adTextVariants: cleanTextSequence(body.adTextVariants),
       ctaType: text("ctaType"),
-      ctaTypeVariants: cleanCtaTypeList(body.ctaTypeVariants),
+      ctaTypeVariants: normalizeCtaTypeSequence(body.ctaTypeVariants),
       ctaLink: text("ctaLink"),
       audience: text("audience"),
       location: text("location")
@@ -194,10 +194,10 @@ creativesRouter.post("/upload", requireAuth, async (req, res, next) => {
       projectType: typeof req.body?.projectType === "string" ? req.body.projectType.trim() : undefined,
       adText: typeof req.body?.adText === "string" ? req.body.adText.trim() : undefined,
       headline: typeof req.body?.headline === "string" ? req.body.headline.trim() : undefined,
-      headlineVariants: Array.isArray(req.body?.headlineVariants) ? cleanTextList(req.body.headlineVariants) : undefined,
-      adTextVariants: Array.isArray(req.body?.adTextVariants) ? cleanTextList(req.body.adTextVariants) : undefined,
+      headlineVariants: Array.isArray(req.body?.headlineVariants) ? cleanTextSequence(req.body.headlineVariants) : undefined,
+      adTextVariants: Array.isArray(req.body?.adTextVariants) ? cleanTextSequence(req.body.adTextVariants) : undefined,
       ctaType: typeof req.body?.ctaType === "string" ? normalizeCtaType(req.body.ctaType) : undefined,
-      ctaTypeVariants: Array.isArray(req.body?.ctaTypeVariants) ? cleanCtaTypeList(req.body.ctaTypeVariants) : undefined,
+      ctaTypeVariants: Array.isArray(req.body?.ctaTypeVariants) ? normalizeCtaTypeSequence(req.body.ctaTypeVariants) : undefined,
       ctaLink: typeof req.body?.ctaLink === "string" ? req.body.ctaLink.trim() : undefined
     });
 

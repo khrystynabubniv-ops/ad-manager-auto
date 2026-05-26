@@ -54,7 +54,14 @@ import {
   updateAdSetDraft,
   updateCampaignDraft
 } from "./api";
-import { CTA_TYPES, DEFAULT_CTA_TYPE, cleanCtaTypeList, cleanTextList, normalizeCtaType } from "../shared/creativeCopy";
+import {
+  CTA_TYPES,
+  DEFAULT_CTA_TYPE,
+  cleanTextList,
+  cleanTextSequence,
+  normalizeCtaType,
+  normalizeCtaTypeSequence
+} from "../shared/creativeCopy";
 
 type CreativeView = "ready" | "in-use" | "drafts" | "archived";
 type RouteState =
@@ -472,7 +479,7 @@ function formatCtaTypeLabel(value?: string | null) {
 function mergeGeneratedTextVariation(primary: string, variants: string[], generated: string) {
   const currentPrimary = primary.trim();
   const generatedText = generated.trim();
-  const currentVariants = cleanTextList(variants).filter((value) => value !== currentPrimary);
+  const currentVariants = cleanTextSequence(variants);
 
   if (!generatedText) {
     return { primary: currentPrimary, variants: currentVariants };
@@ -481,31 +488,31 @@ function mergeGeneratedTextVariation(primary: string, variants: string[], genera
   if (!currentPrimary) {
     return {
       primary: generatedText,
-      variants: currentVariants.filter((value) => value !== generatedText)
+      variants: currentVariants
     };
   }
 
   return {
     primary: currentPrimary,
-    variants: cleanTextList([...currentVariants, generatedText]).filter((value) => value !== currentPrimary)
+    variants: cleanTextSequence([...currentVariants, generatedText])
   };
 }
 
 function mergeGeneratedCtaVariation(primary: string, variants: string[], generated: string, replacePrimary: boolean) {
   const currentPrimary = normalizeCtaType(primary);
   const generatedCta = normalizeCtaType(generated);
-  const currentVariants = cleanCtaTypeList(variants).filter((value) => value !== currentPrimary);
+  const currentVariants = normalizeCtaTypeSequence(variants);
 
   if (replacePrimary) {
     return {
       primary: generatedCta,
-      variants: currentVariants.filter((value) => value !== generatedCta)
+      variants: currentVariants
     };
   }
 
   return {
     primary: currentPrimary,
-    variants: cleanCtaTypeList([...currentVariants, generatedCta]).filter((value) => value !== currentPrimary)
+    variants: normalizeCtaTypeSequence([...currentVariants, generatedCta])
   };
 }
 
@@ -515,10 +522,10 @@ function creativeToDetailsDraft(creative: Creative): CreativeDetailsDraft {
     projectType: creative.project_type ?? "",
     adText: creative.ad_text ?? "",
     headline: creative.headline ?? "",
-    headlineVariants: cleanTextList(creative.headline_variants ?? []).filter((text) => text !== (creative.headline ?? "").trim()),
-    adTextVariants: cleanTextList(creative.ad_text_variants ?? []).filter((text) => text !== (creative.ad_text ?? "").trim()),
+    headlineVariants: cleanTextSequence(creative.headline_variants ?? []),
+    adTextVariants: cleanTextSequence(creative.ad_text_variants ?? []),
     ctaType,
-    ctaTypeVariants: cleanCtaTypeList(creative.cta_type_variants ?? []).filter((type) => type !== ctaType),
+    ctaTypeVariants: normalizeCtaTypeSequence(creative.cta_type_variants ?? []),
     ctaLink: creative.cta_link ?? "",
     audience: creative.audience ?? "",
     location: creative.location ?? ""
@@ -1270,12 +1277,13 @@ function CtaStack({
   onVariantsChange: (values: string[]) => void;
 }) {
   const normalizedPrimary = normalizeCtaType(primary);
-  const addable = ctaTypes.find((type) => type !== normalizedPrimary && !variants.includes(type)) ?? ctaTypes.find((type) => type !== normalizedPrimary);
+  const normalizedVariants = normalizeCtaTypeSequence(variants);
+  const addable = normalizedPrimary;
   const updateVariant = (index: number, value: string) => {
-    onVariantsChange(cleanCtaTypeList(variants.map((item, itemIndex) => (itemIndex === index ? value : item))).filter((type) => type !== normalizedPrimary));
+    onVariantsChange(normalizeCtaTypeSequence(normalizedVariants.map((item, itemIndex) => (itemIndex === index ? value : item))));
   };
   const removeVariant = (index: number) => {
-    onVariantsChange(variants.filter((_, itemIndex) => itemIndex !== index));
+    onVariantsChange(normalizedVariants.filter((_, itemIndex) => itemIndex !== index));
   };
 
   return (
@@ -1285,7 +1293,7 @@ function CtaStack({
         <button
           type="button"
           className="secondaryButton compact"
-          onClick={() => addable && onVariantsChange(cleanCtaTypeList([...variants, addable]).filter((type) => type !== normalizedPrimary))}
+          onClick={() => onVariantsChange(normalizeCtaTypeSequence([...normalizedVariants, addable]))}
           disabled={disabled || !addable}
         >
           <Plus size={14} />
@@ -1303,17 +1311,15 @@ function CtaStack({
             ))}
           </select>
         </label>
-        {variants.map((value, index) => (
+        {normalizedVariants.map((value, index) => (
           <label className="fieldGroup copyFieldItem removableCopyField" key={`cta-${index}`}>
             <span>CTA {index + 2}</span>
             <select value={value} onChange={(event) => updateVariant(index, event.target.value)} disabled={disabled}>
-              {ctaTypes
-                .filter((type) => type !== normalizedPrimary)
-                .map((type) => (
-                  <option key={type} value={type}>
-                    {formatCtaTypeLabel(type)}
-                  </option>
-                ))}
+              {ctaTypes.map((type) => (
+                <option key={type} value={type}>
+                  {formatCtaTypeLabel(type)}
+                </option>
+              ))}
             </select>
             <button type="button" className="iconButton copyFieldRemove" onClick={() => removeVariant(index)} aria-label={`Remove CTA ${index + 2}`} disabled={disabled}>
               <Trash2 size={15} />
@@ -1435,10 +1441,10 @@ function ConfirmModal({
       projectType: draft.projectType.trim() || null,
       adText: draft.adText.trim() || null,
       headline: draft.headline.trim() || null,
-      headlineVariants: cleanTextList(draft.headlineVariants).filter((text) => text !== draft.headline.trim()),
-      adTextVariants: cleanTextList(draft.adTextVariants).filter((text) => text !== draft.adText.trim()),
+      headlineVariants: cleanTextSequence(draft.headlineVariants),
+      adTextVariants: cleanTextSequence(draft.adTextVariants),
       ctaType,
-      ctaTypeVariants: cleanCtaTypeList(draft.ctaTypeVariants).filter((type) => type !== ctaType),
+      ctaTypeVariants: normalizeCtaTypeSequence(draft.ctaTypeVariants),
       ctaLink: draft.ctaLink.trim() || null,
       campaignId: campaignId || null,
       campaignName: campaignId ? selectedCampaign?.name ?? creative.campaign_name ?? null : null,
@@ -1474,10 +1480,10 @@ function ConfirmModal({
       projectType: draft.projectType.trim(),
       adText: draft.adText.trim(),
       headline: draft.headline.trim() || null,
-      headlineVariants: cleanTextList(draft.headlineVariants).filter((text) => text !== draft.headline.trim()),
-      adTextVariants: cleanTextList(draft.adTextVariants).filter((text) => text !== draft.adText.trim()),
+      headlineVariants: cleanTextSequence(draft.headlineVariants),
+      adTextVariants: cleanTextSequence(draft.adTextVariants),
       ctaType: normalizeCtaType(draft.ctaType),
-      ctaTypeVariants: cleanCtaTypeList(draft.ctaTypeVariants).filter((type) => type !== normalizeCtaType(draft.ctaType)),
+      ctaTypeVariants: normalizeCtaTypeSequence(draft.ctaTypeVariants),
       ctaLink: draft.ctaLink.trim()
     });
   }
@@ -1502,8 +1508,8 @@ function ConfirmModal({
         const hasExistingCopy = Boolean(
           current.adText.trim() ||
             current.headline.trim() ||
-            cleanTextList(current.adTextVariants).length ||
-            cleanTextList(current.headlineVariants).length
+            cleanTextSequence(current.adTextVariants).length ||
+            cleanTextSequence(current.headlineVariants).length
         );
         const text = mergeGeneratedTextVariation(current.adText, current.adTextVariants, generatedText);
         const headline = mergeGeneratedTextVariation(current.headline, current.headlineVariants, generatedHeadline);
@@ -1609,8 +1615,8 @@ function ConfirmModal({
               <div>
                 <span>AI copy</span>
                 <strong>
-                  {1 + cleanTextList(draft.adTextVariants).length} text · {1 + cleanTextList(draft.headlineVariants).length} title ·{" "}
-                  {1 + cleanCtaTypeList(draft.ctaTypeVariants).length} CTA
+                  {1 + cleanTextSequence(draft.adTextVariants).length} text · {1 + cleanTextSequence(draft.headlineVariants).length} title ·{" "}
+                  {1 + normalizeCtaTypeSequence(draft.ctaTypeVariants).length} CTA
                 </strong>
               </div>
               <button type="button" className="primaryButton generateCopyButton" onClick={() => void generateCopy()} disabled={busy}>
@@ -1653,7 +1659,7 @@ function ConfirmModal({
                 setDraft((current) => ({
                   ...current,
                   ctaType: nextCtaType,
-                  ctaTypeVariants: cleanCtaTypeList(current.ctaTypeVariants).filter((type) => type !== nextCtaType)
+                  ctaTypeVariants: normalizeCtaTypeSequence(current.ctaTypeVariants)
                 }));
                 setPlacementError(null);
               }}
@@ -1731,9 +1737,9 @@ function CreativeRow({
   const setupReady = hasCampaign && hasAdSet;
   const campaignLabel = displayCampaignName(creative, campaignNamesById);
   const adSetLabel = displayAdSetName(creative, adSetNamesById);
-  const textCount = 1 + cleanTextList(creative.ad_text_variants ?? []).length;
-  const titleCount = 1 + cleanTextList(creative.headline_variants ?? []).length;
-  const ctaCount = 1 + cleanCtaTypeList(creative.cta_type_variants ?? []).length;
+  const textCount = 1 + cleanTextSequence(creative.ad_text_variants ?? []).length;
+  const titleCount = 1 + cleanTextSequence(creative.headline_variants ?? []).length;
+  const ctaCount = 1 + normalizeCtaTypeSequence(creative.cta_type_variants ?? []).length;
 
   return (
     <article className="creativeRow">

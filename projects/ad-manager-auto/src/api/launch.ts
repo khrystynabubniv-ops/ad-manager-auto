@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { requireAuth } from "../middleware/auth.js";
 import { launchCreative } from "../services/pipeline.js";
-import { cleanCtaTypeList, cleanTextList, normalizeCtaType } from "../shared/creativeCopy.js";
+import { cleanTextSequence, normalizeCtaType, normalizeCtaTypeSequence } from "../shared/creativeCopy.js";
 import { AppError } from "../utils/errors.js";
 
 export const launchRouter = Router();
@@ -25,10 +25,10 @@ launchRouter.post("/:id", requireAuth, async (req, res, next) => {
         projectType: stringField("projectType"),
         adText: stringField("adText"),
         headline: stringField("headline"),
-        headlineVariants: Array.isArray(body.headlineVariants) ? cleanTextList(body.headlineVariants) : undefined,
-        adTextVariants: Array.isArray(body.adTextVariants) ? cleanTextList(body.adTextVariants) : undefined,
+        headlineVariants: Array.isArray(body.headlineVariants) ? cleanTextSequence(body.headlineVariants) : undefined,
+        adTextVariants: Array.isArray(body.adTextVariants) ? cleanTextSequence(body.adTextVariants) : undefined,
         ctaType,
-        ctaTypeVariants: Array.isArray(body.ctaTypeVariants) ? cleanCtaTypeList(body.ctaTypeVariants) : undefined,
+        ctaTypeVariants: Array.isArray(body.ctaTypeVariants) ? normalizeCtaTypeSequence(body.ctaTypeVariants) : undefined,
         ctaLink: stringField("ctaLink"),
         audience: stringField("audience"),
         location: stringField("location")

@@ -44,6 +44,23 @@ export function cleanTextList(values: unknown, maxItems = 8): string[] {
   return cleaned;
 }
 
+export function cleanTextSequence(values: unknown, maxItems = 8): string[] {
+  if (!Array.isArray(values)) {
+    return [];
+  }
+
+  const cleaned: string[] = [];
+  for (const value of values) {
+    if (typeof value !== "string") continue;
+    const text = value.trim();
+    if (!text) continue;
+    cleaned.push(text);
+    if (cleaned.length >= maxItems) break;
+  }
+
+  return cleaned;
+}
+
 export function normalizeCtaType(value?: string | null): CtaType {
   const normalized = value?.trim().toUpperCase();
   return normalized && isCtaType(normalized) ? normalized : DEFAULT_CTA_TYPE;
@@ -58,6 +75,23 @@ export function cleanCtaTypeList(values: unknown, maxItems = 5): CtaType[] {
     if (!isCtaType(normalized) || seen.has(normalized)) continue;
     seen.add(normalized);
     cleaned.push(normalized);
+  }
+
+  return cleaned;
+}
+
+export function normalizeCtaTypeSequence(values: unknown, maxItems = 8): CtaType[] {
+  if (!Array.isArray(values)) {
+    return [];
+  }
+
+  const cleaned: CtaType[] = [];
+  for (const value of values) {
+    if (typeof value !== "string") continue;
+    const normalized = value.trim().toUpperCase();
+    if (!isCtaType(normalized)) continue;
+    cleaned.push(normalized);
+    if (cleaned.length >= maxItems) break;
   }
 
   return cleaned;
