@@ -307,7 +307,7 @@ export type LaunchPlacement = {
 };
 
 export type LaunchRequest = LaunchPlacement & {
-  projectType: string;
+  projectType?: string;
   adText: string;
   headline?: string | null;
   headlineVariants?: string[];

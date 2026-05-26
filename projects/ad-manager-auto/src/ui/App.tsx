@@ -1166,10 +1166,8 @@ function displayAdSetName(creative: Creative, adSetNamesById?: ReadonlyMap<strin
 
 function missingLaunchDetails(creative: Creative): string[] {
   return [
-    creative.project_type?.trim() ? undefined : "project type",
     creative.ad_text?.trim() ? undefined : "text",
     creative.headline?.trim() ? undefined : "title",
-    creative.cta_type?.trim() ? undefined : "CTA",
     creative.cta_link?.trim() ? undefined : "ad link"
   ].filter((item): item is string => Boolean(item));
 }
@@ -1591,10 +1589,8 @@ function ConfirmModal({
   const placementReady = Boolean(campaignId && adSetId);
   const busy = loading || saving || generatingCopy;
   const detailsReady = Boolean(
-    draft.projectType.trim() &&
-      draft.adText.trim() &&
+    draft.adText.trim() &&
       draft.headline.trim() &&
-      draft.ctaType.trim() &&
       draft.ctaLink.trim()
   );
 
@@ -1626,7 +1622,7 @@ function ConfirmModal({
     if (!onConfirm) return;
 
     if (!detailsReady) {
-      setPlacementError("Fill in project type, text, title, CTA, and CTA link before launch.");
+      setPlacementError("Fill in text, title, and ad link before launch.");
       return;
     }
 
@@ -1700,7 +1696,7 @@ function ConfirmModal({
 
   useEffect(() => {
     if (autoGenerateCreativeIdRef.current === creative.id || generatingCopy) return;
-    if (!draft.ctaLink.trim() || draft.adText.trim()) return;
+    if (draft.adText.trim()) return;
 
     autoGenerateCreativeIdRef.current = creative.id;
     void generateCopy(true);
@@ -1717,7 +1713,7 @@ function ConfirmModal({
               aria-label="Project type"
               value={draft.projectType}
               onChange={(event) => updateDraft("projectType", event.target.value)}
-              placeholder="Project type"
+              placeholder="Project type (optional)"
               disabled={busy}
             />
           </div>
@@ -1833,7 +1829,7 @@ function ConfirmModal({
               disabled={busy}
             />
             <label className="fieldGroup">
-              <span>CTA link</span>
+              <span>Ad link</span>
               <input
                 type="url"
                 value={draft.ctaLink}
@@ -2797,7 +2793,7 @@ function AdDraftEditor({
                 </select>
               </label>
               <label className="fieldGroup">
-                <span>CTA link</span>
+                <span>Ad link</span>
                 <input type="url" value={draft.ctaLink} onChange={(event) => update("ctaLink", event.target.value)} disabled={saving} />
               </label>
               <label className="fieldGroup">
@@ -3640,7 +3636,7 @@ function AddCreativeModal({
                 />
               </label>
               <label className="fieldGroup">
-                <span>CTA link</span>
+                <span>Ad link</span>
                 <input
                   type="url"
                   value={uploadDraft.ctaLink}

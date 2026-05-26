@@ -6,11 +6,10 @@ Automation for this flow:
 Notion Activities task
 → Design Status = Approved for Ad
 → Ad Status = Approved for Ad
-→ user adds Ad link + Project Type
 → Ad Status = Ready to Upload
 → Google Drive creative download
 → Facebook image/video asset upload + first copy set generation
-→ Dashboard review
+→ Dashboard review + Ad link
 → Launch paused ad in Meta
 → Notion + PostgreSQL updated
 ```
@@ -19,9 +18,9 @@ Notion Activities task
 
 1. Designer finishes the creative in Notion and sets `Design Status = Approved for Ad`.
 2. The service copies `Final project` to `Google Drive Link` when needed and sets `Ad Status = Approved for Ad`.
-3. PR/marketing adds the ad link, chooses `Project Type`, and sets `Ad Status = Ready to Upload`.
+3. PR/marketing sets `Ad Status = Ready to Upload`.
 4. This service uploads every creative from the Drive file/folder to Meta, generates one initial text/title/CTA set, and sets `Ad Status = Ready to Launch`.
-5. PR/marketing opens `/dashboard`, reviews or edits copy, optionally generates more variants, chooses the Meta Campaign + AdSet for one or many creatives, and clicks `Launch`.
+5. PR/marketing opens `/dashboard`, reviews or edits copy, adds the Ad link, optionally generates more variants, chooses the Meta Campaign + AdSet for one or many creatives, and clicks `Launch`.
 6. This service creates paused Meta ads with the selected campaign/ad set and sets `Ad Status = Launched`.
 
 Ready creatives can now store multiple primary text variants and multiple Meta CTA button types. A single text/CTA still launches through the original `object_story_spec` path; multiple variants launch through Meta `asset_feed_spec`.
@@ -34,8 +33,8 @@ The service expects these fields in `Activities`:
 - `Ad Status`
 - `Final project`
 - `Google Drive Link`
-- `CTA Link`
-- `Project Type`
+- `Ad link` / `CTA Link` (optional in Notion; required before launch)
+- `Project Type` (optional; used only as launch naming/context)
 - `Facebook Asset ID`
 - `Facebook Asset Type`
 - `Facebook Ad ID`

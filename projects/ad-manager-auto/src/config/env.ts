@@ -23,7 +23,7 @@ const envSchema = z.object({
   WEBHOOK_SHARED_SECRET: z.string().optional(),
 
   NOTION_PROP_AD_STATUS: z.string().default("Ad Status"),
-  NOTION_PROP_CTA_LINK: z.string().default("CTA Link"),
+  NOTION_PROP_CTA_LINK: z.string().default("Ad link"),
   NOTION_PROP_GOOGLE_DRIVE_LINK: z.string().default("Google Drive Link"),
   NOTION_PROP_FINAL_PROJECT: z.string().default("Final project"),
   NOTION_PROP_DESIGN_STATUS: z.string().default("Design Status"),

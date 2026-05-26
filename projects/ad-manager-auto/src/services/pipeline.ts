@@ -83,9 +83,7 @@ export function extractPageIdFromWebhook(payload: any): string | undefined {
 
 function requiredFields(fields: NotionCreativeFields): Record<string, string | undefined> {
   return {
-    "Google Drive Link": fields.googleDriveLink ?? fields.finalProject,
-    "CTA Link": fields.ctaLink,
-    "Project Type": fields.projectType
+    "Google Drive Link": fields.googleDriveLink ?? fields.finalProject
   };
 }
 
@@ -669,7 +667,7 @@ export async function launchCreative(id: number, placementInput?: LaunchPlacemen
     throw new Error(`Creative ${id} is missing Meta campaign/ad set selection`);
   }
 
-  const projectType = launchInput.projectType ?? cleanText(creative.project_type);
+  const projectType = launchInput.projectType ?? cleanText(creative.project_type) ?? "creative";
   const adText = launchInput.adText ?? cleanText(creative.ad_text);
   const headline = launchInput.headline ?? cleanText(creative.headline);
   const headlineVariants = launchInput.headlineVariants ?? creative.headline_variants ?? [];
@@ -679,11 +677,11 @@ export async function launchCreative(id: number, placementInput?: LaunchPlacemen
   const ctaLink = launchInput.ctaLink ?? cleanText(creative.cta_link);
   const audience = launchInput.audience ?? cleanText(creative.audience);
   const location = launchInput.location ?? cleanText(creative.location);
-  if (!projectType || !adText || !ctaLink) {
+  if (!adText || !ctaLink) {
     throw new Error(`Creative ${id} is missing required launch fields`);
   }
   if (!isHttpUrl(ctaLink)) {
-    throw new Error(`Creative ${id} CTA link must be a valid http(s) URL`);
+    throw new Error(`Creative ${id} ad link must be a valid http(s) URL`);
   }
 
   creative = await refreshMockLaunchAsset(creative, requestId);
