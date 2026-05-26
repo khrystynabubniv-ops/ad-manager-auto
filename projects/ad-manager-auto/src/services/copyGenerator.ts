@@ -62,20 +62,20 @@ const copySchema = {
   properties: {
     bodies: {
       type: "array",
-      minItems: 3,
-      maxItems: 6,
+      minItems: 1,
+      maxItems: 1,
       items: { type: "string" }
     },
     titles: {
       type: "array",
-      minItems: 3,
-      maxItems: 6,
+      minItems: 1,
+      maxItems: 1,
       items: { type: "string" }
     },
     call_to_action_types: {
       type: "array",
       minItems: 1,
-      maxItems: 3,
+      maxItems: 1,
       items: {
         type: "string",
         enum: ["APPLY_NOW", "LEARN_MORE", "VIEW_INSTAGRAM_PROFILE"]
@@ -271,15 +271,15 @@ function buildPrompt(input: CopyGenerationInput, vacancy?: { url: string; title?
   return `You are an expert Meta Ads copywriter for Universe — це ко-фаундингова IT-компанія, що вже понад 8 років створює та виводить tech-бізнеси на глобальний рівень, користувачами яких є понад 400 млн користувачів у 186 країнах світу.
 Також Universe будує нові tech-бізнеси з нуля до глобального рівня та шукає ко-фаундерів для їх запуску.
 
-Your task: generate several strong ad copy options for one Meta ad creative.
-Important context: one destination can have 4-8 different creative assets. Each creative still needs multiple bodies, titles, and CTA button options so Meta can combine variants.
+Your task: generate one complete ad copy variation for one Meta ad creative.
+Important context: one button click must create exactly one body text, one title, and one CTA button type.
 
 ## Step 1 — Understand the destination
 The CTA URL is: ${input.ctaLink ?? input.creative.cta_link ?? "not provided"}
 ${vacancy ? "The backend fetched the destination page. Extract the relevant offer, role, event, requirements, benefits, seniority level, team/product, or registration details from it." : "The backend could not fetch readable destination page content. Infer the best copy from the current creative context, project type, CTA URL, and existing copy."}
 
 ## Step 2 — Generate body text options
-Generate 3-6 body texts for this creative.
+Generate exactly 1 body text for this creative.
 Reuse or adapt the historical body texts when they fit the destination.
 If none fits well, write NEW body texts in the same style and tone as the examples.
 
@@ -287,7 +287,7 @@ If none fits well, write NEW body texts in the same style and tone as the exampl
 ${historicalBodyTexts.map((text, index) => `${index + 1}. ${text}`).join("\n\n")}
 
 ## Step 3 — Generate title options
-Generate 3-6 title options.
+Generate exactly 1 title option.
 Use historical titles when they fit, or write new ones.
 Each title must be max 5 words.
 
@@ -299,14 +299,14 @@ Rules:
 - Use APPLY_NOW for all job vacancies and internships
 - Use LEARN_MORE for events, announcements, or general content
 - Use VIEW_INSTAGRAM_PROFILE only if the link leads to Instagram
-Return 1-3 CTA types and mark the best one as primary_call_to_action_type.
+Return exactly 1 CTA type and use the same value as primary_call_to_action_type.
 
 ## Step 5 — Return JSON only
 Return ONLY a valid JSON object, no explanation, no markdown:
 
 {
-  "bodies": ["body text option 1", "body text option 2", "body text option 3"],
-  "titles": ["title option 1", "title option 2", "title option 3"],
+  "bodies": ["body text option 1"],
+  "titles": ["title option 1"],
   "call_to_action_types": ["APPLY_NOW"],
   "primary_call_to_action_type": "APPLY_NOW",
   "reasoning": "1 sentence explaining your choices"
@@ -417,15 +417,23 @@ function normalizeGeneratedCta(value: unknown): string | undefined {
   return normalized || undefined;
 }
 
+function cleanGeneratedTextList(values: unknown, maxItems: number): string[] {
+  if (typeof values === "string") {
+    const text = values.trim();
+    return text ? [text] : [];
+  }
+  return cleanTextList(values, maxItems);
+}
+
 function normalizeGeneratedCopy(value: unknown): GeneratedCopyJson {
   if (!value || typeof value !== "object") {
     throw new Error("Generated copy was not an object");
   }
 
   const record = value as Record<string, unknown>;
-  const bodies = cleanTextList(record.bodies ?? record.body_texts ?? record.texts, 6);
-  const titles = cleanTextList(record.titles ?? record.headlines, 6).map((title) => title.slice(0, 80));
-  const callToActionTypes = cleanTextList(record.call_to_action_types ?? record.cta_types ?? record.ctas, 3)
+  const bodies = cleanGeneratedTextList(record.bodies ?? record.body_texts ?? record.texts ?? record.body ?? record.text, 1);
+  const titles = cleanGeneratedTextList(record.titles ?? record.headlines ?? record.title ?? record.headline, 1).map((title) => title.slice(0, 80));
+  const callToActionTypes = cleanGeneratedTextList(record.call_to_action_types ?? record.cta_types ?? record.ctas, 1)
     .map(normalizeGeneratedCta)
     .filter((type): type is string => Boolean(type));
   const primaryCallToActionType =
@@ -539,10 +547,10 @@ export async function generateCreativeCopy(input: CopyGenerationInput): Promise<
   const parsed = await generateWithOpenRouter(buildMessages(input, vacancy));
 
   return {
-    adTextVariants: cleanTextList(parsed.bodies, 6),
+    adTextVariants: cleanTextList(parsed.bodies, 1),
     headline: cleanTextList(parsed.titles, 1)[0]?.slice(0, 80) || null,
-    headlineVariants: cleanTextList(parsed.titles, 6).slice(1).map((title) => title.slice(0, 80)),
-    ctaTypeVariants: normalizeCtaTypeList(normalizeCtaType(parsed.primary_call_to_action_type), parsed.call_to_action_types, 3),
+    headlineVariants: [],
+    ctaTypeVariants: normalizeCtaTypeList(normalizeCtaType(parsed.primary_call_to_action_type), parsed.call_to_action_types, 1),
     reasoning: parsed.reasoning?.trim() || null
   };
 }

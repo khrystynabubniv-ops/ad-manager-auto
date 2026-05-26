@@ -1452,38 +1452,20 @@ function ConfirmModal({
     try {
       const suggestions = await generateCreativeCopySuggestions(creative.id, savePayload());
       setDraft((current) => {
-        const generatedTexts = cleanTextList(suggestions.adTextVariants, 4);
-        const generatedText = generatedTexts[0] || "";
+        const generatedText = cleanTextList(suggestions.adTextVariants, 1)[0] || "";
         const primaryText = generatedText || current.adText.trim();
-        const nextTextVariants = cleanTextList([
-          ...current.adTextVariants,
-          ...(current.adText.trim() && generatedText && generatedText !== current.adText.trim() ? [current.adText.trim()] : []),
-          ...generatedTexts.slice(1)
-        ]).filter((text) => text !== primaryText);
-        const generatedHeadlines = cleanTextList([suggestions.headline ?? "", ...suggestions.headlineVariants], 6);
-        const generatedHeadline = generatedHeadlines[0] || "";
+        const generatedHeadline = cleanTextList([suggestions.headline ?? "", ...suggestions.headlineVariants], 1)[0] || "";
         const primaryHeadline = generatedHeadline || current.headline.trim();
-        const nextHeadlineVariants = cleanTextList([
-          ...current.headlineVariants,
-          ...(current.headline.trim() && generatedHeadline && generatedHeadline !== current.headline.trim() ? [current.headline.trim()] : []),
-          ...generatedHeadlines.slice(1)
-        ]).filter((title) => title !== primaryHeadline);
         const generatedCta = suggestions.ctaTypeVariants[0] ? normalizeCtaType(suggestions.ctaTypeVariants[0]) : normalizeCtaType(current.ctaType);
-        const previousCta = normalizeCtaType(current.ctaType);
-        const nextCtaVariants = cleanCtaTypeList([
-          ...current.ctaTypeVariants,
-          ...(generatedCta !== previousCta ? [previousCta] : []),
-          ...suggestions.ctaTypeVariants.slice(1)
-        ]).filter((type) => type !== generatedCta);
 
         return {
           ...current,
           adText: primaryText,
           headline: primaryHeadline,
-          headlineVariants: nextHeadlineVariants,
-          adTextVariants: nextTextVariants,
+          headlineVariants: [],
+          adTextVariants: [],
           ctaType: generatedCta,
-          ctaTypeVariants: nextCtaVariants
+          ctaTypeVariants: []
         };
       });
     } catch (error) {
