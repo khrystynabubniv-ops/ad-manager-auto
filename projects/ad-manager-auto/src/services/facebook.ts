@@ -3,6 +3,7 @@ import FormData from "form-data";
 import { env, requireEnv } from "../config/env.js";
 import { logger } from "../logger.js";
 import { AssetType, DownloadedDriveFile, FacebookAdSet, FacebookCampaign, FacebookTargetingLocation } from "../types.js";
+import { normalizeAssetFileName } from "../utils/assetNaming.js";
 import { stableHash } from "../utils/crypto.js";
 import { getErrorMessage } from "../utils/errors.js";
 import { detectAssetType } from "../utils/mime.js";
@@ -186,7 +187,9 @@ export async function uploadCreativeAsset(
   file: DownloadedDriveFile,
   requestId?: string
 ): Promise<FacebookAssetUploadResult> {
-  const assetType = detectAssetType(file.fileName, file.mimeType);
+  const uploadFileName = normalizeAssetFileName(file.fileName);
+  const uploadFile = uploadFileName === file.fileName ? file : { ...file, fileName: uploadFileName };
+  const assetType = detectAssetType(uploadFile.fileName, uploadFile.mimeType);
 
   if (env.MOCK_FACEBOOK) {
     const assetId = `mock_${assetType}_${stableHash(file.fileId)}`;
@@ -196,8 +199,8 @@ export async function uploadCreativeAsset(
 
   try {
     return assetType === "image"
-      ? await uploadImageAsset(file, requestId)
-      : await uploadVideoAsset(file, requestId);
+      ? await uploadImageAsset(uploadFile, requestId)
+      : await uploadVideoAsset(uploadFile, requestId);
   } catch (error) {
     throw new Error(`Facebook asset upload failed: ${facebookErrorMessage(error)}`);
   }

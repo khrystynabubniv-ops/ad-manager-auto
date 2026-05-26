@@ -4,7 +4,7 @@ import { logger } from "../logger.js";
 import { Creative, NotionCreativeFields } from "../types.js";
 import { getErrorMessage } from "../utils/errors.js";
 import { detectAssetType } from "../utils/mime.js";
-import { validateAssetFileName } from "../utils/assetNaming.js";
+import { normalizeAssetFileName, validateAssetFileName } from "../utils/assetNaming.js";
 import { normalizeAdTextList, normalizeCtaTypeList } from "../shared/creativeCopy.js";
 import { generateCreativeCopy } from "./copyGenerator.js";
 import { downloadDriveCreatives, downloadDriveFile, extractDriveSourceId } from "./googleDrive.js";
@@ -372,6 +372,8 @@ export async function uploadCreativeFromNotion(fields: NotionCreativeFields, req
 
     for (const file of files) {
       const assetType = detectAssetType(file.fileName, file.mimeType);
+      const uploadFileName = normalizeAssetFileName(file.fileName);
+      const uploadFile = uploadFileName === file.fileName ? file : { ...file, fileName: uploadFileName };
       const baseInput = {
         notionTaskId: fields.notionTaskId,
         notionTaskUrl: fields.notionTaskUrl,
@@ -382,9 +384,19 @@ export async function uploadCreativeFromNotion(fields: NotionCreativeFields, req
         googleDriveUrl: fields.googleDriveLink ?? fields.finalProject
       };
 
-      const namingError = validateAssetFileName(file.fileName, assetType);
+      if (uploadFileName !== file.fileName) {
+        logger.info(
+          { requestId, notionTaskId: fields.notionTaskId, fileName: file.fileName, uploadFileName },
+          "Normalized creative asset filename for upload"
+        );
+      }
+
+      const namingError = validateAssetFileName(uploadFile.fileName, assetType);
       if (namingError) {
-        const message = `${namingError}: ${file.fileName}`;
+        const message =
+          uploadFileName === file.fileName
+            ? `${namingError}: ${file.fileName}`
+            : `${namingError}: ${file.fileName} (normalized to ${uploadFileName})`;
         failedUploads.push({ fileName: file.fileName, message });
         const creative = await upsertCreative({
           ...baseInput,
@@ -398,7 +410,7 @@ export async function uploadCreativeFromNotion(fields: NotionCreativeFields, req
           action: "validate_asset_name",
           status: "failed",
           error: message,
-          metadata: { fileName: file.fileName }
+          metadata: { fileName: file.fileName, uploadFileName }
         });
         continue;
       }
@@ -410,7 +422,7 @@ export async function uploadCreativeFromNotion(fields: NotionCreativeFields, req
       });
 
       try {
-        const uploaded = await uploadCreativeAsset(file, requestId);
+        const uploaded = await uploadCreativeAsset(uploadFile, requestId);
         const uploadedCreative = await upsertCreative({
           ...baseInput,
           status: DB_STATUS.READY_TO_LAUNCH,
@@ -428,7 +440,7 @@ export async function uploadCreativeFromNotion(fields: NotionCreativeFields, req
           notionTaskId: fields.notionTaskId,
           action: "upload_completed",
           status: "success",
-          metadata: { assetId: uploaded.assetId, assetType: uploaded.assetType, fileName: file.fileName }
+          metadata: { assetId: uploaded.assetId, assetType: uploaded.assetType, fileName: file.fileName, uploadFileName }
         });
       } catch (error) {
         const message = getErrorMessage(error);
@@ -445,7 +457,7 @@ export async function uploadCreativeFromNotion(fields: NotionCreativeFields, req
           action: "upload_completed",
           status: "failed",
           error: message,
-          metadata: { fileName: file.fileName }
+          metadata: { fileName: file.fileName, uploadFileName }
         });
       }
     }

@@ -51,10 +51,10 @@ If your Notion field casing differs, override the `NOTION_PROP_*` variables.
 
 ## Asset Naming
 
-Creative asset filenames are validated before upload. Use lowercase latin letters, numbers, underscores, and `&` only:
+Creative asset filenames are normalized before upload. Spaces, uppercase letters, punctuation, and common copy suffixes like `-1` are converted into an upload-safe lowercase filename. Preferred source names use lowercase latin letters, numbers, underscores, and `&` only:
 
 ```text
-monYY_vacancy_business_concept_format_vN_size
+monYY_vacancy_[business_]concept_format_vN_size
 ```
 
 Examples:
@@ -64,7 +64,7 @@ jan26_data_engin_ga_con1_stat_v1_1x1
 jan26_data_engin_ga_con1_stat_v1_9x16
 ```
 
-Accepted business tokens: `ga`, `ug`, `wisey`, `forma`, `ruut`, `sg`/`s&g`.
+Accepted optional business tokens: `ga`, `ug`, `wisey`, `forma`, `ruut`, `sg`/`s&g`.
 Accepted formats: `stat` for images, `video` for videos.
 
 ## Local Setup
