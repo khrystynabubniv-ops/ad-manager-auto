@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { DB_STATUS } from "../config/statuses.js";
 import { requireAuth } from "../middleware/auth.js";
-import { getCreativeById, listCreatives, updateCreativeDetails, upsertCreative } from "../services/db.js";
+import { getCreativeById, listCreatives, updateCreativeDetails, updateCreativeStatus, upsertCreative } from "../services/db.js";
 import { generateCreativeCopy } from "../services/copyGenerator.js";
 import { getFacebookAdSet, uploadCreativeAsset } from "../services/facebook.js";
 import { cleanTextSequence, normalizeCtaType, normalizeCtaTypeSequence } from "../shared/creativeCopy.js";
@@ -139,6 +139,25 @@ creativesRouter.post("/:id/copy-suggestions", requireAuth, async (req, res, next
     });
 
     res.json({ suggestions });
+  } catch (error) {
+    next(error);
+  }
+});
+
+creativesRouter.post("/:id/archive", requireAuth, async (req, res, next) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id)) {
+      throw new AppError("Invalid creative id", { statusCode: 400, code: "INVALID_CREATIVE_ID" });
+    }
+
+    const existing = await getCreativeById(id);
+    if (!existing) {
+      throw new AppError(`Creative ${id} not found`, { statusCode: 404, code: "CREATIVE_NOT_FOUND" });
+    }
+
+    const creative = await updateCreativeStatus(id, DB_STATUS.CANCELED);
+    res.json({ creative });
   } catch (error) {
     next(error);
   }

@@ -4,6 +4,7 @@ export const DESIGN_STATUS = {
 
 export const AD_STATUS = {
   NOT_STARTED: "Not started",
+  APPROVED_FOR_AD: "Approved for Ad",
   NEEDS_DETAILS: "Needs Ad Details",
   READY_TO_UPLOAD: "Ready to Upload",
   UPLOADING: "Uploading",

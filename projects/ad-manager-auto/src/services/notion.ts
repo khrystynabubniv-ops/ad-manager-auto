@@ -9,16 +9,6 @@ type Properties = Record<string, any>;
 
 let notion: Client | undefined;
 
-const campaignPropertyAliases = [
-  "Campaign",
-  "Campaigns",
-  "Meta Campaign",
-  "Meta campaign",
-  "FB Campaign",
-  "FB campaign",
-  "Facebook campaign"
-];
-
 const campaignIdPropertyAliases = [
   "Campaign ID",
   "Campaign Id",
@@ -28,11 +18,6 @@ const campaignIdPropertyAliases = [
   "FB campaign ID",
   "Facebook campaign id",
   "Facebook Campaign Id"
-];
-
-const adTextPropertyAliases = [
-  "Ad text",
-  "Ad Text (опис оголошення)"
 ];
 
 const ctaLinkPropertyAliases = [
@@ -46,16 +31,6 @@ const googleDriveLinkPropertyAliases = [
   "Drive Link",
   "Drive URL",
   "Link на креативи"
-];
-
-const audiencePropertyAliases = [
-  "Adset Audience",
-  "Ad Set Audience"
-];
-
-const locationPropertyAliases = [
-  "Adset Location",
-  "Ad Set Location"
 ];
 
 const parentItemPropertyAliases = [
@@ -212,19 +187,6 @@ function relationPageIds(property: any): string[] {
   return property.relation.map((relation: any) => relation.id).filter(Boolean);
 }
 
-function relationName(property: any): string | undefined {
-  if (!property?.relation?.length) return undefined;
-  return property.relation[0].id;
-}
-
-function looksLikeNotionPageId(value?: string): boolean {
-  if (!value) return false;
-  return (
-    /^[0-9a-f]{32}$/i.test(value) ||
-    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)
-  );
-}
-
 function richText(value?: string) {
   return {
     rich_text: value
@@ -266,7 +228,6 @@ async function resolveAdPropertyNames(pageId: string) {
 
   return {
     adStatus: resolvePropertyName(p, notionPropertyNames.adStatus, ["Ad status"]),
-    adText: resolvePropertyName(p, notionPropertyNames.adText, adTextPropertyAliases),
     ctaLink: resolvePropertyName(p, notionPropertyNames.ctaLink, ctaLinkPropertyAliases),
     googleDriveLink: resolvePropertyName(p, notionPropertyNames.googleDriveLink, googleDriveLinkPropertyAliases),
     facebookAssetId: resolvePropertyName(p, notionPropertyNames.facebookAssetId),
@@ -292,18 +253,8 @@ export async function retrieveCreativePage(pageId: string): Promise<NotionCreati
 
 async function mapNotionPage(page: NotionPage & { properties: Properties; url?: string; id: string }): Promise<NotionCreativeFields> {
   const p = page.properties;
-  const campaignProperty = findProperty(p, notionPropertyNames.facebookCampaign, campaignPropertyAliases);
-  const campaignPageId = relationPageId(campaignProperty);
   const parentTaskId = relationPageId(findProperty(p, "Parent item", parentItemPropertyAliases));
   const subItemIds = relationPageIds(findProperty(p, "Sub-item", subItemPropertyAliases));
-  let campaignId = propertyToString(findProperty(p, notionPropertyNames.facebookCampaignId, campaignIdPropertyAliases));
-  let campaignName = propertyToString(campaignProperty) ?? relationName(campaignProperty);
-
-  if (campaignPageId && (!campaignId || !campaignName || campaignName === campaignPageId || looksLikeNotionPageId(campaignName))) {
-    const campaign = await retrieveCampaignPage(campaignPageId);
-    campaignId = campaignId || campaign.facebookCampaignId;
-    campaignName = campaign.name || campaignName;
-  }
 
   return {
     notionTaskId: page.id,
@@ -313,16 +264,10 @@ async function mapNotionPage(page: NotionPage & { properties: Properties; url?: 
     subItemIds,
     designStatus: propertyToString(findProperty(p, notionPropertyNames.designStatus)),
     adStatus: propertyToString(findProperty(p, notionPropertyNames.adStatus, ["Ad status"])),
-    adText: propertyToString(findProperty(p, notionPropertyNames.adText, adTextPropertyAliases)),
     ctaLink: propertyToString(findProperty(p, notionPropertyNames.ctaLink, ctaLinkPropertyAliases)),
     googleDriveLink: propertyToString(findProperty(p, notionPropertyNames.googleDriveLink, googleDriveLinkPropertyAliases)),
     finalProject: propertyToString(findProperty(p, notionPropertyNames.finalProject)),
     projectType: propertyToString(findProperty(p, notionPropertyNames.projectType)),
-    audience: propertyToString(findProperty(p, notionPropertyNames.audience, audiencePropertyAliases)),
-    location: propertyToString(findProperty(p, notionPropertyNames.location, locationPropertyAliases)),
-    facebookCampaignName: campaignName,
-    facebookCampaignId: campaignId,
-    facebookCampaignPageId: campaignPageId,
     facebookAssetId: propertyToString(findProperty(p, notionPropertyNames.facebookAssetId)),
     facebookAssetType: propertyToString(findProperty(p, notionPropertyNames.facebookAssetType)) as AssetType | undefined,
     facebookAdId: propertyToString(findProperty(p, notionPropertyNames.facebookAdId))
@@ -356,7 +301,7 @@ export async function updateAdPreparation(
   await getNotionClient().pages.update({
     page_id: pageId,
     properties: notionProperties({
-      [names.adStatus]: status(AD_STATUS.NEEDS_DETAILS),
+      [names.adStatus]: status(AD_STATUS.APPROVED_FOR_AD),
       ...(googleDriveLink ? { [names.googleDriveLink]: url(googleDriveLink) } : {}),
       [names.adLastSyncedAt]: date(new Date()),
       [names.adError]: richText(errorMessage)

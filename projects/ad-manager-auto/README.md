@@ -4,23 +4,25 @@ Automation for this flow:
 
 ```text
 Notion Activities task
+→ Design Status = Approved for Ad
+→ Ad Status = Approved for Ad
+→ user adds Ad link + Project Type
 → Ad Status = Ready to Upload
 → Google Drive creative download
-→ Facebook image/video asset upload
+→ Facebook image/video asset upload + first copy set generation
 → Dashboard review
-→ Launch ad in Meta
+→ Launch paused ad in Meta
 → Notion + PostgreSQL updated
 ```
 
 ## User Flow
 
 1. Designer finishes the creative in Notion and sets `Design Status = Approved for Ad`.
-2. Notion automation copies `Final project` to `Google Drive Link` and sets `Ad Status = Needs Ad Details`.
-3. PR/marketing fills ad fields in the `Ads` view.
-4. PR/marketing sets `Ad Status = Ready to Upload`.
-5. This service uploads the creative to Meta and sets `Ad Status = Ready to Launch`.
-6. PR/marketing opens `/dashboard`, reviews the ad, chooses the Meta Campaign + AdSet, and clicks `Launch`.
-7. This service creates the Meta ad and sets `Ad Status = Launched`.
+2. The service copies `Final project` to `Google Drive Link` when needed and sets `Ad Status = Approved for Ad`.
+3. PR/marketing adds the ad link, chooses `Project Type`, and sets `Ad Status = Ready to Upload`.
+4. This service uploads every creative from the Drive file/folder to Meta, generates one initial text/title/CTA set, and sets `Ad Status = Ready to Launch`.
+5. PR/marketing opens `/dashboard`, reviews or edits copy, optionally generates more variants, chooses the Meta Campaign + AdSet for one or many creatives, and clicks `Launch`.
+6. This service creates paused Meta ads with the selected campaign/ad set and sets `Ad Status = Launched`.
 
 Ready creatives can now store multiple primary text variants and multiple Meta CTA button types. A single text/CTA still launches through the original `object_story_spec` path; multiple variants launch through Meta `asset_feed_spec`.
 
@@ -32,13 +34,8 @@ The service expects these fields in `Activities`:
 - `Ad Status`
 - `Final project`
 - `Google Drive Link`
-- `Ad Text`
 - `CTA Link`
 - `Project Type`
-- `Audience`
-- `Location`
-- `Facebook Campaign` (optional prefill)
-- `Facebook Campaign ID` (optional prefill)
 - `Facebook Asset ID`
 - `Facebook Asset Type`
 - `Facebook Ad ID`
@@ -48,7 +45,7 @@ The service expects these fields in `Activities`:
 - `Ad Last Synced At`
 - `Ad Preview URL`
 
-`Facebook Campaign` can be a relation to the `Facebook Campaigns` database for prefill. The final launch selection happens in the dashboard and is sent to Meta by Campaign ID + AdSet ID.
+Copy, campaign, and ad set selection are handled in the dashboard. The final launch selection happens in the dashboard and is sent to Meta by Campaign ID + AdSet ID.
 
 If your Notion field casing differs, override the `NOTION_PROP_*` variables.
 
@@ -151,7 +148,7 @@ Recommended token permissions:
 - `ads_management`
 - sometimes `business_management`, depending on how the Business Manager is configured
 
-Campaigns are synced from Meta into the Notion `Facebook Campaigns` database through:
+Campaigns and ad sets are read live from Meta in the dashboard. If `NOTION_CAMPAIGNS_DATABASE_ID` is still configured, this optional endpoint also mirrors campaigns into Notion:
 
 ```text
 POST /api/campaigns/sync
@@ -161,7 +158,7 @@ Launch behavior:
 
 - The dashboard reads live Campaigns from Meta.
 - After a Campaign is selected, the dashboard reads that Campaign's existing AdSets from Meta.
-- Launch creates the ad in the selected AdSet ID. The backend validates that the selected AdSet belongs to the selected Campaign.
+- Launch creates the ad in the selected AdSet ID with paused status by default. The backend validates that the selected AdSet belongs to the selected Campaign.
 - Creating Campaigns/AdSets from scratch is intentionally left for a later iteration.
 
 ## AI Copy Generation

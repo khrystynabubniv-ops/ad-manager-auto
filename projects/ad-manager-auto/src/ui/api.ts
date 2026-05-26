@@ -405,6 +405,14 @@ export async function launchCreative(id: number, payload: LaunchRequest): Promis
   return response.creative;
 }
 
+export async function archiveCreative(id: number): Promise<Creative> {
+  const response = await apiFetch<{ creative: Creative }>(`/api/creatives/${id}/archive`, {
+    method: "POST",
+    body: JSON.stringify({})
+  });
+  return response.creative;
+}
+
 export async function updateCreative(id: number, payload: CreativeUpdateRequest): Promise<Creative> {
   const response = await apiFetch<{ creative: Creative }>(`/api/creatives/${id}`, {
     method: "PATCH",

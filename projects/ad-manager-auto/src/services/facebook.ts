@@ -572,7 +572,7 @@ export async function createAd(input: {
         name: input.name,
         adset_id: input.adSetId,
         creative: JSON.stringify({ creative_id: creative.id }),
-        status: env.FB_DEFAULT_AD_STATUS
+        status: "PAUSED"
       },
       input.requestId
     );

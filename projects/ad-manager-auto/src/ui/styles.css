@@ -2862,6 +2862,57 @@ button:disabled {
   gap: 10px;
 }
 
+.bulkActionBar {
+  margin: 0 0 12px;
+  display: grid;
+  grid-template-columns: auto minmax(180px, 1fr) minmax(180px, 1fr) auto;
+  gap: 10px;
+  align-items: end;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  padding: 12px;
+}
+
+.bulkSelectAll {
+  min-height: 32px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--fg-strong);
+  font-size: 13px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.bulkField {
+  min-width: 0;
+}
+
+.bulkActions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.dangerButton {
+  color: var(--err-text);
+  border-color: oklch(0.84 0.10 25);
+  background: var(--err-soft);
+}
+
+.dangerButton:hover {
+  background: oklch(0.94 0.05 25);
+}
+
+.bulkError {
+  grid-column: 1 / -1;
+  color: var(--err-text);
+  font-size: 12.5px;
+  line-height: 1.35;
+}
+
 .creativeRow {
   display: grid;
   grid-template-columns: 72px minmax(0, 1fr) minmax(220px, 280px);
@@ -2873,6 +2924,29 @@ button:disabled {
   background: var(--surface);
   box-shadow: none;
   transition: background 80ms ease, border-color 80ms ease;
+}
+
+.creativeRow.selectable {
+  grid-template-columns: 28px 72px minmax(0, 1fr) minmax(220px, 280px);
+}
+
+.creativeRow.selected {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.creativeSelect {
+  align-self: stretch;
+  display: grid;
+  place-items: start center;
+  padding-top: 4px;
+}
+
+.creativeSelect input,
+.bulkSelectAll input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent);
 }
 
 .creativeRow:hover {
@@ -3769,6 +3843,10 @@ button:disabled {
     grid-template-columns: 64px minmax(0, 1fr);
   }
 
+  .creativeRow.selectable {
+    grid-template-columns: 28px 64px minmax(0, 1fr);
+  }
+
   .creativeRow > .previewImage,
   .creativeRow > .previewFallback {
     width: 64px;
@@ -3782,6 +3860,19 @@ button:disabled {
     border-left: 0;
     border-top: 1px solid var(--border-soft);
     padding: 12px 0 0;
+  }
+
+  .creativeRow.selectable .creativeContext {
+    grid-column: 3;
+  }
+
+  .bulkActionBar {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+
+  .bulkSelectAll,
+  .bulkActions {
+    justify-content: flex-start;
   }
 }
 
@@ -3842,6 +3933,8 @@ button:disabled {
 
   .summaryBand,
   .creativeRow,
+  .creativeRow.selectable,
+  .bulkActionBar,
   .creativeMetaGrid,
   .campaignTableGrid,
   .formGrid.two,
@@ -3871,6 +3964,10 @@ button:disabled {
   .creativeContext {
     grid-column: auto;
     grid-template-columns: 1fr;
+  }
+
+  .creativeRow.selectable .creativeContext {
+    grid-column: auto;
   }
 
   .modalGrid .previewImage,

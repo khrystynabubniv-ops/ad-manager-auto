@@ -1,5 +1,6 @@
 import {
   AlertCircle,
+  Archive,
   ArrowLeft,
   Bell,
   Check,
@@ -32,10 +33,12 @@ import {
   Creative,
   CreativeListKind,
   CreativeUpdateRequest,
+  LaunchPlacement,
   LaunchRequest,
   MetaAdSet,
   MetaCampaign,
   MetaTargetingLocation,
+  archiveCreative,
   createAdDraft,
   createAdSetDraft,
   createCampaignDraft,
@@ -1148,7 +1151,6 @@ function displayCampaignName(creative: Creative, campaignNamesById?: ReadonlyMap
   return (
     lookupName ??
     readablePlacementName(creative.campaign_name, creative.campaign_id) ??
-    readablePlacementName(creative.project_type) ??
     (creative.campaign_id || creative.campaign_name ? "Selected campaign" : "Not selected")
   );
 }
@@ -1160,6 +1162,30 @@ function displayAdSetName(creative: Creative, adSetNamesById?: ReadonlyMap<strin
     readablePlacementName(creative.adset_name, creative.adset_id) ??
     (creative.adset_id || creative.adset_name ? "Selected ad set" : "Not selected")
   );
+}
+
+function missingLaunchDetails(creative: Creative): string[] {
+  return [
+    creative.project_type?.trim() ? undefined : "project type",
+    creative.ad_text?.trim() ? undefined : "text",
+    creative.headline?.trim() ? undefined : "title",
+    creative.cta_type?.trim() ? undefined : "CTA",
+    creative.cta_link?.trim() ? undefined : "ad link"
+  ].filter((item): item is string => Boolean(item));
+}
+
+function launchPayloadForCreative(creative: Creative, placement: LaunchPlacement): LaunchRequest {
+  return {
+    ...placement,
+    projectType: creative.project_type ?? "",
+    adText: creative.ad_text ?? "",
+    headline: creative.headline ?? "",
+    headlineVariants: cleanTextSequence(creative.headline_variants ?? []),
+    adTextVariants: cleanTextSequence(creative.ad_text_variants ?? []),
+    ctaType: normalizeCtaType(creative.cta_type),
+    ctaTypeVariants: normalizeCtaTypeSequence(creative.cta_type_variants ?? []),
+    ctaLink: creative.cta_link ?? ""
+  };
 }
 
 function errorNoticeBody(message: string) {
@@ -1327,6 +1353,143 @@ function CtaStack({
           </label>
         ))}
       </div>
+    </section>
+  );
+}
+
+function BulkActionBar({
+  selectedCount,
+  visibleCount,
+  allVisibleSelected,
+  campaigns,
+  busy,
+  onToggleAll,
+  onLaunch,
+  onArchive
+}: {
+  selectedCount: number;
+  visibleCount: number;
+  allVisibleSelected: boolean;
+  campaigns: MetaCampaign[];
+  busy: boolean;
+  onToggleAll: (checked: boolean) => void;
+  onLaunch: (placement: LaunchPlacement) => Promise<void> | void;
+  onArchive: () => Promise<void> | void;
+}) {
+  const [campaignId, setCampaignId] = useState("");
+  const [adSetId, setAdSetId] = useState("");
+  const [adSets, setAdSets] = useState<MetaAdSet[]>([]);
+  const [adSetsLoading, setAdSetsLoading] = useState(false);
+  const [placementError, setPlacementError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!campaignId) {
+      setAdSets([]);
+      setAdSetId("");
+      setPlacementError(null);
+      return;
+    }
+
+    let active = true;
+    setAdSetsLoading(true);
+    setPlacementError(null);
+
+    fetchAdSets(campaignId)
+      .then((items) => {
+        if (!active) return;
+        setAdSets(items);
+        setAdSetId((current) => (items.some((item) => item.id === current) ? current : ""));
+      })
+      .catch((error) => {
+        if (!active) return;
+        setPlacementError(error instanceof Error ? error.message : String(error));
+      })
+      .finally(() => {
+        if (active) setAdSetsLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [campaignId]);
+
+  const selectedCampaign = campaigns.find((campaign) => campaign.id === campaignId);
+  const selectedAdSet = adSets.find((adSet) => adSet.id === adSetId);
+  const placementReady = Boolean(campaignId && adSetId);
+
+  return (
+    <section className="bulkActionBar" aria-label="Selected creative actions">
+      <label className="bulkSelectAll">
+        <input
+          type="checkbox"
+          checked={allVisibleSelected}
+          onChange={(event) => onToggleAll(event.target.checked)}
+          disabled={busy || visibleCount === 0}
+        />
+        <span>{selectedCount} selected</span>
+      </label>
+
+      <label className="fieldGroup bulkField">
+        <span>Campaign</span>
+        <select
+          value={campaignId}
+          onChange={(event) => {
+            setCampaignId(event.target.value);
+            setAdSetId("");
+          }}
+          disabled={busy}
+        >
+          <option value="">Select campaign</option>
+          {campaigns.map((campaign) => (
+            <option key={campaign.id} value={campaign.id}>
+              {campaign.name} {campaign.status ? `(${campaign.status})` : ""}
+            </option>
+          ))}
+        </select>
+      </label>
+
+      <label className="fieldGroup bulkField">
+        <span>Ad set</span>
+        <select
+          value={adSetId}
+          onChange={(event) => setAdSetId(event.target.value)}
+          disabled={busy || adSetsLoading || !campaignId}
+        >
+          <option value="">
+            {!campaignId ? "Select campaign first" : adSetsLoading ? "Loading ad sets..." : "Select ad set"}
+          </option>
+          {adSets.map((adSet) => (
+            <option key={adSet.id} value={adSet.id}>
+              {adSet.name} {adSet.effective_status || adSet.status ? `(${adSet.effective_status ?? adSet.status})` : ""}
+            </option>
+          ))}
+        </select>
+      </label>
+
+      <div className="bulkActions">
+        <button
+          type="button"
+          className="primaryButton"
+          disabled={busy || adSetsLoading || !placementReady}
+          onClick={() =>
+            void onLaunch({
+              campaignId,
+              campaignName: selectedCampaign?.name,
+              adSetId,
+              adSetName: selectedAdSet?.name
+            })
+          }
+        >
+          {busy ? <Loader2 size={16} className="spin" /> : <Play size={16} />}
+          Launch
+        </button>
+        <button type="button" className="secondaryButton dangerButton" disabled={busy} onClick={() => void onArchive()}>
+          <Archive size={16} />
+          Archive
+        </button>
+      </div>
+
+      {placementError ? <div className="bulkError">{placementError}</div> : null}
     </section>
   );
 }
@@ -1722,12 +1885,18 @@ function CreativeRow({
   creative,
   onEdit,
   onLaunch,
+  selectable = false,
+  selected = false,
+  onSelectChange,
   campaignNamesById,
   adSetNamesById
 }: {
   creative: Creative;
   onEdit?: (creative: Creative) => void;
   onLaunch?: (creative: Creative) => void;
+  selectable?: boolean;
+  selected?: boolean;
+  onSelectChange?: (creativeId: number, checked: boolean) => void;
   campaignNamesById?: ReadonlyMap<string, string>;
   adSetNamesById?: ReadonlyMap<string, string>;
 }) {
@@ -1742,7 +1911,16 @@ function CreativeRow({
   const ctaCount = 1 + normalizeCtaTypeSequence(creative.cta_type_variants ?? []).length;
 
   return (
-    <article className="creativeRow">
+    <article className={["creativeRow", selectable ? "selectable" : "", selected ? "selected" : ""].filter(Boolean).join(" ")}>
+      {selectable ? (
+        <label className="creativeSelect" aria-label={`Select ${creativeName}`}>
+          <input
+            type="checkbox"
+            checked={selected}
+            onChange={(event) => onSelectChange?.(creative.id, event.target.checked)}
+          />
+        </label>
+      ) : null}
       <CreativePreview creative={creative} />
       <div className="creativeMain">
         <div className="creativeKicker">
@@ -1762,7 +1940,7 @@ function CreativeRow({
           <MetadataItem label="Texts" value={`${textCount} variant${textCount === 1 ? "" : "s"}`} />
           <MetadataItem label="Titles" value={`${titleCount} variant${titleCount === 1 ? "" : "s"}`} />
           <MetadataItem label="CTA" value={`${formatCtaTypeLabel(creative.cta_type)}${ctaCount > 1 ? ` +${ctaCount - 1}` : ""}`} />
-          <MetadataItem label="Audience" value={creative.audience} />
+          <MetadataItem label="Ad link" value={creative.cta_link ? "Added" : "Missing"} />
         </div>
       </div>
       <div className="creativeContext">
@@ -4020,6 +4198,8 @@ export function App() {
   const [editing, setEditing] = useState<Creative | null>(null);
   const [launching, setLaunching] = useState(false);
   const [savingCreative, setSavingCreative] = useState(false);
+  const [selectedCreativeIds, setSelectedCreativeIds] = useState<Set<number>>(() => new Set());
+  const [bulkAction, setBulkAction] = useState<"launch" | "archive" | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [query, setQuery] = useState("");
   const [campaigns, setCampaigns] = useState<MetaCampaign[]>([]);
@@ -4083,6 +4263,12 @@ export function App() {
       void load();
     }
   }, [load, ready, route.area]);
+
+  useEffect(() => {
+    if (route.area !== "creatives" || creativeView !== "ready") {
+      setSelectedCreativeIds(new Set());
+    }
+  }, [creativeView, route.area]);
 
   const loadCampaignNames = useCallback(async () => {
     try {
@@ -4175,8 +4361,24 @@ export function App() {
         .join(" ")
         .toLowerCase()
         .includes(search)
-    );
+      );
   }, [adSetNamesById, campaignNamesById, creatives, query]);
+
+  useEffect(() => {
+    setSelectedCreativeIds((current) => {
+      const availableIds = new Set(creatives.map((creative) => creative.id));
+      const next = new Set([...current].filter((id) => availableIds.has(id)));
+      return next.size === current.size ? current : next;
+    });
+  }, [creatives]);
+
+  const selectedCreatives = useMemo(
+    () => creatives.filter((creative) => selectedCreativeIds.has(creative.id)),
+    [creatives, selectedCreativeIds]
+  );
+  const allDisplayedSelected = Boolean(
+    displayedCreatives.length && displayedCreatives.every((creative) => selectedCreativeIds.has(creative.id))
+  );
 
   const counts = useMemo(
     () => ({
@@ -4199,6 +4401,82 @@ export function App() {
       setError(launchError instanceof Error ? launchError.message : String(launchError));
     } finally {
       setLaunching(false);
+    }
+  }
+
+  function toggleCreativeSelection(creativeId: number, checked: boolean) {
+    setSelectedCreativeIds((current) => {
+      const next = new Set(current);
+      if (checked) {
+        next.add(creativeId);
+      } else {
+        next.delete(creativeId);
+      }
+      return next;
+    });
+  }
+
+  function toggleAllDisplayed(checked: boolean) {
+    setSelectedCreativeIds((current) => {
+      const next = new Set(current);
+      for (const creative of displayedCreatives) {
+        if (checked) {
+          next.add(creative.id);
+        } else {
+          next.delete(creative.id);
+        }
+      }
+      return next;
+    });
+  }
+
+  async function handleBulkLaunch(placement: LaunchPlacement) {
+    if (!selectedCreatives.length) return;
+    const notReady = selectedCreatives
+      .map((creative) => {
+        const missing = missingLaunchDetails(creative);
+        return missing.length ? `${creative.source_file_name ?? `Creative ${creative.id}`}: ${missing.join(", ")}` : null;
+      })
+      .filter((item): item is string => Boolean(item));
+
+    if (notReady.length) {
+      setError(`Complete copy before launch: ${notReady.slice(0, 4).join("; ")}${notReady.length > 4 ? "..." : ""}`);
+      return;
+    }
+
+    setBulkAction("launch");
+    setError(null);
+    try {
+      for (const creative of selectedCreatives) {
+        await launchCreative(creative.id, launchPayloadForCreative(creative, placement));
+      }
+      const launchedCount = selectedCreatives.length;
+      setSelectedCreativeIds(new Set());
+      await load();
+      setError(`Launched ${launchedCount} creative${launchedCount === 1 ? "" : "s"}.`);
+    } catch (launchError) {
+      setError(launchError instanceof Error ? launchError.message : String(launchError));
+    } finally {
+      setBulkAction(null);
+    }
+  }
+
+  async function handleBulkArchive() {
+    if (!selectedCreatives.length) return;
+    setBulkAction("archive");
+    setError(null);
+    try {
+      for (const creative of selectedCreatives) {
+        await archiveCreative(creative.id);
+      }
+      const archivedCount = selectedCreatives.length;
+      setSelectedCreativeIds(new Set());
+      await load();
+      setError(`Archived ${archivedCount} creative${archivedCount === 1 ? "" : "s"}.`);
+    } catch (archiveError) {
+      setError(archiveError instanceof Error ? archiveError.message : String(archiveError));
+    } finally {
+      setBulkAction(null);
     }
   }
 
@@ -4406,10 +4684,23 @@ export function App() {
               </section>
 
               {error ? (
-                <div className={error.startsWith("Synced") || error.endsWith("saved.") ? "notice success" : "notice"}>
+                <div className={/^(Synced|Launched|Archived)/.test(error) || error.endsWith("saved.") ? "notice success" : "notice"}>
                   <AlertCircle size={18} />
                   {error}
                 </div>
+              ) : null}
+
+              {creativeView === "ready" && selectedCreativeIds.size ? (
+                <BulkActionBar
+                  selectedCount={selectedCreativeIds.size}
+                  visibleCount={displayedCreatives.length}
+                  allVisibleSelected={allDisplayedSelected}
+                  campaigns={campaigns}
+                  busy={Boolean(bulkAction)}
+                  onToggleAll={toggleAllDisplayed}
+                  onLaunch={handleBulkLaunch}
+                  onArchive={handleBulkArchive}
+                />
               ) : null}
 
               <section className="listPanel">
@@ -4429,6 +4720,9 @@ export function App() {
                       creative={creative}
                       onEdit={creativeView === "ready" ? setEditing : undefined}
                       onLaunch={creativeView === "ready" ? setSelected : undefined}
+                      selectable={creativeView === "ready"}
+                      selected={selectedCreativeIds.has(creative.id)}
+                      onSelectChange={toggleCreativeSelection}
                       campaignNamesById={campaignNamesById}
                       adSetNamesById={adSetNamesById}
                     />

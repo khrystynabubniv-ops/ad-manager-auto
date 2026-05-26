@@ -6,6 +6,7 @@ import { getErrorMessage } from "../utils/errors.js";
 import { detectAssetType } from "../utils/mime.js";
 import { validateAssetFileName } from "../utils/assetNaming.js";
 import { normalizeAdTextList, normalizeCtaTypeList } from "../shared/creativeCopy.js";
+import { generateCreativeCopy } from "./copyGenerator.js";
 import { downloadDriveCreatives, downloadDriveFile, extractDriveSourceId } from "./googleDrive.js";
 import { createAd, getFacebookAdSet, listFacebookCampaigns, uploadCreativeAsset } from "./facebook.js";
 import {
@@ -83,11 +84,8 @@ export function extractPageIdFromWebhook(payload: any): string | undefined {
 function requiredFields(fields: NotionCreativeFields): Record<string, string | undefined> {
   return {
     "Google Drive Link": fields.googleDriveLink ?? fields.finalProject,
-    "Ad Text": fields.adText,
     "CTA Link": fields.ctaLink,
-    "Project Type": fields.projectType,
-    Audience: fields.audience,
-    Location: fields.location
+    "Project Type": fields.projectType
   };
 }
 
@@ -117,6 +115,88 @@ function adName(fields: { notionTaskId: string; projectType?: string; sourceFile
     ? `_${fields.sourceFileName.replace(/\.[^.]+$/, "").replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 40)}`
     : "";
   return `${projectType}_${yearMonth}_${shortTaskId}${source}`;
+}
+
+function dbDate(value?: string | null): Date | undefined {
+  if (!value) return undefined;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? undefined : date;
+}
+
+async function generateInitialCopyForCreative(
+  creative: Creative,
+  baseInput: Omit<Parameters<typeof upsertCreative>[0], "status">,
+  requestId?: string
+): Promise<Creative> {
+  if (creative.ad_text?.trim() && creative.headline?.trim() && creative.cta_type?.trim()) {
+    return creative;
+  }
+
+  try {
+    const suggestions = await generateCreativeCopy({ creative });
+    const generatedAdText = suggestions.adTextVariants[0]?.trim();
+    const generatedHeadline = (suggestions.headline ?? suggestions.headlineVariants[0])?.trim();
+    const generatedCtaType = suggestions.ctaTypeVariants[0]?.trim();
+
+    if (!generatedAdText || !generatedHeadline) {
+      await recordEvent({
+        requestId,
+        creativeId: creative.id,
+        notionTaskId: creative.notion_task_id,
+        action: "generate_initial_copy",
+        status: "ignored",
+        metadata: { reason: "empty_generation" }
+      });
+      return creative;
+    }
+
+    const updated = await upsertCreative({
+      ...baseInput,
+      status: creative.status,
+      assetId: creative.asset_id ?? undefined,
+      assetType: creative.asset_type ?? undefined,
+      previewUrl: creative.preview_url ?? undefined,
+      uploadedAt: dbDate(creative.uploaded_at),
+      facebookAdId: creative.facebook_ad_id ?? undefined,
+      launchedAt: dbDate(creative.launched_at),
+      adText: generatedAdText,
+      headline: generatedHeadline,
+      headlineVariants: [],
+      adTextVariants: [],
+      ctaType: generatedCtaType || creative.cta_type,
+      ctaTypeVariants: []
+    });
+
+    await recordEvent({
+      requestId,
+      creativeId: updated.id,
+      notionTaskId: updated.notion_task_id,
+      action: "generate_initial_copy",
+      status: "success",
+      metadata: {
+        hasText: Boolean(generatedAdText),
+        hasHeadline: Boolean(generatedHeadline),
+        ctaType: generatedCtaType || creative.cta_type
+      }
+    });
+
+    return updated;
+  } catch (error) {
+    const message = getErrorMessage(error);
+    logger.warn(
+      { requestId, creativeId: creative.id, notionTaskId: creative.notion_task_id, error: message },
+      "Initial copy generation failed; leaving creative ready for manual review"
+    );
+    await recordEvent({
+      requestId,
+      creativeId: creative.id,
+      notionTaskId: creative.notion_task_id,
+      action: "generate_initial_copy",
+      status: "failed",
+      error: message
+    });
+    return creative;
+  }
 }
 
 async function processNotionCreativeFields(fields: NotionCreativeFields, requestId?: string) {
@@ -248,17 +328,7 @@ export async function uploadCreativeFromNotion(fields: NotionCreativeFields, req
     sourceFileId: fields.notionTaskId,
     sourceFileName: fields.name,
     status: missing.length ? DB_STATUS.NEEDS_DETAILS : DB_STATUS.UPLOADING,
-    adText: fields.adText,
-    headline: fields.headline,
-    headlineVariants: fields.headlineVariants,
-    adTextVariants: fields.adTextVariants,
-    ctaType: fields.ctaType,
-    ctaTypeVariants: fields.ctaTypeVariants,
     ctaLink: fields.ctaLink,
-    audience: fields.audience,
-    location: fields.location,
-    campaignId: fields.facebookCampaignId,
-    campaignName: fields.facebookCampaignName,
     projectType: fields.projectType,
     googleDriveUrl: fields.googleDriveLink ?? fields.finalProject
   });
@@ -307,17 +377,7 @@ export async function uploadCreativeFromNotion(fields: NotionCreativeFields, req
         notionTaskUrl: fields.notionTaskUrl,
         sourceFileId: file.fileId,
         sourceFileName: file.fileName,
-        adText: fields.adText,
-        headline: fields.headline,
-        headlineVariants: fields.headlineVariants,
-        adTextVariants: fields.adTextVariants,
-        ctaType: fields.ctaType,
-        ctaTypeVariants: fields.ctaTypeVariants,
         ctaLink: fields.ctaLink,
-        audience: fields.audience,
-        location: fields.location,
-        campaignId: fields.facebookCampaignId,
-        campaignName: fields.facebookCampaignName,
         projectType: fields.projectType,
         googleDriveUrl: fields.googleDriveLink ?? fields.finalProject
       };
@@ -351,7 +411,7 @@ export async function uploadCreativeFromNotion(fields: NotionCreativeFields, req
 
       try {
         const uploaded = await uploadCreativeAsset(file, requestId);
-        const updatedCreative = await upsertCreative({
+        const uploadedCreative = await upsertCreative({
           ...baseInput,
           status: DB_STATUS.READY_TO_LAUNCH,
           assetId: uploaded.assetId,
@@ -359,6 +419,7 @@ export async function uploadCreativeFromNotion(fields: NotionCreativeFields, req
           previewUrl: uploaded.previewUrl,
           uploadedAt: new Date()
         });
+        const updatedCreative = await generateInitialCopyForCreative(uploadedCreative, baseInput, requestId);
 
         uploadedCreatives.push(updatedCreative);
         await recordEvent({
@@ -437,17 +498,7 @@ export async function uploadCreativeFromNotion(fields: NotionCreativeFields, req
       sourceFileId: fields.notionTaskId,
       sourceFileName: fields.name,
       status: DB_STATUS.UPLOAD_FAILED,
-      adText: fields.adText,
-      headline: fields.headline,
-      headlineVariants: fields.headlineVariants,
-      adTextVariants: fields.adTextVariants,
-      ctaType: fields.ctaType,
-      ctaTypeVariants: fields.ctaTypeVariants,
       ctaLink: fields.ctaLink,
-      audience: fields.audience,
-      location: fields.location,
-      campaignId: fields.facebookCampaignId,
-      campaignName: fields.facebookCampaignName,
       projectType: fields.projectType,
       googleDriveUrl: fields.googleDriveLink ?? fields.finalProject
     });
