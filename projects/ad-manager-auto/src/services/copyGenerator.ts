@@ -60,34 +60,19 @@ const copySchema = {
   type: "object",
   additionalProperties: false,
   properties: {
-    bodies: {
-      type: "array",
-      minItems: 1,
-      maxItems: 1,
-      items: { type: "string" }
+    body: {
+      type: "string"
     },
-    titles: {
-      type: "array",
-      minItems: 1,
-      maxItems: 1,
-      items: { type: "string" }
+    title: {
+      type: "string"
     },
-    call_to_action_types: {
-      type: "array",
-      minItems: 1,
-      maxItems: 1,
-      items: {
-        type: "string",
-        enum: ["APPLY_NOW", "LEARN_MORE", "VIEW_INSTAGRAM_PROFILE"]
-      }
-    },
-    primary_call_to_action_type: {
+    call_to_action_type: {
       type: "string",
       enum: ["APPLY_NOW", "LEARN_MORE", "VIEW_INSTAGRAM_PROFILE"]
     },
     reasoning: { type: "string" }
   },
-  required: ["bodies", "titles", "call_to_action_types", "primary_call_to_action_type", "reasoning"]
+  required: ["body", "title", "call_to_action_type", "reasoning"]
 } as const;
 
 type GeneratedCopyJson = {
@@ -106,10 +91,12 @@ const historicalBodyTexts = [
 📌 Менторство від лідів напрямків маркетингу та креативу
 📌 Для кращих інтернів – можливість залишитись з нами для подальшого працевлаштування.
 
-Подавайся до 28 січня на стажування та ставай частиною нашого всесвіту 🪐`,
+Переходь на наступний рівень.`,
   "Запрошуємо тебе на івент «Маркетинг Спікізі», де топові маркетологи діляться досвідом у невимушеній атмосфері бару.",
   "Реєструйся на івент для маркетологів «Маркетинг Спікізі», де маркетологи наливатимуть інсайти за баром. Ця подія стане поєднанням неформальної атмосфери, корисного контенту та джерелом натхнення.",
-  "Мрієш про кар'єру в маркетингу, але досвіду немає? Тоді лови можливість та подавайся на стажування для креативних маркетологів від продуктової IT-компанії Universe Group. Подавайся до 28 січня на стажування та ставай частиною нашого всесвіту 🪐",
+  `Мрієш про кар'єру в маркетингу, але досвіду немає? Тоді лови можливість та подавайся на стажування для креативних маркетологів від продуктової IT-компанії Universe Group.
+
+Переходь на наступний рівень.`,
   "Мрієш працювати в EdTech ніші?",
   `Мрієш розпочати кар'єру в маркетингу? Не зволікай — подавайся на стажування для креативних маркетологів!
 
@@ -118,24 +105,39 @@ const historicalBodyTexts = [
 📌 Менторство від лідів напрямків маркетингу та креативу
 📌 Для кращих інтернів – можливість залишитись з нами для подальшого працевлаштування.
 
-Подавайся до 28 січня на стажування та ставай частиною нашого всесвіту 🪐`,
+Переходь на наступний рівень.`,
   `Шукаємо HR Business Partner, що тісно працюватиме з кількома командами Universe Group.
 
-Тобі до нас, якщо ти прагнеш:
-- Бути партнером/кою для співробітників, менеджерів та впливати на процеси компанії`,
+Тобі до нас, якщо прагнеш:
+- Бути партнером/кою для співробітників, менеджерів та впливати на процеси компанії.
+
+Твій наступний рівень в Universe.`,
   "Хочеш працювати в EdTech ніші?",
-  "Шукаємо Junior Marketing Specialist",
-  "Шукаємо Junior Digital Marketing Specialist",
-  "Мрієш стати Product Manager, але досвіду ще немає? Ми в Universe Group шукаємо Trainee Product Manager! Твій продуктовий майндсет і бажання розвиватися для нас важливіші за комерційний досвід 👩🏻‍🚀"
+  `Мрієш розпочати кар'єру в маркетингу? Не зволікай — подавайся на стажування для креативних маркетологів!
+
+Переходь на наступний рівень.`,
+  "Шукаємо Junior Marketing Specialist.",
+  "Мрієш про кар'єру в маркетингу, але досвіду немає? Тоді лови можливість стажування для креативних маркетологів 🤩 Гортай карусель і дізнавайся деталі!",
+  "Вакансія для Event Manager'a, який любить створювати події, що залишаються в серці ✨",
+  `Мрієш стати Product Manager, але досвіду ще немає? Ми в Universe Group шукаємо Trainee Product Manager! Твій продуктовий майндсет і бажання розвиватися для нас важливіші за комерційний досвід 👩🏻‍🚀
+
+Переходь на наступний рівень.`
 ];
+
+const historicalBodyTextUsageCounts = ["22x", "22x", "18x", "17x", "17x", "14x", "14x", "13x", "10x", "8x", "4x", "2x", "1x"];
 
 const historicalTitles = [
   "Відгукуйся на вакансію",
   "Подавайся на стажування",
-  "Подавайся до 28 січня",
   "Хочеш працювати в EdTech ніші?",
-  "Реєстуйся на івент для маркетологів",
-  "Universe Group"
+  "Реєстуйся на івент для маркетологів"
+];
+
+const preferredNewTitles = [
+  "Переходь на наступний рівень",
+  "Кидаєш собі виклик?",
+  "Твій наступний рівень — тут",
+  "[Role name] в Universe"
 ];
 
 const responseFormatSchema = {
@@ -268,54 +270,99 @@ async function fetchVacancy(url: string): Promise<{ url: string; title?: string;
 }
 
 function buildPrompt(input: CopyGenerationInput, vacancy?: { url: string; title?: string; text: string }) {
-  return `You are an expert Meta Ads copywriter for Universe — це ко-фаундингова IT-компанія, що вже понад 8 років створює та виводить tech-бізнеси на глобальний рівень, користувачами яких є понад 400 млн користувачів у 186 країнах світу.
-Також Universe будує нові tech-бізнеси з нуля до глобального рівня та шукає ко-фаундерів для їх запуску.
+  const vacancyUrl = input.ctaLink ?? input.creative.cta_link ?? "not provided";
 
-Your task: generate one complete ad copy variation for one Meta ad creative.
-Important context: one button click must create exactly one body text, one title, and one CTA button type.
+  return `You are an expert Meta Ads copywriter for Universe  — Universe — це ко-фаундингова IT-компанія, що вже понад 8 років створює та виводить tech-бізнеси на глобальний рівень, користувачами яких є понад 400 млн користувачів у 186 країнах світу.
+Також Universe будує нові tech-бізнеси з нуля до глобального рівня та шукає ко-фаундерів для їх запуску. (Guru Apps, Wisey, FORMA).
 
-## Step 1 — Understand the destination
-The CTA URL is: ${input.ctaLink ?? input.creative.cta_link ?? "not provided"}
-${vacancy ? "The backend fetched the destination page. Extract the relevant offer, role, event, requirements, benefits, seniority level, team/product, or registration details from it." : "The backend could not fetch readable destination page content. Infer the best copy from the current creative context, project type, CTA URL, and existing copy."}
+Your task: given a job vacancy URL, generate the best ad copy for a Meta ad creative that matches Universe Group's brand positioning and tone of voice.
 
-## Step 2 — Generate body text options
-Generate exactly 1 body text for this creative.
-Reuse or adapt the historical body texts when they fit the destination.
-If none fits well, write NEW body texts in the same style and tone as the examples.
+---
+
+## UNIVERSE BRAND POSITIONING & TONE OF VOICE
+
+**Brand idea: "Рівень: Universe"**
+The brand is built around the concept of "рівень" (level). Universe sets a high bar — not as a ceiling, but as a starting point that grows with every person and the company itself.
+
+**Core promise:** "Ми не обіцяємо, що буде легко. Ми обіцяємо, що з нами ти не залишишся тим самим."
+
+**Target audience:** People who are never satisfied with where they are. Challengers who compete with their past self, not others.
+
+**Communication principles — always follow these:**
+
+✅ DO:
+- Write like a human talking to another human — no corporate clichés
+- Be honest and direct — name difficulties, don't sugarcoat
+- Speak as equals — never talk down, never talk up
+- Compare the person to their past self (never to others)
+- Focus on personal challenge → team → business impact
+- Use the language of challenge, growth, movement: "виклик", "рівень", "зростання", "динаміка", "переходити далі"
+
+❌ DON'T:
+- Use corporate stamps: "запрошуємо долучитися", "комфортні умови", "молодий колектив", "маємо честь"
+- Promise easy starts: "комфортний старт", "плавне входження", "без стресу"
+- Compare to other companies: "кращі за ринок", "топові спеціалісти галузі"
+- Use cosmic metaphors or old slogans: "всесвіт", "ставай частиною нашого всесвіту 🪐" — these are discontinued
+- Use coaching clichés: "вийти з зони комфорту", "пересилити себе"
+- Use corporate IT perks as the main hook: "плюшки", "атмосфера", "друзі"
+- Sound arrogant or exclusive: "до нашого рівня дотягуються одиниці"
+
+**Approved CTA phrases (use to end body text or as title):**
+- Переходь на наступний рівень ← main slogan
+- Кидаєш собі виклик? Ми приймаємо
+- Твій наступний рівень в Universe
+- Переходь на рівень Universe
+- Рости далі в Universe
+- Рівень: Universe
+- Твій виклик — наш виклик
+
+**Forbidden words/phrases:** всесвіт, космос, ставай частиною нашого всесвіту, пересилити, зона комфорту, стабільність, атмосфера, плюшки, друзі, заохочуємо долучитися
+
+The TOV and forbidden words/phrases take priority over historical examples. Never return forbidden words or phrases, even if a historical example contains them.
+
+---
+
+## STEP 1 — Read the vacancy
+Fetch and read the content at this URL: ${vacancyUrl}
+Extract: job title, seniority level, key responsibilities, required skills, product/team context.
+
+## STEP 2 — Select or write the body text
+Choose the single most relevant body text from the historical examples below, OR write a NEW one if none fits well.
+
+If writing new: follow the TOV above. Structure: hook (challenge/question) → what the person will do/face → what they'll get (team, growth, impact) → end with one of the approved CTA phrases.
 
 ### Historical body texts (ordered by usage frequency):
-${historicalBodyTexts.map((text, index) => `${index + 1}. ${text}`).join("\n\n")}
 
-## Step 3 — Generate title options
-Generate exactly 1 title option.
-Use historical titles when they fit, or write new ones.
-Each title must be max 5 words.
+${historicalBodyTexts.map((text, index) => `${index + 1}. [${historicalBodyTextUsageCounts[index]}] ${text}`).join("\n\n")}
+
+## STEP 3 — Select the title
+Choose from the list below or write a new one (max 6 words, TOV-aligned).
 
 ### Historical titles:
 ${historicalTitles.map((title) => `- ${title}`).join("\n")}
 
-## Step 4 — Select CTA button options
-Rules:
-- Use APPLY_NOW for all job vacancies and internships
-- Use LEARN_MORE for events, announcements, or general content
-- Use VIEW_INSTAGRAM_PROFILE only if the link leads to Instagram
-Return exactly 1 CTA type and use the same value as primary_call_to_action_type.
+### Preferred new titles (aligned with TOV):
+${preferredNewTitles.map((title) => `- ${title}`).join("\n")}
 
-## Step 5 — Return JSON only
+## STEP 4 — Select the CTA button
+- APPLY_NOW — all job vacancies and internships
+- LEARN_MORE — events, announcements, general content
+- VIEW_INSTAGRAM_PROFILE — only if link leads to Instagram
+
+## STEP 5 — Return JSON only
 Return ONLY a valid JSON object, no explanation, no markdown:
 
 {
-  "bodies": ["body text option 1"],
-  "titles": ["title option 1"],
-  "call_to_action_types": ["APPLY_NOW"],
-  "primary_call_to_action_type": "APPLY_NOW",
-  "reasoning": "1 sentence explaining your choices"
+  "body": "selected or generated body text",
+  "title": "selected or generated title",
+  "call_to_action_type": "APPLY_NOW or LEARN_MORE or VIEW_INSTAGRAM_PROFILE",
+  "reasoning": "1 sentence explaining your choices and how they align with Universe TOV"
 }
 
 Current creative context JSON:
 ${JSON.stringify(compactContext(input), null, 2)}
 
-Fetched destination page:
+Fetched vacancy page:
 ${JSON.stringify(vacancy ?? null, null, 2)}`;
 }
 
@@ -337,7 +384,7 @@ function buildMessages(input: CopyGenerationInput, vacancy?: { url: string; titl
     {
       role: "system",
       content:
-        "You generate Universe Meta ads copy. Follow the user's prompt exactly and return only valid JSON matching the schema."
+        "You generate Universe Meta ads copy. Follow the user's prompt exactly and return only valid JSON with body, title, call_to_action_type, and reasoning."
     },
     {
       role: "user",
@@ -433,11 +480,16 @@ function normalizeGeneratedCopy(value: unknown): GeneratedCopyJson {
   const record = value as Record<string, unknown>;
   const bodies = cleanGeneratedTextList(record.bodies ?? record.body_texts ?? record.texts ?? record.body ?? record.text, 1);
   const titles = cleanGeneratedTextList(record.titles ?? record.headlines ?? record.title ?? record.headline, 1).map((title) => title.slice(0, 80));
-  const callToActionTypes = cleanGeneratedTextList(record.call_to_action_types ?? record.cta_types ?? record.ctas, 1)
+  const callToActionTypes = cleanGeneratedTextList(
+    record.call_to_action_types ?? record.call_to_action_type ?? record.cta_types ?? record.ctas,
+    1
+  )
     .map(normalizeGeneratedCta)
     .filter((type): type is string => Boolean(type));
   const primaryCallToActionType =
-    normalizeGeneratedCta(record.primary_call_to_action_type ?? record.primary_cta_type ?? record.cta_type) ??
+    normalizeGeneratedCta(
+      record.primary_call_to_action_type ?? record.call_to_action_type ?? record.primary_cta_type ?? record.cta_type
+    ) ??
     callToActionTypes[0] ??
     "LEARN_MORE";
   const reasoning = typeof record.reasoning === "string" ? record.reasoning : "";
