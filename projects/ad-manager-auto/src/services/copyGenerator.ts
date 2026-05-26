@@ -134,10 +134,12 @@ const historicalTitles = [
 ];
 
 const preferredNewTitles = [
-  "Переходь на наступний рівень",
-  "Кидаєш собі виклик?",
-  "Твій наступний рівень — тут",
-  "[Role name] в Universe"
+  "[Role name] в Universe",
+  "Шукаємо [Role name]",
+  "[Role name] для Universe",
+  "Відгукуйся на [Role name]",
+  "Роль для HR-партнера",
+  "Приєднуйся до команди"
 ];
 
 const responseFormatSchema = {
@@ -209,6 +211,24 @@ function compactContext(input: CopyGenerationInput) {
   };
 }
 
+function normalizedCopyKey(value?: string | null): string {
+  return (value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[ʼ’`]/g, "'")
+    .replace(/\s+/g, " ");
+}
+
+function textList(values?: string[] | null): string[] {
+  return Array.isArray(values) ? values.filter((value): value is string => typeof value === "string") : [];
+}
+
+function existingTitles(input: CopyGenerationInput): string[] {
+  const primaryTitle = input.headline ?? input.creative.headline;
+  const variants = input.headlineVariants ?? input.creative.headline_variants;
+  return cleanTextList([primaryTitle, ...textList(variants)], 20);
+}
+
 function isHttpUrl(value?: string | null): value is string {
   if (!value) return false;
   try {
@@ -269,14 +289,16 @@ async function fetchVacancy(url: string): Promise<{ url: string; title?: string;
   };
 }
 
-function buildPrompt(input: CopyGenerationInput, vacancy?: { url: string; title?: string; text: string }) {
+function buildPrompt(input: CopyGenerationInput, vacancy?: { url: string; title?: string; text: string }, retryNote?: string) {
   const vacancyUrl = input.ctaLink ?? input.creative.cta_link ?? "not provided";
+  const forbiddenTitles = existingTitles(input);
 
   return `You are an expert Meta Ads copywriter for Universe  — Universe — це ко-фаундингова IT-компанія, що вже понад 8 років створює та виводить tech-бізнеси на глобальний рівень, користувачами яких є понад 400 млн користувачів у 186 країнах світу.
 Також Universe будує нові tech-бізнеси з нуля до глобального рівня та шукає ко-фаундерів для їх запуску. (Guru Apps, Wisey, FORMA).
 
 Your task: given a job vacancy URL, generate the best ad copy for a Meta ad creative that matches Universe Group's brand positioning and tone of voice.
 Generate exactly one new variation per request. Do not repeat the existing primary text, title, or variants from the current creative context.
+${retryNote ? `\nIMPORTANT RETRY NOTE: ${retryNote}` : ""}
 
 ---
 
@@ -285,7 +307,7 @@ Generate exactly one new variation per request. Do not repeat the existing prima
 **Brand idea: "Рівень: Universe"**
 The brand is built around the concept of "рівень" (level). Universe sets a high bar — not as a ceiling, but as a starting point that grows with every person and the company itself.
 
-**Core promise:** "Ми не обіцяємо, що буде легко. Ми обіцяємо, що з нами ти не залишишся тим самим."
+**Voice direction:** Simple, clear, useful. The copy should sound like a real hiring post, not a manifesto.
 
 **Target audience:** People who are never satisfied with where they are. Challengers who compete with their past self, not others.
 
@@ -293,11 +315,11 @@ The brand is built around the concept of "рівень" (level). Universe sets a
 
 ✅ DO:
 - Write like a human talking to another human — no corporate clichés
-- Be honest and direct — name difficulties, don't sugarcoat
+- Be honest and direct, but calm and practical
 - Speak as equals — never talk down, never talk up
-- Compare the person to their past self (never to others)
-- Focus on personal challenge → team → business impact
-- Use the language of challenge, growth, movement: "виклик", "рівень", "зростання", "динаміка", "переходити далі"
+- Keep the body concise: 2-4 short sentences, max 450 characters
+- Use simple Ukrainian wording. Prefer concrete role/team details over big motivational claims
+- Focus on role → team → impact
 
 ❌ DON'T:
 - Use corporate stamps: "запрошуємо долучитися", "комфортні умови", "молодий колектив", "маємо честь"
@@ -307,17 +329,14 @@ The brand is built around the concept of "рівень" (level). Universe sets a
 - Use coaching clichés: "вийти з зони комфорту", "пересилити себе"
 - Use corporate IT perks as the main hook: "плюшки", "атмосфера", "друзі"
 - Sound arrogant or exclusive: "до нашого рівня дотягуються одиниці"
+- Overdramatize work. Do not write phrases like "Це не легко", "Буде складно", "ти станеш іншою версією себе", "роль, яку раніше не грав/ла", "не залишишся тим самим"
 
-**Approved CTA phrases (use to end body text or as title):**
-- Переходь на наступний рівень ← main slogan
-- Кидаєш собі виклик? Ми приймаємо
-- Твій наступний рівень в Universe
-- Переходь на рівень Universe
+**Optional CTA phrases (use sparingly, only if they fit naturally):**
+- Переходь на наступний рівень
 - Рости далі в Universe
-- Рівень: Universe
-- Твій виклик — наш виклик
+- Відгукуйся на вакансію
 
-**Forbidden words/phrases:** всесвіт, космос, ставай частиною нашого всесвіту, пересилити, зона комфорту, стабільність, атмосфера, плюшки, друзі, заохочуємо долучитися
+**Forbidden words/phrases:** всесвіт, космос, ставай частиною нашого всесвіту, пересилити, зона комфорту, стабільність, атмосфера, плюшки, друзі, заохочуємо долучитися, це не легко, буде складно, іншою версією себе, роль яку раніше не грав, роль яку раніше не грала, не залишишся тим самим
 
 The TOV and forbidden words/phrases take priority over historical examples. Never return forbidden words or phrases, even if a historical example contains them.
 
@@ -330,7 +349,7 @@ Extract: job title, seniority level, key responsibilities, required skills, prod
 ## STEP 2 — Select or write the body text
 Choose the single most relevant body text from the historical examples below, OR write a NEW one if none fits well.
 
-If writing new: follow the TOV above. Structure: hook (challenge/question) → what the person will do/face → what they'll get (team, growth, impact) → end with one of the approved CTA phrases.
+If writing new: follow the TOV above. Structure: short hook → what the person will do → why it matters. Keep it laconic and practical.
 
 ### Historical body texts (ordered by usage frequency):
 
@@ -338,6 +357,10 @@ ${historicalBodyTexts.map((text, index) => `${index + 1}. [${historicalBodyTextU
 
 ## STEP 3 — Select the title
 Choose from the list below or write a new one (max 6 words, TOV-aligned).
+The title MUST be different from every existing title below. Do not return a title that is identical after case/spacing normalization.
+
+### Existing titles already used:
+${forbiddenTitles.length ? forbiddenTitles.map((title) => `- ${title}`).join("\n") : "- none"}
 
 ### Historical titles:
 ${historicalTitles.map((title) => `- ${title}`).join("\n")}
@@ -380,7 +403,7 @@ async function tryFetchVacancy(url?: string | null): Promise<{ url: string; titl
   }
 }
 
-function buildMessages(input: CopyGenerationInput, vacancy?: { url: string; title?: string; text: string }): OpenRouterMessage[] {
+function buildMessages(input: CopyGenerationInput, vacancy?: { url: string; title?: string; text: string }, retryNote?: string): OpenRouterMessage[] {
   return [
     {
       role: "system",
@@ -389,7 +412,7 @@ function buildMessages(input: CopyGenerationInput, vacancy?: { url: string; titl
     },
     {
       role: "user",
-      content: buildPrompt(input, vacancy)
+      content: buildPrompt(input, vacancy, retryNote)
     }
   ];
 }
@@ -587,6 +610,71 @@ async function generateWithOpenRouter(messages: OpenRouterMessage[]): Promise<Ge
   throw lastError;
 }
 
+const forbiddenGeneratedBodyPhrases = [
+  "це не легко",
+  "буде складно",
+  "іншою версією себе",
+  "роль, яку раніше не грав",
+  "роль, яку раніше не грала",
+  "роль яку раніше не грав",
+  "роль яку раніше не грала",
+  "не залишишся тим самим"
+];
+
+function generatedCopyIssue(input: CopyGenerationInput, parsed: GeneratedCopyJson): string | undefined {
+  const title = cleanTextList(parsed.titles, 1)[0] ?? "";
+  const titleKey = normalizedCopyKey(title);
+  if (!titleKey) {
+    return "The title is empty. Return one short, non-empty title.";
+  }
+
+  const existingTitleKeys = new Set(existingTitles(input).map(normalizedCopyKey).filter(Boolean));
+  if (existingTitleKeys.has(titleKey)) {
+    return `The title "${title}" repeats an existing title. Return a different title, max 6 words.`;
+  }
+
+  const body = cleanTextList(parsed.bodies, 1)[0] ?? "";
+  const bodyKey = normalizedCopyKey(body);
+  const forbiddenPhrase = forbiddenGeneratedBodyPhrases.find((phrase) => bodyKey.includes(normalizedCopyKey(phrase)));
+  if (forbiddenPhrase) {
+    return `The body uses the forbidden overdramatic phrase "${forbiddenPhrase}". Rewrite it simpler and more practical.`;
+  }
+
+  if (body.length > 520) {
+    return "The body is too long. Return 2-4 short sentences, max 450 characters.";
+  }
+
+  return undefined;
+}
+
+async function generateQualityCheckedCopy(input: CopyGenerationInput, vacancy?: { url: string; title?: string; text: string }): Promise<GeneratedCopyJson> {
+  let retryNote: string | undefined;
+  let lastParsed: GeneratedCopyJson | undefined;
+  let lastIssue: string | undefined;
+
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    const parsed = await generateWithOpenRouter(buildMessages(input, vacancy, retryNote));
+    const issue = generatedCopyIssue(input, parsed);
+    if (!issue) {
+      return parsed;
+    }
+
+    lastParsed = parsed;
+    lastIssue = issue;
+    retryNote = `${issue} Existing titles: ${existingTitles(input).join(" | ") || "none"}. Keep body concise and simple.`;
+    logger.warn({ attempt, issue, generatedTitle: parsed.titles[0] }, "Generated copy did not pass quality checks; retrying");
+  }
+
+  throw new AppError(lastIssue ?? "OpenRouter returned copy that did not pass quality checks", {
+    statusCode: 502,
+    code: "OPENROUTER_LOW_QUALITY_RESPONSE",
+    details: {
+      generatedTitle: lastParsed?.titles[0],
+      generatedBody: lastParsed?.bodies[0]
+    }
+  });
+}
+
 export async function generateCreativeCopy(input: CopyGenerationInput): Promise<CopyGenerationResult> {
   if (!env.OPENROUTER_API_KEY) {
     throw new AppError("OPENROUTER_API_KEY is not configured", {
@@ -597,7 +685,7 @@ export async function generateCreativeCopy(input: CopyGenerationInput): Promise<
 
   const vacancyUrl = input.ctaLink ?? input.creative.cta_link;
   const vacancy = await tryFetchVacancy(vacancyUrl);
-  const parsed = await generateWithOpenRouter(buildMessages(input, vacancy));
+  const parsed = await generateQualityCheckedCopy(input, vacancy);
 
   return {
     adTextVariants: cleanTextList(parsed.bodies, 1),
