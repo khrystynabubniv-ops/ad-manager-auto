@@ -53,7 +53,6 @@ import {
   fetchCampaigns,
   fetchCreativeGroups,
   fetchCreatives,
-  fillCreativeGroupSlot,
   launchCreative,
   launchCreativeGroup,
   generateCreativeCopySuggestions,
@@ -1369,6 +1368,104 @@ type PendingAssetTransfer = {
   sourceGroupName: string;
 };
 
+function refreshGroupPrimary(group: CreativeGroup): CreativeGroup {
+  return {
+    ...group,
+    primary_creative: group.creatives.find((creative) => !isEmptyCreativeSlot(creative)) ?? group.creatives[0] ?? group.primary_creative
+  };
+}
+
+function assignCreativeToGroup(creative: Creative, group: CreativeGroup, assetPlacement: CreativeAssetPlacement): Creative {
+  return {
+    ...creative,
+    creative_group_key: group.group_key,
+    creative_group_name: group.group_name,
+    asset_placement: assetPlacement,
+    grouping_status: "manual"
+  };
+}
+
+function copyLaunchDetails(from: Creative, to: Creative): Creative {
+  return {
+    ...to,
+    project_type: from.project_type,
+    ad_text: from.ad_text,
+    headline: from.headline,
+    headline_variants: from.headline_variants ?? [],
+    ad_text_variants: from.ad_text_variants ?? [],
+    cta_type: from.cta_type,
+    cta_type_variants: from.cta_type_variants ?? [],
+    cta_link: from.cta_link,
+    audience: from.audience,
+    location: from.location,
+    campaign_id: from.campaign_id,
+    campaign_name: from.campaign_name,
+    adset_id: from.adset_id,
+    adset_name: from.adset_name
+  };
+}
+
+function sameTextSequence(left?: string[] | null, right?: string[] | null) {
+  const leftItems = left ?? [];
+  const rightItems = right ?? [];
+  return leftItems.length === rightItems.length && leftItems.every((item, index) => item === rightItems[index]);
+}
+
+function launchDetailsChanged(before: Creative, after: Creative) {
+  return (
+    before.project_type !== after.project_type ||
+    before.ad_text !== after.ad_text ||
+    before.headline !== after.headline ||
+    !sameTextSequence(before.headline_variants, after.headline_variants) ||
+    !sameTextSequence(before.ad_text_variants, after.ad_text_variants) ||
+    before.cta_type !== after.cta_type ||
+    !sameTextSequence(before.cta_type_variants, after.cta_type_variants) ||
+    before.cta_link !== after.cta_link ||
+    before.audience !== after.audience ||
+    before.location !== after.location ||
+    before.campaign_id !== after.campaign_id ||
+    before.campaign_name !== after.campaign_name ||
+    before.adset_id !== after.adset_id ||
+    before.adset_name !== after.adset_name
+  );
+}
+
+function createLocalEmptySlot(group: CreativeGroup, assetPlacement: CreativeAssetPlacement, tempId: number): Creative {
+  const now = new Date().toISOString();
+  return {
+    ...group.primary_creative,
+    id: tempId,
+    source_file_id: `slot:local:${group.group_key}:${Math.abs(tempId)}`,
+    source_file_name: `Empty ${placementLabel(assetPlacement)} slot`,
+    creative_group_key: group.group_key,
+    creative_group_name: group.group_name,
+    asset_placement: assetPlacement,
+    grouping_status: "manual",
+    asset_id: null,
+    asset_type: null,
+    google_drive_url: null,
+    preview_url: null,
+    facebook_ad_id: null,
+    created_at: now,
+    updated_at: now,
+    uploaded_at: null,
+    launched_at: null
+  };
+}
+
+function groupsWithDraftGroup(groups: CreativeGroup[], draftGroup?: CreativeGroup | null) {
+  if (!draftGroup) return groups;
+  const draftCreativeIds = new Set(draftGroup.creatives.filter((creative) => creative.id > 0).map((creative) => creative.id));
+  const merged = groups.map((group) => {
+    if (group.id === draftGroup.id) return draftGroup;
+    return {
+      ...group,
+      creatives: group.creatives.filter((creative) => !draftCreativeIds.has(creative.id))
+    };
+  });
+  return merged.some((group) => group.id === draftGroup.id) ? merged : [draftGroup, ...merged];
+}
+
 function AssetSummaryList({
   creatives,
   onPreview
@@ -1391,6 +1488,7 @@ function AssetSummaryList({
 function AssetManagementPanel({
   group,
   groups,
+  disabled = false,
   groupingBusyId,
   slotBusyGroupId,
   onGroupingChange,
@@ -1401,6 +1499,7 @@ function AssetManagementPanel({
 }: {
   group: CreativeGroup;
   groups: CreativeGroup[];
+  disabled?: boolean;
   groupingBusyId?: number | null;
   slotBusyGroupId?: string | null;
   onGroupingChange?: (creative: Creative, payload: CreativeGroupingPayload) => Promise<void> | void;
@@ -1469,7 +1568,7 @@ function AssetManagementPanel({
             <span>New slot</span>
             <select
               value={newSlotPlacement}
-              disabled={slotBusy}
+              disabled={disabled || slotBusy}
               aria-label="Placement role for new empty slot"
               onChange={(event) => setNewSlotPlacement(event.target.value as CreativeAssetPlacement)}
             >
@@ -1485,7 +1584,7 @@ function AssetManagementPanel({
           <button
             type="button"
             className="secondaryButton compact"
-            disabled={slotBusy || !onAddSlot}
+            disabled={disabled || slotBusy || !onAddSlot}
             onClick={() => void onAddSlot?.(group, newSlotPlacement)}
           >
             {slotBusy ? <Loader2 size={14} className="spin" /> : <Plus size={14} />}
@@ -1500,6 +1599,7 @@ function AssetManagementPanel({
           const selectedAsset = selectedCandidate?.creative;
           const selectedAssetId = selectedAssetIds[creative.id] ?? (isEmptyCreativeSlot(creative) ? "" : String(creative.id));
           const canChooseAnotherAsset = candidateAssets.some((candidate) => candidate.creative.id !== creative.id);
+          const rowBusy = disabled || groupingBusyId === creative.id;
 
           return (
             <article className={creative.asset_placement === "do_not_use" ? "assetManagerCard muted" : "assetManagerCard"} key={creative.id}>
@@ -1516,7 +1616,7 @@ function AssetManagementPanel({
                   <select
                     aria-label={`Placement role for ${assetDisplayName(creative)}`}
                     value={creative.asset_placement}
-                    disabled={groupingBusyId === creative.id || !onGroupingChange}
+                    disabled={rowBusy || !onGroupingChange}
                     onChange={(event) =>
                       void onGroupingChange?.(creative, {
                         creativeGroupKey: creative.creative_group_key,
@@ -1538,7 +1638,7 @@ function AssetManagementPanel({
                   <select
                     aria-label={`Choose asset for ${placementLabel(creative.asset_placement)}`}
                     value={selectedAssetId}
-                    disabled={groupingBusyId === creative.id || !canChooseAnotherAsset}
+                    disabled={rowBusy || !canChooseAnotherAsset}
                     onChange={(event) =>
                       setSelectedAssetIds((current) => ({
                         ...current,
@@ -1577,7 +1677,7 @@ function AssetManagementPanel({
                       <button
                         type="button"
                         className="primaryButton compact"
-                        disabled={groupingBusyId === creative.id || !onChooseAsset}
+                        disabled={rowBusy || !onChooseAsset}
                         onClick={() => requestUseAsset(creative, selectedCandidate)}
                       >
                         Use asset here
@@ -1590,7 +1690,7 @@ function AssetManagementPanel({
                   <button
                     type="button"
                     className="secondaryButton compact dangerButton"
-                    disabled={groupingBusyId === creative.id || !onRemoveAsset}
+                    disabled={rowBusy || !onRemoveAsset}
                     onClick={() => void onRemoveAsset?.(creative)}
                   >
                     <Trash2 size={14} />
@@ -1620,6 +1720,7 @@ function AssetManagementPanel({
               <button
                 type="button"
                 className="primaryButton compact"
+                disabled={disabled}
                 onClick={() => {
                   const transfer = pendingTransfer;
                   setPendingTransfer(null);
@@ -2002,15 +2103,10 @@ function ConfirmModal({
   loading,
   saving = false,
   mode = "launch",
-  groupingBusyId,
-  slotBusyGroupId,
   onClose,
   onConfirm,
   onSave,
-  onGroupingChange,
-  onAddSlot,
-  onChooseAsset,
-  onRemoveAsset,
+  onCommitAssetChanges,
   onPreview
 }: {
   creative: Creative;
@@ -2019,18 +2115,14 @@ function ConfirmModal({
   loading: boolean;
   saving?: boolean;
   mode?: "launch" | "edit";
-  groupingBusyId?: number | null;
-  slotBusyGroupId?: string | null;
   onClose: () => void;
-  onConfirm?: (payload: LaunchRequest) => void;
+  onConfirm?: (payload: LaunchRequest) => Promise<void> | void;
   onSave?: (payload: CreativeUpdateRequest) => Promise<void> | void;
-  onGroupingChange?: (creative: Creative, payload: CreativeGroupingPayload) => Promise<void> | void;
-  onAddSlot?: (group: CreativeGroup, assetPlacement: CreativeAssetPlacement) => Promise<void> | void;
-  onChooseAsset?: (target: Creative, sourceCreativeId: number) => Promise<void> | void;
-  onRemoveAsset?: (creative: Creative) => Promise<void> | void;
+  onCommitAssetChanges?: (draftGroup: CreativeGroup) => Promise<CreativeGroup | void> | CreativeGroup | void;
   onPreview?: (creative: Creative) => void;
 }) {
   const [draft, setDraft] = useState<CreativeDetailsDraft>(() => creativeToDetailsDraft(creative));
+  const [assetGroupDraft, setAssetGroupDraft] = useState<CreativeGroup | null>(() => group ?? null);
   const [campaigns, setCampaigns] = useState<MetaCampaign[]>([]);
   const [adSets, setAdSets] = useState<MetaAdSet[]>([]);
   const [campaignId, setCampaignId] = useState("");
@@ -2038,13 +2130,20 @@ function ConfirmModal({
   const [campaignsLoading, setCampaignsLoading] = useState(false);
   const [adSetsLoading, setAdSetsLoading] = useState(false);
   const [generatingCopy, setGeneratingCopy] = useState(false);
+  const [assetsSaving, setAssetsSaving] = useState(false);
   const [placementError, setPlacementError] = useState<string | null>(null);
   const autoGenerateCreativeIdRef = useRef<number | null>(null);
   const generatingCopyRequestRef = useRef(false);
+  const nextLocalSlotIdRef = useRef(-1);
 
   useEffect(() => {
     setDraft(creativeToDetailsDraft(creative));
   }, [creative]);
+
+  useEffect(() => {
+    setAssetGroupDraft(group ?? null);
+    nextLocalSlotIdRef.current = -1;
+  }, [group]);
 
   useEffect(() => {
     let active = true;
@@ -2109,7 +2208,9 @@ function ConfirmModal({
   const selectedAdSet = adSets.find((adSet) => adSet.id === adSetId);
   const scheduleIssue = placementScheduleIssue(selectedCampaign, selectedAdSet);
   const placementReady = Boolean(campaignId && adSetId && !scheduleIssue);
-  const busy = loading || saving || generatingCopy;
+  const visibleGroup = assetGroupDraft ?? group;
+  const visibleGroups = groupsWithDraftGroup(groups, assetGroupDraft);
+  const busy = loading || saving || generatingCopy || assetsSaving;
   const detailsReady = Boolean(
     draft.adText.trim() &&
       draft.headline.trim() &&
@@ -2134,13 +2235,94 @@ function ConfirmModal({
     };
   }
 
+  function updateAssetGroupDraft(updater: (current: CreativeGroup) => CreativeGroup) {
+    setAssetGroupDraft((current) => {
+      if (!current) return current;
+      return refreshGroupPrimary(updater(current));
+    });
+    setPlacementError(null);
+  }
+
+  function updateLocalGrouping(target: Creative, payload: CreativeGroupingPayload) {
+    updateAssetGroupDraft((current) => ({
+      ...current,
+      creatives: current.creatives.map((creative) =>
+        creative.id === target.id
+          ? {
+              ...creative,
+              creative_group_key: payload.creativeGroupKey,
+              creative_group_name: payload.creativeGroupName ?? payload.creativeGroupKey.replaceAll("_", " "),
+              asset_placement: payload.assetPlacement,
+              grouping_status: "manual"
+            }
+          : creative
+      )
+    }));
+  }
+
+  function addLocalSlot(currentGroup: CreativeGroup, assetPlacement: CreativeAssetPlacement) {
+    const baseGroup = assetGroupDraft ?? currentGroup;
+    const nextSlot = createLocalEmptySlot(baseGroup, assetPlacement, nextLocalSlotIdRef.current--);
+    setAssetGroupDraft(refreshGroupPrimary({ ...baseGroup, creatives: [...baseGroup.creatives, nextSlot] }));
+    setPlacementError(null);
+  }
+
+  function chooseLocalAsset(target: Creative, sourceCreativeId: number) {
+    if (target.id === sourceCreativeId) return;
+    const source =
+      assetGroupDraft?.creatives.find((creative) => creative.id === sourceCreativeId) ??
+      groups.flatMap((item) => item.creatives).find((creative) => creative.id === sourceCreativeId);
+    if (!source || !assetGroupDraft) return;
+
+    const nextSource = copyLaunchDetails(target, assignCreativeToGroup(source, assetGroupDraft, target.asset_placement));
+    updateAssetGroupDraft((current) => {
+      const targetIndex = current.creatives.findIndex((creative) => creative.id === target.id);
+      const nextCreatives = current.creatives.filter(
+        (creative) => creative.id !== target.id && creative.id !== sourceCreativeId
+      );
+      const insertIndex = targetIndex >= 0 ? Math.min(targetIndex, nextCreatives.length) : nextCreatives.length;
+      nextCreatives.splice(insertIndex, 0, nextSource);
+      return { ...current, creatives: nextCreatives };
+    });
+  }
+
+  function removeLocalAsset(target: Creative) {
+    updateAssetGroupDraft((current) => ({
+      ...current,
+      creatives: current.creatives.filter((creative) => creative.id !== target.id)
+    }));
+  }
+
+  async function commitAssetChanges() {
+    if (!assetGroupDraft || !onCommitAssetChanges) return true;
+    setAssetsSaving(true);
+    setPlacementError(null);
+    try {
+      const committedGroup = await onCommitAssetChanges(assetGroupDraft);
+      setAssetGroupDraft(committedGroup ?? null);
+      return true;
+    } catch (error) {
+      setPlacementError(error instanceof Error ? error.message : String(error));
+      return false;
+    } finally {
+      setAssetsSaving(false);
+    }
+  }
+
   async function saveDetails() {
     if (!onSave) return;
-    await onSave(savePayload());
+    try {
+      await onSave(savePayload());
+    } catch (error) {
+      setPlacementError(error instanceof Error ? error.message : String(error));
+      return;
+    }
+    const assetsSaved = await commitAssetChanges();
+    if (!assetsSaved) return;
     if (mode === "edit") onClose();
   }
 
-  function confirmPlacement() {
+  async function confirmPlacement() {
     if (!onConfirm) return;
 
     if (!detailsReady) {
@@ -2158,7 +2340,10 @@ function ConfirmModal({
       return;
     }
 
-    onConfirm({
+    const assetsSaved = await commitAssetChanges();
+    if (!assetsSaved) return;
+
+    await onConfirm({
       campaignId,
       campaignName: selectedCampaign?.name,
       adSetId,
@@ -2259,16 +2444,15 @@ function ConfirmModal({
 
         <div className="modalGrid">
           <div className="modalPreviewStack">
-            {group ? (
+            {visibleGroup ? (
               <AssetManagementPanel
-                group={group}
-                groups={groups}
-                groupingBusyId={groupingBusyId}
-                slotBusyGroupId={slotBusyGroupId}
-                onGroupingChange={onGroupingChange}
-                onAddSlot={onAddSlot}
-                onChooseAsset={onChooseAsset}
-                onRemoveAsset={onRemoveAsset}
+                group={visibleGroup}
+                groups={visibleGroups}
+                disabled={busy}
+                onGroupingChange={updateLocalGrouping}
+                onAddSlot={addLocalSlot}
+                onChooseAsset={chooseLocalAsset}
+                onRemoveAsset={removeLocalAsset}
                 onPreview={onPreview}
               />
             ) : (
@@ -2413,17 +2597,17 @@ function ConfirmModal({
               onClick={() => void saveDetails()}
               disabled={busy || campaignsLoading || adSetsLoading}
             >
-              {saving ? <Loader2 size={16} className="spin" /> : <Save size={16} />}
+              {saving || assetsSaving ? <Loader2 size={16} className="spin" /> : <Save size={16} />}
               Save
             </button>
           ) : null}
           {mode === "launch" ? (
             <button
               className="primaryButton"
-              onClick={confirmPlacement}
+              onClick={() => void confirmPlacement()}
               disabled={busy || campaignsLoading || adSetsLoading || !placementReady || !detailsReady}
             >
-              {loading ? <Loader2 size={16} className="spin" /> : <Play size={16} />}
+              {loading || assetsSaving ? <Loader2 size={16} className="spin" /> : <Play size={16} />}
               Launch ad
             </button>
           ) : null}
@@ -4861,8 +5045,6 @@ export function App() {
   const [selectedCreativeIds, setSelectedCreativeIds] = useState<Set<number>>(() => new Set());
   const [selectedGroupIds, setSelectedGroupIds] = useState<Set<string>>(() => new Set());
   const [bulkAction, setBulkAction] = useState<"launch" | "archive" | null>(null);
-  const [groupingBusyId, setGroupingBusyId] = useState<number | null>(null);
-  const [slotBusyGroupId, setSlotBusyGroupId] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [query, setQuery] = useState("");
   const [campaigns, setCampaigns] = useState<MetaCampaign[]>([]);
@@ -5302,35 +5484,45 @@ export function App() {
     await load();
   }
 
-  async function saveCreativeGrouping(
-    creative: Creative,
-    payload: { creativeGroupKey: string; creativeGroupName?: string | null; assetPlacement: CreativeAssetPlacement }
-  ) {
-    setGroupingBusyId(creative.id);
-    setError(null);
-    try {
-      await updateCreativeGrouping(creative.id, payload);
-      await load();
-      setError("Creative grouping saved.");
-    } catch (saveError) {
-      setError(saveError instanceof Error ? saveError.message : String(saveError));
-    } finally {
-      setGroupingBusyId(null);
-    }
-  }
+  async function saveGroupAssetChanges(originalGroup: CreativeGroup, draftGroup: CreativeGroup) {
+    const originalById = new Map(originalGroup.creatives.map((creative) => [creative.id, creative]));
+    const draftCreatives = draftGroup.creatives.filter((creative) => creative.id > 0);
+    const draftById = new Map(draftCreatives.map((creative) => [creative.id, creative]));
 
-  async function addEmptySlot(group: CreativeGroup, assetPlacement: CreativeAssetPlacement) {
-    setSlotBusyGroupId(group.id);
-    setError(null);
-    try {
-      await createCreativeGroupSlot(group.id, { assetPlacement });
-      await load();
-      setError("Empty slot added.");
-    } catch (addError) {
-      setError(addError instanceof Error ? addError.message : String(addError));
-    } finally {
-      setSlotBusyGroupId(null);
+    for (const creative of draftCreatives) {
+      const original = originalById.get(creative.id);
+      const groupingChanged =
+        !original ||
+        original.creative_group_key !== draftGroup.group_key ||
+        original.creative_group_name !== draftGroup.group_name ||
+        original.asset_placement !== creative.asset_placement;
+
+      if (groupingChanged) {
+        await updateCreativeGrouping(creative.id, {
+          creativeGroupKey: draftGroup.group_key,
+          creativeGroupName: draftGroup.group_name,
+          assetPlacement: creative.asset_placement
+        });
+      }
+
+      if (!original || launchDetailsChanged(original, creative)) {
+        await updateCreative(creative.id, detailsPayloadFromCreative(creative));
+      }
     }
+
+    for (const creative of draftGroup.creatives) {
+      if (creative.id < 0 && isEmptyCreativeSlot(creative)) {
+        await createCreativeGroupSlot(originalGroup.id, { assetPlacement: creative.asset_placement });
+      }
+    }
+
+    for (const creative of originalGroup.creatives) {
+      if (!draftById.has(creative.id)) {
+        await archiveCreative(creative.id);
+      }
+    }
+
+    await load();
   }
 
   function detailsPayloadFromCreative(creative: Creative): CreativeUpdateRequest {
@@ -5350,45 +5542,6 @@ export function App() {
       adSetId: creative.adset_id,
       adSetName: creative.adset_name
     };
-  }
-
-  async function chooseAssetForPlacement(target: Creative, sourceCreativeId: number) {
-    if (target.id === sourceCreativeId) return;
-    setGroupingBusyId(target.id);
-    setError(null);
-    try {
-      if (isEmptyCreativeSlot(target)) {
-        await fillCreativeGroupSlot(target.id, { sourceCreativeId });
-      } else {
-        await updateCreativeGrouping(sourceCreativeId, {
-          creativeGroupKey: target.creative_group_key,
-          creativeGroupName: target.creative_group_name,
-          assetPlacement: target.asset_placement
-        });
-        await updateCreative(sourceCreativeId, detailsPayloadFromCreative(target));
-        await archiveCreative(target.id);
-      }
-      await load();
-      setError(isEmptyCreativeSlot(target) ? "Asset added to placement slot." : "Asset replaced in creative set.");
-    } catch (chooseError) {
-      setError(chooseError instanceof Error ? chooseError.message : String(chooseError));
-    } finally {
-      setGroupingBusyId(null);
-    }
-  }
-
-  async function removeAssetFromSet(creative: Creative) {
-    setGroupingBusyId(creative.id);
-    setError(null);
-    try {
-      await archiveCreative(creative.id);
-      await load();
-      setError(isEmptyCreativeSlot(creative) ? "Placement slot removed." : "Asset removed from creative set.");
-    } catch (removeError) {
-      setError(removeError instanceof Error ? removeError.message : String(removeError));
-    } finally {
-      setGroupingBusyId(null);
-    }
   }
 
   async function handleSyncCampaigns() {
@@ -5663,16 +5816,11 @@ export function App() {
           groups={creativeGroups}
           loading={launching}
           saving={savingCreative}
-          groupingBusyId={groupingBusyId}
-          slotBusyGroupId={slotBusyGroupId}
           mode="launch"
           onClose={() => setSelectedGroup(null)}
           onConfirm={confirmGroupLaunch}
           onSave={(payload) => saveGroupDetails(selectedGroup, payload)}
-          onGroupingChange={saveCreativeGrouping}
-          onAddSlot={addEmptySlot}
-          onChooseAsset={chooseAssetForPlacement}
-          onRemoveAsset={removeAssetFromSet}
+          onCommitAssetChanges={(draftGroup) => saveGroupAssetChanges(selectedGroup, draftGroup)}
           onPreview={setPreviewingAsset}
         />
       ) : null}
@@ -5696,15 +5844,10 @@ export function App() {
           groups={creativeGroups}
           loading={false}
           saving={savingCreative}
-          groupingBusyId={groupingBusyId}
-          slotBusyGroupId={slotBusyGroupId}
           mode="edit"
           onClose={() => setEditingGroup(null)}
           onSave={(payload) => saveGroupDetails(editingGroup, payload)}
-          onGroupingChange={saveCreativeGrouping}
-          onAddSlot={addEmptySlot}
-          onChooseAsset={chooseAssetForPlacement}
-          onRemoveAsset={removeAssetFromSet}
+          onCommitAssetChanges={(draftGroup) => saveGroupAssetChanges(editingGroup, draftGroup)}
           onPreview={setPreviewingAsset}
         />
       ) : null}
