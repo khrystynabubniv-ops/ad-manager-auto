@@ -56,6 +56,7 @@ import {
   launchCreative,
   launchCreativeGroup,
   generateCreativeCopySuggestions,
+  moveCreativeToReady,
   searchTargetingLocations,
   syncCampaigns,
   uploadCreative,
@@ -2618,6 +2619,8 @@ function CreativeRow({
   creative,
   onEdit,
   onLaunch,
+  onRestore,
+  restoreBusy = false,
   selectable = false,
   selected = false,
   onSelectChange,
@@ -2627,6 +2630,8 @@ function CreativeRow({
   creative: Creative;
   onEdit?: (creative: Creative) => void;
   onLaunch?: (creative: Creative) => void;
+  onRestore?: (creative: Creative) => void;
+  restoreBusy?: boolean;
   selectable?: boolean;
   selected?: boolean;
   onSelectChange?: (creativeId: number, checked: boolean) => void;
@@ -2695,15 +2700,22 @@ function CreativeRow({
               <Play size={16} />
               {setupReady ? "Review & launch" : "Select campaign & ad set"}
             </button>
-          ) : creative.status === "launched" ? (
+          ) : null}
+          {onRestore ? (
+            <button className="primaryButton compact" onClick={() => void onRestore(creative)} disabled={restoreBusy}>
+              {restoreBusy ? <Loader2 size={16} className="spin" /> : <Check size={16} />}
+              Move to Ready
+            </button>
+          ) : null}
+          {!onLaunch && !onRestore && creative.status === "launched" ? (
             <span className="stateIcon success" aria-label="In use">
               <Check size={18} />
             </span>
-          ) : (
+          ) : !onLaunch && !onRestore ? (
             <span className="stateIcon warning" aria-label="Needs attention">
               <AlertCircle size={18} />
             </span>
-          )}
+          ) : null}
         </div>
       </div>
     </article>
@@ -5042,6 +5054,7 @@ export function App() {
   const [selectedCreativeIds, setSelectedCreativeIds] = useState<Set<number>>(() => new Set());
   const [selectedGroupIds, setSelectedGroupIds] = useState<Set<string>>(() => new Set());
   const [bulkAction, setBulkAction] = useState<"launch" | "archive" | null>(null);
+  const [restoringCreativeId, setRestoringCreativeId] = useState<number | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [query, setQuery] = useState("");
   const [campaigns, setCampaigns] = useState<MetaCampaign[]>([]);
@@ -5459,6 +5472,20 @@ export function App() {
     }
   }
 
+  async function handleMoveCreativeToReady(creative: Creative) {
+    setRestoringCreativeId(creative.id);
+    setError(null);
+    try {
+      await moveCreativeToReady(creative.id);
+      await load();
+      setError("Moved creative to Ready.");
+    } catch (restoreError) {
+      setError(restoreError instanceof Error ? restoreError.message : String(restoreError));
+    } finally {
+      setRestoringCreativeId(null);
+    }
+  }
+
   async function saveCreativeDetails(creativeId: number, payload: CreativeUpdateRequest) {
     setSavingCreative(true);
     setError(null);
@@ -5732,7 +5759,7 @@ export function App() {
               </section>
 
               {error ? (
-                <div className={/^(Synced|Launched|Archived)/.test(error) || error.endsWith("saved.") ? "notice success" : "notice"}>
+                <div className={/^(Synced|Launched|Archived|Moved)/.test(error) || error.endsWith("saved.") ? "notice success" : "notice"}>
                   <AlertCircle size={18} />
                   {error}
                 </div>
@@ -5783,6 +5810,8 @@ export function App() {
                       creative={creative}
                       onEdit={undefined}
                       onLaunch={undefined}
+                      onRestore={creativeView === "drafts" && !isEmptyCreativeSlot(creative) ? handleMoveCreativeToReady : undefined}
+                      restoreBusy={restoringCreativeId === creative.id}
                       selectable={false}
                       selected={selectedCreativeIds.has(creative.id)}
                       onSelectChange={toggleCreativeSelection}

@@ -297,6 +297,37 @@ creativesRouter.post("/:id/fill-slot", requireAuth, async (req, res, next) => {
   }
 });
 
+creativesRouter.post("/:id/ready", requireAuth, async (req, res, next) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id)) {
+      throw new AppError("Invalid creative id", { statusCode: 400, code: "INVALID_CREATIVE_ID" });
+    }
+
+    const existing = await getCreativeById(id);
+    if (!existing) {
+      throw new AppError(`Creative ${id} not found`, { statusCode: 404, code: "CREATIVE_NOT_FOUND" });
+    }
+    if (existing.status !== DB_STATUS.NEEDS_DETAILS) {
+      throw new AppError("Only draft creatives can be moved to Ready", {
+        statusCode: 400,
+        code: "CREATIVE_NOT_DRAFT"
+      });
+    }
+    if (isEmptyCreativeSlot(existing)) {
+      throw new AppError("Only uploaded assets can be moved to Ready", {
+        statusCode: 400,
+        code: "CREATIVE_ASSET_REQUIRED"
+      });
+    }
+
+    const creative = await updateCreativeStatus(id, DB_STATUS.READY_TO_LAUNCH);
+    res.json({ creative });
+  } catch (error) {
+    next(error);
+  }
+});
+
 creativesRouter.post("/:id/copy-suggestions", requireAuth, async (req, res, next) => {
   try {
     const id = Number(req.params.id);

@@ -486,6 +486,14 @@ export async function archiveCreativeGroup(id: string): Promise<CreativeGroup> {
   return response.group;
 }
 
+export async function moveCreativeToReady(id: number): Promise<Creative> {
+  const response = await apiFetch<{ creative: Creative }>(`/api/creatives/${id}/ready`, {
+    method: "POST",
+    body: JSON.stringify({})
+  });
+  return response.creative;
+}
+
 export async function updateCreative(id: number, payload: CreativeUpdateRequest): Promise<Creative> {
   const response = await apiFetch<{ creative: Creative }>(`/api/creatives/${id}`, {
     method: "PATCH",
