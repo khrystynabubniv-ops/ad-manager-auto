@@ -9,6 +9,7 @@ import {
   Layers,
   Loader2,
   LogOut,
+  Maximize2,
   Megaphone,
   Pencil,
   Plus,
@@ -1106,6 +1107,56 @@ function CreativePreview({ creative }: { creative: Creative }) {
   );
 }
 
+function assetDisplayName(creative: Creative) {
+  return creative.source_file_name ?? `Creative ${creative.id}`;
+}
+
+function AssetPreviewOverlay({ creative, onClose }: { creative: Creative; onClose: () => void }) {
+  const previewUrl = creativePreviewUrl(creative);
+
+  return (
+    <div className="assetLightboxOverlay" role="dialog" aria-modal="true" aria-label="Asset preview">
+      <div className="assetLightbox">
+        <div className="assetLightboxHeader">
+          <strong>{assetDisplayName(creative)}</strong>
+          <button type="button" className="iconButton" onClick={onClose} aria-label="Close preview">
+            <X size={18} />
+          </button>
+        </div>
+        {previewUrl ? (
+          <img src={previewUrl} alt={assetDisplayName(creative)} className="assetLightboxImage" />
+        ) : (
+          <div className="assetLightboxFallback">
+            {creative.asset_type === "video" ? "Video preview unavailable" : "Preview unavailable"}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function AssetNameButton({ creative, onPreview }: { creative: Creative; onPreview?: (creative: Creative) => void }) {
+  return (
+    <button type="button" className="assetNameButton" onClick={() => onPreview?.(creative)} title={assetDisplayName(creative)}>
+      {assetDisplayName(creative)}
+    </button>
+  );
+}
+
+function AssetPreviewTile({ creative, onPreview }: { creative: Creative; onPreview?: (creative: Creative) => void }) {
+  return (
+    <button type="button" className="assetPreviewTile" onClick={() => onPreview?.(creative)} disabled={isEmptyCreativeSlot(creative)}>
+      <CreativePreview creative={creative} />
+      {!isEmptyCreativeSlot(creative) ? (
+        <span>
+          <Maximize2 size={14} />
+          Preview
+        </span>
+      ) : null}
+    </button>
+  );
+}
+
 function UploadStatusBadge({ creative }: { creative: Creative }) {
   const failed = creative.status.includes("failed");
   const uploaded = Boolean(creative.asset_id || creative.uploaded_at || creative.status === "ready_to_launch" || creative.status === "launched");
@@ -1259,9 +1310,9 @@ function launchPayloadForCreative(creative: Creative, placement: LaunchPlacement
 }
 
 const placementOptions: Array<{ value: CreativeAssetPlacement; label: string }> = [
-  { value: "feed", label: "Feed" },
-  { value: "stories_reels", label: "Stories/Reels" },
-  { value: "horizontal", label: "Horizontal" },
+  { value: "feed", label: "Feeds" },
+  { value: "stories_reels", label: "Stories and Reels" },
+  { value: "horizontal", label: "Right column / Video feeds" },
   { value: "unknown", label: "Auto/default" },
   { value: "do_not_use", label: "Do not use" }
 ];
@@ -1299,6 +1350,245 @@ function hasMismatchedSetLabel(creative: Creative) {
   const assetSize = sizeToken(creative.source_file_name);
   const groupSize = sizeToken(creative.creative_group_key) ?? sizeToken(creative.creative_group_name);
   return Boolean(assetSize && groupSize && assetSize !== groupSize);
+}
+
+type CreativeGroupingPayload = {
+  creativeGroupKey: string;
+  creativeGroupName?: string | null;
+  assetPlacement: CreativeAssetPlacement;
+};
+
+function AssetSummaryList({
+  creatives,
+  onPreview
+}: {
+  creatives: Creative[];
+  onPreview?: (creative: Creative) => void;
+}) {
+  return (
+    <div className="assetSummaryList">
+      {creatives.map((creative) => (
+        <div className={creative.asset_placement === "do_not_use" ? "assetSummaryRow muted" : "assetSummaryRow"} key={creative.id}>
+          <span>{placementLabel(creative.asset_placement)}</span>
+          <AssetNameButton creative={creative} onPreview={onPreview} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function AssetManagementPanel({
+  group,
+  groups,
+  groupingBusyId,
+  slotBusyGroupId,
+  onGroupingChange,
+  onAddSlot,
+  onFillSlot,
+  onRemoveSlot,
+  onPreview
+}: {
+  group: CreativeGroup;
+  groups: CreativeGroup[];
+  groupingBusyId?: number | null;
+  slotBusyGroupId?: string | null;
+  onGroupingChange?: (creative: Creative, payload: CreativeGroupingPayload) => Promise<void> | void;
+  onAddSlot?: (group: CreativeGroup, assetPlacement: CreativeAssetPlacement) => Promise<void> | void;
+  onFillSlot?: (slot: Creative, sourceCreativeId: number) => Promise<void> | void;
+  onRemoveSlot?: (creative: Creative) => Promise<void> | void;
+  onPreview?: (creative: Creative) => void;
+}) {
+  const [newSlotPlacement, setNewSlotPlacement] = useState<CreativeAssetPlacement>("feed");
+  const [slotFillAssetIds, setSlotFillAssetIds] = useState<Record<number, string>>({});
+  const groupOptions = groups.map((item) => ({ key: item.group_key, name: item.group_name }));
+  const slotBusy = slotBusyGroupId === group.id;
+  const fillableAssets = groups
+    .flatMap((item) => item.creatives)
+    .filter(
+      (creative) =>
+        creative.notion_task_id === group.notion_task_id &&
+        creative.creative_group_key !== group.group_key &&
+        !isEmptyCreativeSlot(creative) &&
+        creative.asset_id &&
+        creative.asset_type
+    );
+
+  return (
+    <section className="assetManagerPanel">
+      <div className="assetManagerHeader">
+        <div>
+          <span>Assets</span>
+          <strong>Placement roles</strong>
+        </div>
+        <div className="assetManagerAddSlot">
+          <select
+            value={newSlotPlacement}
+            disabled={slotBusy}
+            aria-label="Placement role for new empty slot"
+            onChange={(event) => setNewSlotPlacement(event.target.value as CreativeAssetPlacement)}
+          >
+            {placementOptions
+              .filter((option) => option.value !== "do_not_use")
+              .map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+          </select>
+          <button
+            type="button"
+            className="secondaryButton compact"
+            disabled={slotBusy || !onAddSlot}
+            onClick={() => void onAddSlot?.(group, newSlotPlacement)}
+          >
+            {slotBusy ? <Loader2 size={14} className="spin" /> : <Plus size={14} />}
+            Add slot
+          </button>
+        </div>
+      </div>
+
+      <div className="assetManagerList">
+        {group.creatives.map((creative) => {
+          const selectedFillAsset = fillableAssets.find((asset) => String(asset.id) === slotFillAssetIds[creative.id]);
+
+          return (
+            <article className={creative.asset_placement === "do_not_use" ? "assetManagerCard muted" : "assetManagerCard"} key={creative.id}>
+              <AssetPreviewTile creative={creative} onPreview={onPreview} />
+              <div className="assetManagerBody">
+                <div className="assetManagerName">
+                  <span>{placementLabel(creative.asset_placement)}</span>
+                  <AssetNameButton creative={creative} onPreview={onPreview} />
+                  {isEmptyCreativeSlot(creative) ? <small>Empty slot</small> : null}
+                </div>
+
+                <label className="assetManagerField">
+                  <span>Meta placement</span>
+                  <select
+                    aria-label={`Placement role for ${assetDisplayName(creative)}`}
+                    value={creative.asset_placement}
+                    disabled={groupingBusyId === creative.id || !onGroupingChange}
+                    onChange={(event) =>
+                      void onGroupingChange?.(creative, {
+                        creativeGroupKey: creative.creative_group_key,
+                        creativeGroupName: creative.creative_group_name,
+                        assetPlacement: event.target.value as CreativeAssetPlacement
+                      })
+                    }
+                  >
+                    {placementOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                {isEmptyCreativeSlot(creative) ? (
+                  <label className="assetManagerField">
+                    <span>Choose asset</span>
+                    <select
+                      aria-label={`Asset to fill ${assetDisplayName(creative)}`}
+                      value={slotFillAssetIds[creative.id] ?? ""}
+                      disabled={groupingBusyId === creative.id || !fillableAssets.length}
+                      onChange={(event) =>
+                        setSlotFillAssetIds((current) => ({
+                          ...current,
+                          [creative.id]: event.target.value
+                        }))
+                      }
+                    >
+                      <option value="">{fillableAssets.length ? "Choose asset" : "No available assets"}</option>
+                      {fillableAssets.map((asset) => (
+                        <option key={asset.id} value={asset.id}>
+                          {placementLabel(asset.asset_placement)} - {assetDisplayName(asset)} - {asset.creative_group_name}
+                        </option>
+                      ))}
+                    </select>
+                    {selectedFillAsset ? (
+                      <div className="selectedFillAsset">
+                        <span>{assetDisplayName(selectedFillAsset)}</span>
+                        <button type="button" className="secondaryButton compact" onClick={() => onPreview?.(selectedFillAsset)}>
+                          <Maximize2 size={14} />
+                          Preview
+                        </button>
+                      </div>
+                    ) : null}
+                  </label>
+                ) : (
+                  <label className="assetManagerField">
+                    <span>Move / join set</span>
+                    <select
+                      aria-label={`Move ${assetDisplayName(creative)} to another set`}
+                      value={creative.creative_group_key}
+                      disabled={groupingBusyId === creative.id || !onGroupingChange}
+                      onChange={(event) => {
+                        const nextGroup = groupOptions.find((option) => option.key === event.target.value);
+                        void onGroupingChange?.(creative, {
+                          creativeGroupKey: event.target.value,
+                          creativeGroupName: nextGroup?.name ?? event.target.value.replaceAll("_", " "),
+                          assetPlacement: creative.asset_placement
+                        });
+                      }}
+                    >
+                      {groupOptions.map((option) => (
+                        <option key={option.key} value={option.key}>
+                          {option.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )}
+
+                <div className="assetManagerActions">
+                  {isEmptyCreativeSlot(creative) ? (
+                    <>
+                      <button
+                        type="button"
+                        className="secondaryButton compact"
+                        disabled={groupingBusyId === creative.id || !slotFillAssetIds[creative.id] || !onFillSlot}
+                        onClick={() => void onFillSlot?.(creative, Number(slotFillAssetIds[creative.id]))}
+                      >
+                        Fill
+                      </button>
+                      <button
+                        type="button"
+                        className="secondaryButton compact dangerButton"
+                        disabled={groupingBusyId === creative.id || !onRemoveSlot}
+                        onClick={() => void onRemoveSlot?.(creative)}
+                      >
+                        <Trash2 size={14} />
+                        Remove
+                      </button>
+                    </>
+                  ) : group.creatives.length > 1 ? (
+                    <button
+                      type="button"
+                      className="secondaryButton compact"
+                      disabled={groupingBusyId === creative.id || !onGroupingChange}
+                      onClick={() => void onGroupingChange?.(creative, assetSetFromFileName(creative))}
+                    >
+                      Separate
+                    </button>
+                  ) : hasMismatchedSetLabel(creative) ? (
+                    <button
+                      type="button"
+                      className="secondaryButton compact"
+                      disabled={groupingBusyId === creative.id || !onGroupingChange}
+                      onClick={() => void onGroupingChange?.(creative, assetSetFromFileName(creative))}
+                    >
+                      Fix label
+                    </button>
+                  ) : (
+                    <span className="assetAssignmentMuted">Single asset</span>
+                  )}
+                </div>
+              </div>
+            </article>
+          );
+        })}
+      </div>
+    </section>
+  );
 }
 
 function groupPrimaryCreative(group: CreativeGroup) {
@@ -1663,21 +1953,37 @@ function BulkActionBar({
 function ConfirmModal({
   creative,
   group,
+  groups = [],
   loading,
   saving = false,
   mode = "launch",
+  groupingBusyId,
+  slotBusyGroupId,
   onClose,
   onConfirm,
-  onSave
+  onSave,
+  onGroupingChange,
+  onAddSlot,
+  onFillSlot,
+  onRemoveSlot,
+  onPreview
 }: {
   creative: Creative;
   group?: CreativeGroup;
+  groups?: CreativeGroup[];
   loading: boolean;
   saving?: boolean;
   mode?: "launch" | "edit";
+  groupingBusyId?: number | null;
+  slotBusyGroupId?: string | null;
   onClose: () => void;
   onConfirm?: (payload: LaunchRequest) => void;
   onSave?: (payload: CreativeUpdateRequest) => Promise<void> | void;
+  onGroupingChange?: (creative: Creative, payload: CreativeGroupingPayload) => Promise<void> | void;
+  onAddSlot?: (group: CreativeGroup, assetPlacement: CreativeAssetPlacement) => Promise<void> | void;
+  onFillSlot?: (slot: Creative, sourceCreativeId: number) => Promise<void> | void;
+  onRemoveSlot?: (creative: Creative) => Promise<void> | void;
+  onPreview?: (creative: Creative) => void;
 }) {
   const [draft, setDraft] = useState<CreativeDetailsDraft>(() => creativeToDetailsDraft(creative));
   const [campaigns, setCampaigns] = useState<MetaCampaign[]>([]);
@@ -1909,19 +2215,22 @@ function ConfirmModal({
         <div className="modalGrid">
           <div className="modalPreviewStack">
             {group ? (
-              <div className="modalAssetGallery">
-                {group.creatives.map((asset) => (
-                  <figure className={asset.asset_placement === "do_not_use" ? "modalAssetCard muted" : "modalAssetCard"} key={asset.id}>
-                    <CreativePreview creative={asset} />
-                    <figcaption>
-                      <strong>{placementLabel(asset.asset_placement)}</strong>
-                      <span title={asset.source_file_name ?? undefined}>{asset.source_file_name ?? `Creative ${asset.id}`}</span>
-                    </figcaption>
-                  </figure>
-                ))}
-              </div>
+              <AssetManagementPanel
+                group={group}
+                groups={groups}
+                groupingBusyId={groupingBusyId}
+                slotBusyGroupId={slotBusyGroupId}
+                onGroupingChange={onGroupingChange}
+                onAddSlot={onAddSlot}
+                onFillSlot={onFillSlot}
+                onRemoveSlot={onRemoveSlot}
+                onPreview={onPreview}
+              />
             ) : (
-              <CreativePreview creative={creative} />
+              <div className="singleAssetPreview">
+                <AssetPreviewTile creative={creative} onPreview={onPreview} />
+                <AssetNameButton creative={creative} onPreview={onPreview} />
+              </div>
             )}
           </div>
           <div className="detailsForm">
@@ -2177,42 +2486,25 @@ function CreativeRow({
 
 function CreativeGroupRow({
   group,
-  groups,
   onEdit,
   onLaunch,
   selectable = false,
   selected = false,
   onSelectChange,
-  onGroupingChange,
-  onAddSlot,
-  onFillSlot,
-  onRemoveSlot,
-  groupingBusyId,
-  slotBusyGroupId,
+  onPreview,
   campaignNamesById,
   adSetNamesById
 }: {
   group: CreativeGroup;
-  groups: CreativeGroup[];
   onEdit?: (group: CreativeGroup) => void;
   onLaunch?: (group: CreativeGroup) => void;
   selectable?: boolean;
   selected?: boolean;
   onSelectChange?: (groupId: string, checked: boolean) => void;
-  onGroupingChange?: (
-    creative: Creative,
-    payload: { creativeGroupKey: string; creativeGroupName?: string | null; assetPlacement: CreativeAssetPlacement }
-  ) => Promise<void> | void;
-  onAddSlot?: (group: CreativeGroup, assetPlacement: CreativeAssetPlacement) => Promise<void> | void;
-  onFillSlot?: (slot: Creative, sourceCreativeId: number) => Promise<void> | void;
-  onRemoveSlot?: (creative: Creative) => Promise<void> | void;
-  groupingBusyId?: number | null;
-  slotBusyGroupId?: string | null;
+  onPreview?: (creative: Creative) => void;
   campaignNamesById?: ReadonlyMap<string, string>;
   adSetNamesById?: ReadonlyMap<string, string>;
 }) {
-  const [newSlotPlacement, setNewSlotPlacement] = useState<CreativeAssetPlacement>("feed");
-  const [slotFillAssetIds, setSlotFillAssetIds] = useState<Record<number, string>>({});
   const primary = groupPrimaryCreative(group);
   const creativeName = group.group_name || primary.project_type || `Creative set ${group.id}`;
   const hasCampaign = Boolean(primary.campaign_id || primary.campaign_name);
@@ -2223,23 +2515,11 @@ function CreativeGroupRow({
   const textCount = 1 + cleanTextSequence(primary.ad_text_variants ?? []).length;
   const titleCount = 1 + cleanTextSequence(primary.headline_variants ?? []).length;
   const ctaCount = 1 + normalizeCtaTypeSequence(primary.cta_type_variants ?? []).length;
-  const groupOptions = groups.map((item) => ({ key: item.group_key, name: item.group_name }));
-  const slotBusy = slotBusyGroupId === group.id;
   const emptySlotCount = group.creatives.filter(isEmptyCreativeSlot).length;
   const uploadedAssetCount = group.creatives.length - emptySlotCount;
   const assetSummary = `${uploadedAssetCount} asset${uploadedAssetCount === 1 ? "" : "s"}${
     emptySlotCount ? `, ${emptySlotCount} empty slot${emptySlotCount === 1 ? "" : "s"}` : ""
   }`;
-  const fillableAssets = groups
-    .flatMap((item) => item.creatives)
-    .filter(
-      (creative) =>
-        creative.notion_task_id === group.notion_task_id &&
-        creative.creative_group_key !== group.group_key &&
-        !isEmptyCreativeSlot(creative) &&
-        creative.asset_id &&
-        creative.asset_type
-    );
 
   return (
     <article className={["creativeRow creativeGroupRow", selectable ? "selectable" : "", selected ? "selected" : ""].filter(Boolean).join(" ")}>
@@ -2276,156 +2556,7 @@ function CreativeGroupRow({
           <MetadataItem label="CTA" value={`${formatCtaTypeLabel(primary.cta_type)}${ctaCount > 1 ? ` +${ctaCount - 1}` : ""}`} />
           <MetadataItem label="Ad link" value={primary.cta_link ? "Added" : "Missing"} />
         </div>
-        <div className="assetAssignmentGrid">
-          <div className="assetAssignmentToolbar">
-            <div>
-              <strong>Assets in set</strong>
-            </div>
-            <select
-              value={newSlotPlacement}
-              disabled={slotBusy}
-              aria-label="Placement role for new empty slot"
-              onChange={(event) => setNewSlotPlacement(event.target.value as CreativeAssetPlacement)}
-            >
-              {placementOptions
-                .filter((option) => option.value !== "do_not_use")
-                .map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-            </select>
-            <button
-              type="button"
-              className="secondaryButton compact"
-              disabled={slotBusy}
-              onClick={() => void onAddSlot?.(group, newSlotPlacement)}
-            >
-              {slotBusy ? <Loader2 size={14} className="spin" /> : <Plus size={14} />}
-              Add empty slot
-            </button>
-          </div>
-          <div className="assetAssignmentHeader">
-            <span>Asset</span>
-            <span>Placement role</span>
-            <span>Move / join set</span>
-            <span>Action</span>
-          </div>
-          {group.creatives.map((creative) => (
-            <div className="assetAssignmentRow" key={creative.id}>
-              <span title={creative.source_file_name ?? undefined}>
-                {creative.source_file_name ?? `Creative ${creative.id}`}
-                {isEmptyCreativeSlot(creative) ? <small>Empty slot</small> : null}
-              </span>
-              <select
-                aria-label={`Placement role for ${creative.source_file_name ?? `Creative ${creative.id}`}`}
-                value={creative.asset_placement}
-                disabled={groupingBusyId === creative.id}
-                onChange={(event) =>
-                  void onGroupingChange?.(creative, {
-                    creativeGroupKey: creative.creative_group_key,
-                    creativeGroupName: creative.creative_group_name,
-                    assetPlacement: event.target.value as CreativeAssetPlacement
-                  })
-                }
-              >
-                {placementOptions.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-              {isEmptyCreativeSlot(creative) ? (
-                <select
-                  aria-label={`Asset to fill ${creative.source_file_name ?? `slot ${creative.id}`}`}
-                  value={slotFillAssetIds[creative.id] ?? ""}
-                  disabled={groupingBusyId === creative.id || !fillableAssets.length}
-                  onChange={(event) =>
-                    setSlotFillAssetIds((current) => ({
-                      ...current,
-                      [creative.id]: event.target.value
-                    }))
-                  }
-                >
-                  <option value="">{fillableAssets.length ? "Choose asset" : "No available assets"}</option>
-                  {fillableAssets.map((asset) => (
-                    <option key={asset.id} value={asset.id}>
-                      {asset.source_file_name ?? `Creative ${asset.id}`} - {asset.creative_group_name}
-                    </option>
-                  ))}
-                </select>
-              ) : (
-                <select
-                  aria-label={`Move ${creative.source_file_name ?? `Creative ${creative.id}`} to another set`}
-                  value={creative.creative_group_key}
-                  disabled={groupingBusyId === creative.id}
-                  onChange={(event) => {
-                    const nextGroup = groupOptions.find((option) => option.key === event.target.value);
-                    void onGroupingChange?.(creative, {
-                      creativeGroupKey: event.target.value,
-                      creativeGroupName: nextGroup?.name ?? event.target.value.replaceAll("_", " "),
-                      assetPlacement: creative.asset_placement
-                    });
-                  }}
-                >
-                  {groupOptions.map((option) => (
-                    <option key={option.key} value={option.key}>
-                      {option.name}
-                    </option>
-                  ))}
-                </select>
-              )}
-              {isEmptyCreativeSlot(creative) ? (
-                <div className="assetAssignmentActions">
-                  <button
-                    type="button"
-                    className="secondaryButton compact"
-                    disabled={groupingBusyId === creative.id || !slotFillAssetIds[creative.id]}
-                    onClick={() => void onFillSlot?.(creative, Number(slotFillAssetIds[creative.id]))}
-                  >
-                    Fill
-                  </button>
-                  <button
-                    type="button"
-                    className="secondaryButton compact dangerButton iconOnlyButton"
-                    disabled={groupingBusyId === creative.id}
-                    title="Remove this empty slot"
-                    aria-label="Remove empty slot"
-                    onClick={() => void onRemoveSlot?.(creative)}
-                  >
-                    <Trash2 size={14} />
-                  </button>
-                </div>
-              ) : group.creatives.length > 1 ? (
-                <button
-                  type="button"
-                  className="secondaryButton compact"
-                  disabled={groupingBusyId === creative.id}
-                  title="Move this asset into its own creative set"
-                  onClick={() =>
-                    void onGroupingChange?.(creative, assetSetFromFileName(creative))
-                  }
-                >
-                  Separate
-                </button>
-              ) : hasMismatchedSetLabel(creative) ? (
-                <button
-                  type="button"
-                  className="secondaryButton compact"
-                  disabled={groupingBusyId === creative.id}
-                  title="Reset this creative set label from the asset filename"
-                  onClick={() =>
-                    void onGroupingChange?.(creative, assetSetFromFileName(creative))
-                  }
-                >
-                  Fix label
-                </button>
-              ) : (
-                <span className="assetAssignmentMuted">Single asset</span>
-              )}
-            </div>
-          ))}
-        </div>
+        <AssetSummaryList creatives={group.creatives} onPreview={onPreview} />
       </div>
       <div className="creativeContext">
         <div className={setupReady ? "campaignSetupSummary" : "campaignSetupSummary missing"}>
@@ -4679,6 +4810,7 @@ export function App() {
   const [selectedGroup, setSelectedGroup] = useState<CreativeGroup | null>(null);
   const [editing, setEditing] = useState<Creative | null>(null);
   const [editingGroup, setEditingGroup] = useState<CreativeGroup | null>(null);
+  const [previewingAsset, setPreviewingAsset] = useState<Creative | null>(null);
   const [launching, setLaunching] = useState(false);
   const [savingCreative, setSavingCreative] = useState(false);
   const [selectedCreativeIds, setSelectedCreativeIds] = useState<Set<number>>(() => new Set());
@@ -4731,6 +4863,21 @@ export function App() {
     });
   }, []);
 
+  const syncOpenGroups = useCallback((groups: CreativeGroup[]) => {
+    const findUpdatedGroup = (current: CreativeGroup | null) => {
+      if (!current) return null;
+      const currentCreativeIds = new Set(current.creatives.map((creative) => creative.id));
+      return (
+        groups.find((group) => group.id === current.id) ??
+        groups.find((group) => group.creatives.some((creative) => currentCreativeIds.has(creative.id))) ??
+        null
+      );
+    };
+
+    setSelectedGroup(findUpdatedGroup);
+    setEditingGroup(findUpdatedGroup);
+  }, []);
+
   const load = useCallback(async () => {
     if (route.area !== "creatives") return;
     setLoading(true);
@@ -4740,6 +4887,7 @@ export function App() {
         const groups = await fetchCreativeGroups("ready");
         setCreativeGroups(groups);
         setCreatives(groups.flatMap((group) => group.creatives));
+        syncOpenGroups(groups);
       } else {
         setCreativeGroups([]);
         setCreatives(await fetchCreatives(viewConfig[route.view].listKind));
@@ -4749,7 +4897,7 @@ export function App() {
     } finally {
       setLoading(false);
     }
-  }, [route]);
+  }, [route, syncOpenGroups]);
 
   useEffect(() => {
     if (ready && route.area === "creatives") {
@@ -5389,18 +5537,12 @@ export function App() {
                     <CreativeGroupRow
                       key={group.id}
                       group={group}
-                      groups={creativeGroups}
                       onEdit={setEditingGroup}
                       onLaunch={setSelectedGroup}
                       selectable
                       selected={selectedGroupIds.has(group.id)}
                       onSelectChange={toggleGroupSelection}
-                      onGroupingChange={saveCreativeGrouping}
-                      onAddSlot={addEmptySlot}
-                      onFillSlot={fillEmptySlot}
-                      onRemoveSlot={removeEmptySlot}
-                      groupingBusyId={groupingBusyId}
-                      slotBusyGroupId={slotBusyGroupId}
+                      onPreview={setPreviewingAsset}
                       campaignNamesById={campaignNamesById}
                       adSetNamesById={adSetNamesById}
                     />
@@ -5435,6 +5577,7 @@ export function App() {
           onClose={() => setSelected(null)}
           onConfirm={confirmLaunch}
           onSave={(payload) => saveCreativeDetails(selected.id, payload)}
+          onPreview={setPreviewingAsset}
         />
       ) : null}
 
@@ -5442,12 +5585,20 @@ export function App() {
         <ConfirmModal
           creative={groupPrimaryCreative(selectedGroup)}
           group={selectedGroup}
+          groups={creativeGroups}
           loading={launching}
           saving={savingCreative}
+          groupingBusyId={groupingBusyId}
+          slotBusyGroupId={slotBusyGroupId}
           mode="launch"
           onClose={() => setSelectedGroup(null)}
           onConfirm={confirmGroupLaunch}
           onSave={(payload) => saveGroupDetails(selectedGroup, payload)}
+          onGroupingChange={saveCreativeGrouping}
+          onAddSlot={addEmptySlot}
+          onFillSlot={fillEmptySlot}
+          onRemoveSlot={removeEmptySlot}
+          onPreview={setPreviewingAsset}
         />
       ) : null}
 
@@ -5459,6 +5610,7 @@ export function App() {
           mode="edit"
           onClose={() => setEditing(null)}
           onSave={(payload) => saveCreativeDetails(editing.id, payload)}
+          onPreview={setPreviewingAsset}
         />
       ) : null}
 
@@ -5466,12 +5618,24 @@ export function App() {
         <ConfirmModal
           creative={groupPrimaryCreative(editingGroup)}
           group={editingGroup}
+          groups={creativeGroups}
           loading={false}
           saving={savingCreative}
+          groupingBusyId={groupingBusyId}
+          slotBusyGroupId={slotBusyGroupId}
           mode="edit"
           onClose={() => setEditingGroup(null)}
           onSave={(payload) => saveGroupDetails(editingGroup, payload)}
+          onGroupingChange={saveCreativeGrouping}
+          onAddSlot={addEmptySlot}
+          onFillSlot={fillEmptySlot}
+          onRemoveSlot={removeEmptySlot}
+          onPreview={setPreviewingAsset}
         />
+      ) : null}
+
+      {previewingAsset ? (
+        <AssetPreviewOverlay creative={previewingAsset} onClose={() => setPreviewingAsset(null)} />
       ) : null}
     </div>
   );

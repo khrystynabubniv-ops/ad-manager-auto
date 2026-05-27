@@ -2981,6 +2981,106 @@ button:disabled {
   letter-spacing: 0.05em;
 }
 
+.assetPreviewTile {
+  position: relative;
+  display: block;
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  text-align: left;
+}
+
+.assetPreviewTile:disabled {
+  opacity: 1;
+}
+
+.assetPreviewTile > span {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: 5px;
+  background: rgba(8, 10, 16, 0.74);
+  color: white;
+  padding: 4px 7px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.assetNameButton {
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: var(--info-text);
+  padding: 0;
+  font: inherit;
+  font-weight: 700;
+  text-align: left;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+
+.assetNameButton:hover {
+  text-decoration: underline;
+}
+
+.assetLightboxOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: oklch(0.12 0.015 250 / 0.78);
+}
+
+.assetLightbox {
+  width: min(920px, 100%);
+  max-height: calc(100dvh - 48px);
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: 0 30px 70px -18px rgba(0, 0, 0, 0.45);
+}
+
+.assetLightboxHeader {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid var(--border);
+  padding: 12px 14px;
+}
+
+.assetLightboxHeader strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.assetLightboxImage,
+.assetLightboxFallback {
+  width: 100%;
+  max-height: calc(100dvh - 110px);
+  min-height: 280px;
+  object-fit: contain;
+  background: var(--surface-alt);
+}
+
+.assetLightboxFallback {
+  display: grid;
+  place-items: center;
+  color: var(--fg-muted);
+  font-weight: 650;
+}
+
 .creativeMain {
   min-width: 0;
   display: grid;
@@ -3068,6 +3168,40 @@ button:disabled {
 .groupPreviewStack .previewFallback {
   width: 68px;
   height: 68px;
+}
+
+.assetSummaryList {
+  display: grid;
+  gap: 5px;
+  margin-top: 3px;
+}
+
+.assetSummaryRow {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(120px, 180px) minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+  border: 1px solid var(--border-soft);
+  border-radius: 6px;
+  background: var(--surface-alt);
+  padding: 7px 8px;
+}
+
+.assetSummaryRow.muted {
+  opacity: 0.62;
+}
+
+.assetSummaryRow > span {
+  color: var(--fg-muted);
+  font-size: 11.5px;
+  font-weight: 750;
+}
+
+.assetSummaryRow .assetNameButton {
+  color: var(--fg-strong);
+  font-size: 12px;
+  line-height: 1.35;
 }
 
 .assetAssignmentGrid {
@@ -3191,6 +3325,164 @@ button:disabled {
   display: grid;
   gap: 8px;
   align-content: start;
+}
+
+.singleAssetPreview {
+  display: grid;
+  gap: 10px;
+}
+
+.singleAssetPreview .assetPreviewTile .previewImage,
+.singleAssetPreview .assetPreviewTile .previewFallback {
+  width: 100%;
+  height: 280px;
+  object-fit: contain;
+  background: var(--surface);
+}
+
+.assetManagerPanel {
+  display: grid;
+  gap: 10px;
+}
+
+.assetManagerHeader {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  padding: 10px;
+}
+
+.assetManagerHeader > div:first-child {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.assetManagerHeader span,
+.assetManagerField > span {
+  color: var(--fg-soft);
+  font-size: 11px;
+  font-weight: 750;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.assetManagerHeader strong {
+  color: var(--fg-strong);
+  font-size: 13px;
+}
+
+.assetManagerAddSlot {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.assetManagerAddSlot select {
+  width: 180px;
+}
+
+.assetManagerList {
+  display: grid;
+  gap: 10px;
+}
+
+.assetManagerCard {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 112px minmax(0, 1fr);
+  gap: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-alt);
+  padding: 10px;
+}
+
+.assetManagerCard.muted {
+  opacity: 0.62;
+}
+
+.assetManagerCard .assetPreviewTile .previewImage,
+.assetManagerCard .assetPreviewTile .previewFallback {
+  width: 112px;
+  height: 140px;
+  object-fit: contain;
+  background: var(--surface);
+}
+
+.assetManagerBody,
+.assetManagerName,
+.assetManagerField {
+  min-width: 0;
+  display: grid;
+}
+
+.assetManagerBody {
+  gap: 9px;
+}
+
+.assetManagerName {
+  gap: 2px;
+}
+
+.assetManagerName > span {
+  color: var(--info-text);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.assetManagerName small {
+  color: var(--fg-muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.assetManagerField {
+  gap: 4px;
+}
+
+.assetManagerField select,
+.assetManagerAddSlot select {
+  min-height: 32px;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--surface);
+  color: var(--fg);
+  font-size: 12px;
+}
+
+.selectedFillAsset {
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  align-items: center;
+  justify-content: space-between;
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  padding: 7px;
+}
+
+.selectedFillAsset span {
+  min-width: 0;
+  flex: 1;
+  color: var(--fg);
+  font-size: 11.5px;
+  font-weight: 650;
+  overflow-wrap: anywhere;
+}
+
+.assetManagerActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  align-items: center;
 }
 
 .modalAssetGallery {
@@ -3814,7 +4106,7 @@ button:disabled {
 
 .modalGrid {
   display: grid;
-  grid-template-columns: minmax(300px, 380px) minmax(0, 1fr);
+  grid-template-columns: minmax(360px, 470px) minmax(0, 1fr);
   gap: 18px;
   min-height: 0;
   overflow-y: auto;
@@ -4092,6 +4384,18 @@ button:disabled {
     grid-template-columns: minmax(0, 1fr) minmax(118px, 148px) auto;
   }
 
+  .assetSummaryRow {
+    grid-template-columns: minmax(112px, 160px) minmax(0, 1fr);
+  }
+
+  .assetManagerHeader {
+    grid-template-columns: 1fr;
+  }
+
+  .assetManagerAddSlot {
+    justify-content: flex-start;
+  }
+
   .assetAssignmentRow {
     grid-template-columns: minmax(0, 1fr) minmax(118px, 148px);
   }
@@ -4246,6 +4550,29 @@ button:disabled {
   .creativeReviewModal .modalGrid .modalAssetCard .previewFallback {
     height: 180px;
     min-height: 0;
+  }
+
+  .assetSummaryRow,
+  .assetManagerCard,
+  .assetManagerAddSlot {
+    grid-template-columns: 1fr;
+  }
+
+  .assetManagerAddSlot {
+    display: grid;
+  }
+
+  .assetManagerAddSlot select,
+  .assetManagerCard .assetPreviewTile .previewImage,
+  .assetManagerCard .assetPreviewTile .previewFallback,
+  .singleAssetPreview .assetPreviewTile .previewImage,
+  .singleAssetPreview .assetPreviewTile .previewFallback {
+    width: 100%;
+  }
+
+  .assetManagerCard .assetPreviewTile .previewImage,
+  .assetManagerCard .assetPreviewTile .previewFallback {
+    height: 180px;
   }
 
   .modalOverlay {
