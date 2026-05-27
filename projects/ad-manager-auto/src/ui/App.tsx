@@ -5515,7 +5515,11 @@ export function App() {
 
     for (const creative of originalGroup.creatives) {
       if (!draftById.has(creative.id)) {
-        await archiveCreative(creative.id);
+        if (isEmptyCreativeSlot(creative)) {
+          await archiveCreative(creative.id);
+        } else {
+          await updateCreativeGrouping(creative.id, assetSetFromFileName(creative));
+        }
       }
     }
 
