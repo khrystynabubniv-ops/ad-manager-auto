@@ -426,6 +426,14 @@ export async function createCreativeGroupSlot(
   return response.group;
 }
 
+export async function fillCreativeGroupSlot(id: number, payload: { sourceCreativeId: number }): Promise<CreativeGroup> {
+  const response = await apiFetch<{ group: CreativeGroup }>(`/api/creatives/${id}/fill-slot`, {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+  return response.group;
+}
+
 export async function uploadCreative(payload: {
   fileName: string;
   mimeType: string;

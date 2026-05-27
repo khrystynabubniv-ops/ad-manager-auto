@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { DB_STATUS } from "../config/statuses.js";
 import { requireAuth } from "../middleware/auth.js";
 import {
+  creativeGroupId,
   getCreativeById,
   getCreativeGroupById,
   listCreativeGroups,
@@ -22,6 +23,10 @@ import { AppError } from "../utils/errors.js";
 export const creativesRouter = Router();
 
 const assetPlacements = ["feed", "stories_reels", "horizontal", "unknown", "do_not_use"] as const;
+
+function isEmptyCreativeSlot(creative: { source_file_id: string; asset_id: string | null; asset_type: string | null }) {
+  return creative.source_file_id.startsWith("slot:") || !creative.asset_id || !creative.asset_type;
+}
 
 function parseAssetPlacement(value: unknown, fallback?: CreativeAssetPlacement): CreativeAssetPlacement {
   const placement = typeof value === "string" ? value : fallback;
@@ -218,6 +223,75 @@ creativesRouter.post("/groups/:groupId/slots", requireAuth, async (req, res, nex
     });
 
     res.status(201).json({ group: await getCreativeGroupById(req.params.groupId) });
+  } catch (error) {
+    next(error);
+  }
+});
+
+creativesRouter.post("/:id/fill-slot", requireAuth, async (req, res, next) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id)) {
+      throw new AppError("Invalid creative id", { statusCode: 400, code: "INVALID_CREATIVE_ID" });
+    }
+
+    const slot = await getCreativeById(id);
+    if (!slot) {
+      throw new AppError(`Creative ${id} not found`, { statusCode: 404, code: "CREATIVE_NOT_FOUND" });
+    }
+    if (!isEmptyCreativeSlot(slot)) {
+      throw new AppError("Creative is not an empty slot", { statusCode: 400, code: "NOT_EMPTY_SLOT" });
+    }
+
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const sourceCreativeId = Number(body.sourceCreativeId);
+    if (!Number.isInteger(sourceCreativeId) || sourceCreativeId <= 0) {
+      throw new AppError("sourceCreativeId is required", { statusCode: 400, code: "MISSING_SOURCE_CREATIVE_ID" });
+    }
+
+    const source = await getCreativeById(sourceCreativeId);
+    if (!source) {
+      throw new AppError(`Creative ${sourceCreativeId} not found`, { statusCode: 404, code: "SOURCE_CREATIVE_NOT_FOUND" });
+    }
+    if (isEmptyCreativeSlot(source)) {
+      throw new AppError("Choose an uploaded asset to fill the slot", { statusCode: 400, code: "SOURCE_ASSET_REQUIRED" });
+    }
+    if (source.notion_task_id !== slot.notion_task_id) {
+      throw new AppError("Asset must belong to the same task as the empty slot", {
+        statusCode: 400,
+        code: "SOURCE_TASK_MISMATCH"
+      });
+    }
+    const fillableStatuses: string[] = [DB_STATUS.READY_TO_LAUNCH, DB_STATUS.LAUNCH_FAILED];
+    if (!fillableStatuses.includes(source.status)) {
+      throw new AppError("Asset is not ready to be added to this set", { statusCode: 400, code: "SOURCE_STATUS_INVALID" });
+    }
+
+    await updateCreativeGrouping(source.id, {
+      creativeGroupKey: slot.creative_group_key,
+      creativeGroupName: slot.creative_group_name,
+      assetPlacement: slot.asset_placement
+    });
+    await updateCreativeDetails(source.id, {
+      projectType: slot.project_type,
+      adText: slot.ad_text,
+      headline: slot.headline,
+      headlineVariants: slot.headline_variants ?? [],
+      adTextVariants: slot.ad_text_variants ?? [],
+      ctaType: slot.cta_type,
+      ctaTypeVariants: slot.cta_type_variants ?? [],
+      ctaLink: slot.cta_link,
+      audience: slot.audience,
+      location: slot.location,
+      campaignId: slot.campaign_id,
+      campaignName: slot.campaign_name,
+      adSetId: slot.adset_id,
+      adSetName: slot.adset_name
+    });
+    await updateCreativeStatus(slot.id, DB_STATUS.CANCELED);
+
+    const groupId = creativeGroupId(slot.notion_task_id, slot.creative_group_key);
+    res.json({ group: await getCreativeGroupById(groupId, [DB_STATUS.READY_TO_LAUNCH, DB_STATUS.LAUNCH_FAILED]) });
   } catch (error) {
     next(error);
   }

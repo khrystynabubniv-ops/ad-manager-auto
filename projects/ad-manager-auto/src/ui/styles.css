@@ -3167,6 +3167,19 @@ button:disabled {
   font-size: 12px;
 }
 
+.assetAssignmentActions {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.assetAssignmentActions .iconOnlyButton {
+  width: 32px;
+  min-width: 32px;
+  padding: 0;
+}
+
 .assetAssignmentMuted {
   color: var(--fg-muted);
   font-size: 12px;

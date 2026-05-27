@@ -52,6 +52,7 @@ import {
   fetchCampaigns,
   fetchCreativeGroups,
   fetchCreatives,
+  fillCreativeGroupSlot,
   launchCreative,
   launchCreativeGroup,
   generateCreativeCopySuggestions,
@@ -2153,6 +2154,7 @@ function CreativeGroupRow({
   onSelectChange,
   onGroupingChange,
   onAddSlot,
+  onFillSlot,
   onRemoveSlot,
   groupingBusyId,
   slotBusyGroupId,
@@ -2171,6 +2173,7 @@ function CreativeGroupRow({
     payload: { creativeGroupKey: string; creativeGroupName?: string | null; assetPlacement: CreativeAssetPlacement }
   ) => Promise<void> | void;
   onAddSlot?: (group: CreativeGroup, assetPlacement: CreativeAssetPlacement) => Promise<void> | void;
+  onFillSlot?: (slot: Creative, sourceCreativeId: number) => Promise<void> | void;
   onRemoveSlot?: (creative: Creative) => Promise<void> | void;
   groupingBusyId?: number | null;
   slotBusyGroupId?: string | null;
@@ -2178,6 +2181,7 @@ function CreativeGroupRow({
   adSetNamesById?: ReadonlyMap<string, string>;
 }) {
   const [newSlotPlacement, setNewSlotPlacement] = useState<CreativeAssetPlacement>("feed");
+  const [slotFillAssetIds, setSlotFillAssetIds] = useState<Record<number, string>>({});
   const primary = groupPrimaryCreative(group);
   const creativeName = group.group_name || primary.project_type || `Creative set ${group.id}`;
   const hasCampaign = Boolean(primary.campaign_id || primary.campaign_name);
@@ -2195,6 +2199,16 @@ function CreativeGroupRow({
   const assetSummary = `${uploadedAssetCount} asset${uploadedAssetCount === 1 ? "" : "s"}${
     emptySlotCount ? `, ${emptySlotCount} empty slot${emptySlotCount === 1 ? "" : "s"}` : ""
   }`;
+  const fillableAssets = groups
+    .flatMap((item) => item.creatives)
+    .filter(
+      (creative) =>
+        creative.notion_task_id === group.notion_task_id &&
+        creative.creative_group_key !== group.group_key &&
+        !isEmptyCreativeSlot(creative) &&
+        creative.asset_id &&
+        creative.asset_type
+    );
 
   return (
     <article className={["creativeRow creativeGroupRow", selectable ? "selectable" : "", selected ? "selected" : ""].filter(Boolean).join(" ")}>
@@ -2290,35 +2304,67 @@ function CreativeGroupRow({
                   </option>
                 ))}
               </select>
-              <select
-                aria-label={`Move ${creative.source_file_name ?? `Creative ${creative.id}`} to another set`}
-                value={creative.creative_group_key}
-                disabled={groupingBusyId === creative.id}
-                onChange={(event) => {
-                  const nextGroup = groupOptions.find((option) => option.key === event.target.value);
-                  void onGroupingChange?.(creative, {
-                    creativeGroupKey: event.target.value,
-                    creativeGroupName: nextGroup?.name ?? event.target.value.replaceAll("_", " "),
-                    assetPlacement: creative.asset_placement
-                  });
-                }}
-              >
-                {groupOptions.map((option) => (
-                  <option key={option.key} value={option.key}>
-                    {option.name}
-                  </option>
-                ))}
-              </select>
               {isEmptyCreativeSlot(creative) ? (
-                <button
-                  type="button"
-                  className="secondaryButton compact dangerButton"
-                  disabled={groupingBusyId === creative.id}
-                  title="Remove this empty slot"
-                  onClick={() => void onRemoveSlot?.(creative)}
+                <select
+                  aria-label={`Asset to fill ${creative.source_file_name ?? `slot ${creative.id}`}`}
+                  value={slotFillAssetIds[creative.id] ?? ""}
+                  disabled={groupingBusyId === creative.id || !fillableAssets.length}
+                  onChange={(event) =>
+                    setSlotFillAssetIds((current) => ({
+                      ...current,
+                      [creative.id]: event.target.value
+                    }))
+                  }
                 >
-                  Remove
-                </button>
+                  <option value="">{fillableAssets.length ? "Choose asset" : "No available assets"}</option>
+                  {fillableAssets.map((asset) => (
+                    <option key={asset.id} value={asset.id}>
+                      {asset.source_file_name ?? `Creative ${asset.id}`} - {asset.creative_group_name}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <select
+                  aria-label={`Move ${creative.source_file_name ?? `Creative ${creative.id}`} to another set`}
+                  value={creative.creative_group_key}
+                  disabled={groupingBusyId === creative.id}
+                  onChange={(event) => {
+                    const nextGroup = groupOptions.find((option) => option.key === event.target.value);
+                    void onGroupingChange?.(creative, {
+                      creativeGroupKey: event.target.value,
+                      creativeGroupName: nextGroup?.name ?? event.target.value.replaceAll("_", " "),
+                      assetPlacement: creative.asset_placement
+                    });
+                  }}
+                >
+                  {groupOptions.map((option) => (
+                    <option key={option.key} value={option.key}>
+                      {option.name}
+                    </option>
+                  ))}
+                </select>
+              )}
+              {isEmptyCreativeSlot(creative) ? (
+                <div className="assetAssignmentActions">
+                  <button
+                    type="button"
+                    className="secondaryButton compact"
+                    disabled={groupingBusyId === creative.id || !slotFillAssetIds[creative.id]}
+                    onClick={() => void onFillSlot?.(creative, Number(slotFillAssetIds[creative.id]))}
+                  >
+                    Fill
+                  </button>
+                  <button
+                    type="button"
+                    className="secondaryButton compact dangerButton iconOnlyButton"
+                    disabled={groupingBusyId === creative.id}
+                    title="Remove this empty slot"
+                    aria-label="Remove empty slot"
+                    onClick={() => void onRemoveSlot?.(creative)}
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
               ) : group.creatives.length > 1 ? (
                 <button
                   type="button"
@@ -5055,6 +5101,20 @@ export function App() {
     }
   }
 
+  async function fillEmptySlot(slot: Creative, sourceCreativeId: number) {
+    setGroupingBusyId(slot.id);
+    setError(null);
+    try {
+      await fillCreativeGroupSlot(slot.id, { sourceCreativeId });
+      await load();
+      setError("Asset added to slot.");
+    } catch (fillError) {
+      setError(fillError instanceof Error ? fillError.message : String(fillError));
+    } finally {
+      setGroupingBusyId(null);
+    }
+  }
+
   async function removeEmptySlot(creative: Creative) {
     setGroupingBusyId(creative.id);
     setError(null);
@@ -5298,6 +5358,7 @@ export function App() {
                       onSelectChange={toggleGroupSelection}
                       onGroupingChange={saveCreativeGrouping}
                       onAddSlot={addEmptySlot}
+                      onFillSlot={fillEmptySlot}
                       onRemoveSlot={removeEmptySlot}
                       groupingBusyId={groupingBusyId}
                       slotBusyGroupId={slotBusyGroupId}

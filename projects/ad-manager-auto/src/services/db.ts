@@ -435,7 +435,7 @@ export async function getCreativeById(id: number): Promise<Creative | undefined>
   return result.rows[0];
 }
 
-function creativeGroupId(notionTaskId: string, groupKey: string): string {
+export function creativeGroupId(notionTaskId: string, groupKey: string): string {
   return Buffer.from(`${notionTaskId}\n${groupKey}`, "utf8").toString("base64url");
 }
 
