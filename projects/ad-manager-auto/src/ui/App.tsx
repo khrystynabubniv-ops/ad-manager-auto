@@ -1526,17 +1526,16 @@ function AssetManagementPanel({
       .map((creative) => ({ creative, group: item }))
   );
 
-  function selectedCandidateFor(target: Creative) {
-    const selectedId = selectedAssetIds[target.id] ?? (isEmptyCreativeSlot(target) ? "" : String(target.id));
-    return candidateAssets.find((candidate) => String(candidate.creative.id) === selectedId);
+  function setSelectedAssetId(targetId: number, value: string) {
+    setSelectedAssetIds((current) => ({
+      ...current,
+      [targetId]: value
+    }));
   }
 
   async function useAssetHere(target: Creative, candidate: CandidateAsset) {
     await onChooseAsset?.(target, candidate.creative.id);
-    setSelectedAssetIds((current) => ({
-      ...current,
-      [target.id]: ""
-    }));
+    setSelectedAssetId(target.id, "");
   }
 
   function requestUseAsset(target: Creative, candidate: CandidateAsset) {
@@ -1550,6 +1549,13 @@ function AssetManagementPanel({
     }
 
     void useAssetHere(target, candidate);
+  }
+
+  function chooseAsset(target: Creative, value: string) {
+    setSelectedAssetId(target.id, value);
+    const candidate = candidateAssets.find((item) => String(item.creative.id) === value);
+    if (!candidate || candidate.creative.id === target.id) return;
+    requestUseAsset(target, candidate);
   }
 
   return (
@@ -1595,8 +1601,6 @@ function AssetManagementPanel({
 
       <div className="assetManagerList">
         {group.creatives.map((creative) => {
-          const selectedCandidate = selectedCandidateFor(creative);
-          const selectedAsset = selectedCandidate?.creative;
           const selectedAssetId = selectedAssetIds[creative.id] ?? (isEmptyCreativeSlot(creative) ? "" : String(creative.id));
           const canChooseAnotherAsset = candidateAssets.some((candidate) => candidate.creative.id !== creative.id);
           const rowBusy = disabled || groupingBusyId === creative.id;
@@ -1639,12 +1643,7 @@ function AssetManagementPanel({
                     aria-label={`Choose asset for ${placementLabel(creative.asset_placement)}`}
                     value={selectedAssetId}
                     disabled={rowBusy || !canChooseAnotherAsset}
-                    onChange={(event) =>
-                      setSelectedAssetIds((current) => ({
-                        ...current,
-                        [creative.id]: event.target.value
-                      }))
-                    }
+                    onChange={(event) => chooseAsset(creative, event.target.value)}
                   >
                     {isEmptyCreativeSlot(creative) ? (
                       <option value="">{candidateAssets.length ? "Choose asset" : "No available assets"}</option>
@@ -1662,28 +1661,6 @@ function AssetManagementPanel({
                         );
                       })}
                   </select>
-                  {selectedAsset && selectedCandidate && selectedAsset.id !== creative.id ? (
-                    <div className="selectedFillAsset">
-                      <span>
-                        <strong>{assetDisplayName(selectedAsset)}</strong>
-                        {selectedCandidate.group.group_key !== group.group_key ? (
-                          <small>Already in {selectedCandidate.group.group_name}</small>
-                        ) : null}
-                      </span>
-                      <button type="button" className="secondaryButton compact" onClick={() => onPreview?.(selectedAsset)}>
-                        <Maximize2 size={14} />
-                        Preview
-                      </button>
-                      <button
-                        type="button"
-                        className="primaryButton compact"
-                        disabled={rowBusy || !onChooseAsset}
-                        onClick={() => requestUseAsset(creative, selectedCandidate)}
-                      >
-                        Use asset here
-                      </button>
-                    </div>
-                  ) : null}
                 </label>
 
                 <div className="assetManagerActions">
@@ -1714,7 +1691,14 @@ function AssetManagementPanel({
               </p>
             </div>
             <div className="assetTransferActions">
-              <button type="button" className="secondaryButton compact" onClick={() => setPendingTransfer(null)}>
+              <button
+                type="button"
+                className="secondaryButton compact"
+                onClick={() => {
+                  setSelectedAssetId(pendingTransfer.target.id, "");
+                  setPendingTransfer(null);
+                }}
+              >
                 Keep it there
               </button>
               <button
