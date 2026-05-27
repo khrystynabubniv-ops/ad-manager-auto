@@ -1456,6 +1456,9 @@ function createLocalEmptySlot(group: CreativeGroup, assetPlacement: CreativeAsse
 function groupsWithDraftGroup(groups: CreativeGroup[], draftGroup?: CreativeGroup | null) {
   if (!draftGroup) return groups;
   const draftCreativeIds = new Set(draftGroup.creatives.filter((creative) => creative.id > 0).map((creative) => creative.id));
+  const originalGroup = groups.find((group) => group.id === draftGroup.id);
+  const removedDraftAssets =
+    originalGroup?.creatives.filter((creative) => creative.id > 0 && !draftCreativeIds.has(creative.id) && !isEmptyCreativeSlot(creative)) ?? [];
   const merged = groups.map((group) => {
     if (group.id === draftGroup.id) return draftGroup;
     return {
@@ -1463,7 +1466,17 @@ function groupsWithDraftGroup(groups: CreativeGroup[], draftGroup?: CreativeGrou
       creatives: group.creatives.filter((creative) => !draftCreativeIds.has(creative.id))
     };
   });
-  return merged.some((group) => group.id === draftGroup.id) ? merged : [draftGroup, ...merged];
+  const groupsWithDraft = merged.some((group) => group.id === draftGroup.id) ? merged : [draftGroup, ...merged];
+  if (!removedDraftAssets.length) return groupsWithDraft;
+  return [
+    ...groupsWithDraft,
+    {
+      ...draftGroup,
+      id: `${draftGroup.id}:removed-assets`,
+      primary_creative: removedDraftAssets[0],
+      creatives: removedDraftAssets
+    }
+  ];
 }
 
 function AssetSummaryList({
