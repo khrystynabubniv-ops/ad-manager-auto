@@ -1333,12 +1333,23 @@ function normalizedAssetStem(fileName?: string | null, fallback = "creative") {
     .replace(/^_+|_+$/g, "") || fallback;
 }
 
+function placementFromSizeToken(size?: string): CreativeAssetPlacement | undefined {
+  if (size === "1x1" || size === "4x5") return "feed";
+  if (size === "9x16") return "stories_reels";
+  if (size === "16x9") return "horizontal";
+  return undefined;
+}
+
 function assetSetFromFileName(creative: Creative) {
-  const key = normalizedAssetStem(creative.source_file_name, `creative_${creative.id}`);
+  const stem = normalizedAssetStem(creative.source_file_name, `creative_${creative.id}`);
+  const parts = stem.split("_").filter(Boolean);
+  const size = parts.at(-1);
+  const groupParts = size && placementFromSizeToken(size) ? parts.slice(0, -1) : parts;
+  const key = groupParts.join("_") || stem;
   return {
     creativeGroupKey: key,
     creativeGroupName: key.replaceAll("_", " "),
-    assetPlacement: creative.asset_placement
+    assetPlacement: placementFromSizeToken(size) ?? creative.asset_placement
   };
 }
 

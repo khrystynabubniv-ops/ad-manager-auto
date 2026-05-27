@@ -321,6 +321,13 @@ creativesRouter.post("/:id/ready", requireAuth, async (req, res, next) => {
       });
     }
 
+    const grouping = creativeGroupingForFileName(existing.source_file_name ?? `creative_${existing.id}`);
+    await updateCreativeGrouping(id, {
+      creativeGroupKey: grouping.groupKey,
+      creativeGroupName: grouping.groupName,
+      assetPlacement: grouping.placement === "unknown" ? existing.asset_placement : grouping.placement
+    });
+
     const creative = await updateCreativeStatus(id, DB_STATUS.READY_TO_LAUNCH);
     res.json({ creative });
   } catch (error) {
