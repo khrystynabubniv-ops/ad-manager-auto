@@ -19,11 +19,11 @@ Notion Activities task
 1. Designer finishes the creative in Notion and sets `Design Status = Approved for Ad`.
 2. The service copies `Final project` to `Google Drive Link` when needed and sets `Ad Status = Approved for Ad`.
 3. PR/marketing sets `Ad Status = Ready to Upload`.
-4. This service uploads every creative from the Drive file/folder to Meta, generates one initial text/title/CTA set, and sets `Ad Status = Ready to Launch`.
-5. PR/marketing opens `/dashboard`, reviews or edits copy, adds the Ad link, optionally generates more variants, chooses the Meta Campaign + AdSet for one or many creatives, and clicks `Launch`.
+4. This service uploads every creative from the Drive file/folder to Meta, groups size variants with the same normalized concept name, generates one initial text/title/CTA set, and sets `Ad Status = Ready to Launch`.
+5. PR/marketing opens `/dashboard`, reviews or edits copy/grouping, adds the Ad link, optionally generates more variants, chooses the Meta Campaign + AdSet for one or many creative sets, and clicks `Launch`.
 6. This service creates paused Meta ads with the selected campaign/ad set and sets `Ad Status = Launched`.
 
-Ready creatives can now store multiple primary text variants and multiple Meta CTA button types. A single text/CTA still launches through the original `object_story_spec` path; multiple variants launch through Meta `asset_feed_spec`.
+Ready creatives can now store multiple primary text variants and multiple Meta CTA button types. A single asset with one text/CTA still launches through the original `object_story_spec` path; multiple copy variants or placement-specific asset groups launch through Meta `asset_feed_spec`.
 
 ## Notion Fields
 
@@ -61,10 +61,21 @@ Examples:
 ```text
 jan26_data_engin_ga_con1_stat_v1_1x1
 jan26_data_engin_ga_con1_stat_v1_9x16
+jan26_data_engin_ga_con1_stat_v1_4x5
+jan26_data_engin_ga_con1_video_v1_16x9
 ```
 
 Accepted optional business tokens: `ga`, `ug`, `wisey`, `forma`, `ruut`, `sg`/`s&g`.
 Accepted formats: `stat` for images, `video` for videos.
+Accepted size suffixes: `1x1`, `4x5`, `9x16`, `16x9`.
+
+Files with the same normalized name before the final size suffix are treated as one creative set. Default placement roles are:
+
+- `1x1` / `4x5`: feed
+- `9x16`: stories/reels
+- `16x9`: horizontal placements
+
+The dashboard shows each creative set before launch and lets users change the asset role, move an asset into another set, split an asset into its own set, or mark an asset as not used.
 
 ## Local Setup
 

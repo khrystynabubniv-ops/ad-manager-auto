@@ -7,6 +7,10 @@ export type Creative = {
   notion_task_url?: string | null;
   source_file_id: string;
   source_file_name?: string | null;
+  creative_group_key: string;
+  creative_group_name: string;
+  asset_placement: CreativeAssetPlacement;
+  grouping_status: "auto" | "manual";
   asset_id?: string | null;
   asset_type?: "image" | "video" | null;
   ad_text?: string | null;
@@ -31,6 +35,22 @@ export type Creative = {
   updated_at: string;
   uploaded_at?: string | null;
   launched_at?: string | null;
+};
+
+export type CreativeAssetPlacement = "feed" | "stories_reels" | "horizontal" | "unknown" | "do_not_use";
+
+export type CreativeGroup = {
+  id: string;
+  notion_task_id: string;
+  notion_task_url?: string | null;
+  group_key: string;
+  group_name: string;
+  status: string;
+  grouping_status: "auto" | "manual";
+  primary_creative: Creative;
+  creatives: Creative[];
+  created_at: string;
+  updated_at: string;
 };
 
 const apiBase = getClientConfig("API_BASE_URL");
@@ -342,6 +362,12 @@ export type CreativeUpdateRequest = {
   adSetName?: string | null;
 };
 
+export type CreativeGroupingUpdateRequest = {
+  creativeGroupKey: string;
+  creativeGroupName?: string | null;
+  assetPlacement: CreativeAssetPlacement;
+};
+
 async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
   const token = await getAccessToken();
   const headers = new Headers(init.headers);
@@ -383,6 +409,12 @@ export async function fetchCreatives(kind: CreativeListKind): Promise<Creative[]
   return response.creatives;
 }
 
+export async function fetchCreativeGroups(kind: CreativeListKind): Promise<CreativeGroup[]> {
+  const status = kind === "ready" ? "" : `?status=${encodeURIComponent(kind)}`;
+  const response = await apiFetch<{ groups: CreativeGroup[] }>(`/api/creatives/groups${status}`);
+  return response.groups;
+}
+
 export async function uploadCreative(payload: {
   fileName: string;
   mimeType: string;
@@ -411,6 +443,14 @@ export async function launchCreative(id: number, payload: LaunchRequest): Promis
   return response.creative;
 }
 
+export async function launchCreativeGroup(id: string, payload: LaunchRequest): Promise<CreativeGroup> {
+  const response = await apiFetch<{ group: CreativeGroup }>(`/api/launch/groups/${encodeURIComponent(id)}`, {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+  return response.group;
+}
+
 export async function archiveCreative(id: number): Promise<Creative> {
   const response = await apiFetch<{ creative: Creative }>(`/api/creatives/${id}/archive`, {
     method: "POST",
@@ -419,8 +459,24 @@ export async function archiveCreative(id: number): Promise<Creative> {
   return response.creative;
 }
 
+export async function archiveCreativeGroup(id: string): Promise<CreativeGroup> {
+  const response = await apiFetch<{ group: CreativeGroup }>(`/api/creatives/groups/${encodeURIComponent(id)}/archive`, {
+    method: "POST",
+    body: JSON.stringify({})
+  });
+  return response.group;
+}
+
 export async function updateCreative(id: number, payload: CreativeUpdateRequest): Promise<Creative> {
   const response = await apiFetch<{ creative: Creative }>(`/api/creatives/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload)
+  });
+  return response.creative;
+}
+
+export async function updateCreativeGrouping(id: number, payload: CreativeGroupingUpdateRequest): Promise<Creative> {
+  const response = await apiFetch<{ creative: Creative }>(`/api/creatives/${id}/grouping`, {
     method: "PATCH",
     body: JSON.stringify(payload)
   });

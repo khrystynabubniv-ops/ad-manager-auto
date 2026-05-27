@@ -2,7 +2,14 @@ import axios, { AxiosError } from "axios";
 import FormData from "form-data";
 import { env, requireEnv } from "../config/env.js";
 import { logger } from "../logger.js";
-import { AssetType, DownloadedDriveFile, FacebookAdSet, FacebookCampaign, FacebookTargetingLocation } from "../types.js";
+import {
+  AssetType,
+  CreativeAssetPlacement,
+  DownloadedDriveFile,
+  FacebookAdSet,
+  FacebookCampaign,
+  FacebookTargetingLocation
+} from "../types.js";
 import { normalizeAssetFileName } from "../utils/assetNaming.js";
 import { stableHash } from "../utils/crypto.js";
 import { getErrorMessage } from "../utils/errors.js";
@@ -526,11 +533,75 @@ export async function findOrCreateAdSet(input: {
   return created.id;
 }
 
+function placementLabel(placement: CreativeAssetPlacement): string {
+  return `asset_${placement}`;
+}
+
+function placementCustomizationSpec(placement: CreativeAssetPlacement, assetType: AssetType): Record<string, unknown> | undefined {
+  if (placement === "feed") {
+    return {
+      publisher_platforms: ["facebook", "instagram"],
+      facebook_positions: ["feed"],
+      instagram_positions: ["stream"]
+    };
+  }
+
+  if (placement === "stories_reels") {
+    return {
+      publisher_platforms: ["facebook", "instagram"],
+      facebook_positions: ["story", "facebook_reels"],
+      instagram_positions: ["story", "reels"]
+    };
+  }
+
+  if (placement === "horizontal") {
+    return assetType === "video"
+      ? {
+          publisher_platforms: ["facebook"],
+          facebook_positions: ["video_feeds", "instream_video"]
+        }
+      : {
+          publisher_platforms: ["facebook"],
+          facebook_positions: ["right_hand_column"]
+        };
+  }
+
+  return undefined;
+}
+
+function placementAssetRules(
+  assets: Array<{ assetType: AssetType; placement: CreativeAssetPlacement; label: string }>
+): Array<Record<string, unknown>> {
+  const defaultAsset = assets.find((asset) => asset.placement === "feed") ?? assets[0];
+  const rules: Array<Record<string, unknown>> = [];
+
+  for (const asset of assets) {
+    if (asset.placement === "unknown") continue;
+    const customizationSpec = placementCustomizationSpec(asset.placement, asset.assetType);
+    if (!customizationSpec) continue;
+    rules.push({
+      customization_spec: customizationSpec,
+      ...(asset.assetType === "image" ? { image_label: { name: asset.label } } : { video_label: { name: asset.label } })
+    });
+  }
+
+  return [
+    ...rules,
+    {
+      is_default: true,
+      ...(defaultAsset.assetType === "image"
+        ? { image_label: { name: defaultAsset.label } }
+        : { video_label: { name: defaultAsset.label } })
+    }
+  ];
+}
+
 export async function createAd(input: {
   name: string;
   adSetId: string;
   assetId: string;
   assetType: AssetType;
+  assets?: Array<{ assetId: string; assetType: AssetType; placement: CreativeAssetPlacement }>;
   adText: string;
   headline?: string;
   headlineVariants?: string[];
@@ -540,11 +611,19 @@ export async function createAd(input: {
   ctaLink: string;
   requestId?: string;
 }): Promise<string> {
-  if (env.MOCK_FACEBOOK) {
-    return `mock_ad_${stableHash(`${input.name}:${input.assetId}`)}`;
+  const mediaAssets = input.assets?.length
+    ? input.assets.filter((asset) => asset.placement !== "do_not_use")
+    : [{ assetId: input.assetId, assetType: input.assetType, placement: "unknown" as CreativeAssetPlacement }];
+  if (!mediaAssets.length) {
+    throw new Error("Creative has no launchable assets.");
   }
 
-  if (isMockCreativeAsset(input)) {
+  if (env.MOCK_FACEBOOK) {
+    return `mock_ad_${stableHash(`${input.name}:${mediaAssets.map((asset) => asset.assetId).join(":")}`)}`;
+  }
+
+  const mockAsset = mediaAssets.find((asset) => isMockCreativeAsset(asset));
+  if (mockAsset) {
     throw new Error(
       "Creative was uploaded while MOCK_FACEBOOK was enabled, so it only has a mock Meta asset id. Re-upload the creative with real Meta uploads enabled before launching."
     );
@@ -563,37 +642,61 @@ export async function createAd(input: {
           type: primaryCtaType,
           value: { link: input.ctaLink }
         };
-  const useAssetFeedSpec = adTexts.length > 1 || headlines.length > 1 || ctaTypes.length > 1;
+  const uniqueAssetTypes = new Set(mediaAssets.map((asset) => asset.assetType));
+  if (uniqueAssetTypes.size > 1) {
+    throw new Error("Placement-specific creative groups must use either images or videos, not both.");
+  }
+
+  const usePlacementAssets = mediaAssets.length > 1;
+  const primaryAsset = mediaAssets[0];
+  const useAssetFeedSpec = usePlacementAssets || adTexts.length > 1 || headlines.length > 1 || ctaTypes.length > 1;
   const creativeBody =
-    input.assetType === "image"
+    primaryAsset.assetType === "image"
       ? {
           page_id: pageId,
           link_data: {
             message: adTexts[0],
             link: input.ctaLink,
             name: headline,
-            image_hash: input.assetId,
+            image_hash: primaryAsset.assetId,
             call_to_action: callToAction
           }
         }
       : {
           page_id: pageId,
           video_data: {
-            video_id: input.assetId,
+            video_id: primaryAsset.assetId,
             message: adTexts[0],
             title: headline,
             call_to_action: callToAction
           }
         };
+  const labeledAssets = mediaAssets.map((asset) => ({
+    ...asset,
+    label: placementLabel(asset.placement)
+  }));
   const assetFeedSpec = {
-    ad_formats: [input.assetType === "image" ? "SINGLE_IMAGE" : "SINGLE_VIDEO"],
+    ad_formats: [primaryAsset.assetType === "image" ? "SINGLE_IMAGE" : "SINGLE_VIDEO"],
     bodies: adTexts.map((text) => ({ text })),
     titles: headlines.map((text) => ({ text })),
     link_urls: [{ website_url: input.ctaLink }],
     call_to_action_types: ctaTypes,
-    ...(input.assetType === "image"
-      ? { images: [{ hash: input.assetId }] }
-      : { videos: [{ video_id: input.assetId }] })
+    ...(primaryAsset.assetType === "image"
+      ? {
+          images: labeledAssets.map((asset) =>
+            usePlacementAssets ? { hash: asset.assetId, adlabels: [{ name: asset.label }] } : { hash: asset.assetId }
+          )
+        }
+      : {
+          videos: labeledAssets.map((asset) =>
+            usePlacementAssets ? { video_id: asset.assetId, adlabels: [{ name: asset.label }] } : { video_id: asset.assetId }
+          )
+        }),
+    ...(usePlacementAssets
+      ? {
+          asset_customization_rules: placementAssetRules(labeledAssets)
+        }
+      : {})
   };
 
   try {

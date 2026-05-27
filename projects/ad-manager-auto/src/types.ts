@@ -1,4 +1,5 @@
 export type AssetType = "image" | "video";
+export type CreativeAssetPlacement = "feed" | "stories_reels" | "horizontal" | "unknown" | "do_not_use";
 
 export type Creative = {
   id: number;
@@ -6,6 +7,10 @@ export type Creative = {
   notion_task_url: string | null;
   source_file_id: string;
   source_file_name: string | null;
+  creative_group_key: string;
+  creative_group_name: string;
+  asset_placement: CreativeAssetPlacement;
+  grouping_status: "auto" | "manual";
   asset_id: string | null;
   asset_type: AssetType | null;
   ad_text: string | null;
@@ -30,6 +35,20 @@ export type Creative = {
   updated_at: string;
   uploaded_at: string | null;
   launched_at: string | null;
+};
+
+export type CreativeGroup = {
+  id: string;
+  notion_task_id: string;
+  notion_task_url: string | null;
+  group_key: string;
+  group_name: string;
+  status: string;
+  grouping_status: "auto" | "manual";
+  primary_creative: Creative;
+  creatives: Creative[];
+  created_at: string;
+  updated_at: string;
 };
 
 export type NotionCreativeFields = {

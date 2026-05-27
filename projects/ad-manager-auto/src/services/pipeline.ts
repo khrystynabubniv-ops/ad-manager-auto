@@ -4,7 +4,7 @@ import { logger } from "../logger.js";
 import { Creative, NotionCreativeFields } from "../types.js";
 import { getErrorMessage } from "../utils/errors.js";
 import { detectAssetType } from "../utils/mime.js";
-import { normalizeAssetFileName, validateAssetFileName } from "../utils/assetNaming.js";
+import { creativeGroupingForFileName, normalizeAssetFileName, validateAssetFileName } from "../utils/assetNaming.js";
 import { normalizeAdTextList, normalizeCtaTypeList } from "../shared/creativeCopy.js";
 import { generateCreativeCopy } from "./copyGenerator.js";
 import { downloadDriveCreatives, downloadDriveFile, extractDriveSourceId } from "./googleDrive.js";
@@ -12,6 +12,7 @@ import { createAd, getFacebookAdSet, getFacebookCampaign, listFacebookCampaigns,
 import {
   cancelStaleCreativesForTask,
   getCreativeById,
+  getCreativeGroupById,
   recordEvent,
   updateCreativeStatus,
   upsertCreative
@@ -372,11 +373,16 @@ export async function uploadCreativeFromNotion(fields: NotionCreativeFields, req
       const assetType = detectAssetType(file.fileName, file.mimeType);
       const uploadFileName = normalizeAssetFileName(file.fileName);
       const uploadFile = uploadFileName === file.fileName ? file : { ...file, fileName: uploadFileName };
+      const grouping = creativeGroupingForFileName(uploadFile.fileName);
       const baseInput = {
         notionTaskId: fields.notionTaskId,
         notionTaskUrl: fields.notionTaskUrl,
         sourceFileId: file.fileId,
         sourceFileName: file.fileName,
+        creativeGroupKey: grouping.groupKey,
+        creativeGroupName: grouping.groupName,
+        assetPlacement: grouping.placement,
+        groupingStatus: "auto" as const,
         ctaLink: fields.ctaLink,
         projectType: fields.projectType,
         googleDriveUrl: fields.googleDriveLink ?? fields.finalProject
@@ -787,6 +793,161 @@ export async function launchCreative(id: number, placementInput?: LaunchPlacemen
       action: "launch_completed",
       status: "failed",
       error: message
+    });
+    throw error;
+  }
+}
+
+export async function launchCreativeGroup(groupId: string, placementInput?: LaunchPlacementInput, requestId?: string) {
+  const group = await getCreativeGroupById(groupId, [DB_STATUS.READY_TO_LAUNCH, DB_STATUS.LAUNCH_FAILED]);
+  if (!group) {
+    throw new Error("Creative group not found or not ready to launch");
+  }
+
+  let launchableCreatives = group.creatives.filter((creative) => creative.asset_placement !== "do_not_use");
+  if (!launchableCreatives.length) {
+    throw new Error(`Creative group "${group.group_name}" has no launchable assets`);
+  }
+  const primary =
+    launchableCreatives.find((creative) => creative.id === group.primary_creative.id) ?? launchableCreatives[0];
+
+  const missingAssets = launchableCreatives.filter((creative) => !creative.asset_id || !creative.asset_type);
+  if (missingAssets.length) {
+    throw new Error(
+      `Creative group "${group.group_name}" has assets missing launch data: ${missingAssets
+        .map((creative) => creative.source_file_name ?? `Creative ${creative.id}`)
+        .join(", ")}`
+    );
+  }
+
+  const launchInput = cleanLaunchInput(placementInput);
+  const campaignId = launchInput.campaignId ?? cleanText(primary.campaign_id);
+  const adSetId = launchInput.adSetId ?? cleanText(primary.adset_id);
+  if (!campaignId || !adSetId) {
+    throw new Error(`Creative group "${group.group_name}" is missing Meta campaign/ad set selection`);
+  }
+
+  const projectType = launchInput.projectType ?? cleanText(primary.project_type) ?? group.group_name ?? "creative";
+  const adText = launchInput.adText ?? cleanText(primary.ad_text);
+  const headline = launchInput.headline ?? cleanText(primary.headline);
+  const headlineVariants = launchInput.headlineVariants ?? primary.headline_variants ?? [];
+  const adTextVariants = launchInput.adTextVariants ?? primary.ad_text_variants ?? [];
+  const ctaType = launchInput.ctaType ?? cleanText(primary.cta_type);
+  const ctaTypeVariants = launchInput.ctaTypeVariants ?? primary.cta_type_variants ?? [];
+  const ctaLink = launchInput.ctaLink ?? cleanText(primary.cta_link);
+  const audience = launchInput.audience ?? cleanText(primary.audience);
+  const location = launchInput.location ?? cleanText(primary.location);
+  if (!adText || !ctaLink) {
+    throw new Error(`Creative group "${group.group_name}" is missing required launch fields`);
+  }
+  if (!isHttpUrl(ctaLink)) {
+    throw new Error(`Creative group "${group.group_name}" ad link must be a valid http(s) URL`);
+  }
+
+  launchableCreatives = await Promise.all(launchableCreatives.map((creative) => refreshMockLaunchAsset(creative, requestId)));
+  const assetTypes = new Set(launchableCreatives.map((creative) => creative.asset_type));
+  if (assetTypes.size > 1) {
+    throw new Error(`Creative group "${group.group_name}" mixes image and video assets. Split it before launch.`);
+  }
+
+  const [campaign, adSet] = await Promise.all([
+    getFacebookCampaign(campaignId, requestId),
+    getFacebookAdSet(adSetId, requestId)
+  ]);
+  assertScheduleIsOpen("Campaign", campaignId, campaign.stop_time);
+  assertScheduleIsOpen("AdSet", adSetId, adSet.end_time);
+  if (adSet.campaign_id !== campaignId) {
+    throw new Error(`AdSet ${adSetId} belongs to campaign ${adSet.campaign_id}, not ${campaignId}`);
+  }
+
+  const campaignName = launchInput.campaignName ?? cleanText(primary.campaign_name);
+  const adSetName = launchInput.adSetName ?? adSet.name ?? cleanText(primary.adset_name);
+  for (const creative of launchableCreatives) {
+    await updateCreativeStatus(creative.id, DB_STATUS.LAUNCHING, {
+      campaignId,
+      campaignName,
+      adSetId,
+      adSetName,
+      projectType,
+      adText,
+      headline,
+      headlineVariants,
+      adTextVariants,
+      ctaType,
+      ctaTypeVariants,
+      ctaLink,
+      audience,
+      location
+    });
+  }
+  await updateLaunchStarted(primary.notion_task_id);
+  await recordEvent({
+    requestId,
+    creativeId: primary.id,
+    notionTaskId: primary.notion_task_id,
+    action: "launch_group_started",
+    status: "success",
+    metadata: { groupId, groupKey: group.group_key, campaignId, adSetId, creativeIds: launchableCreatives.map((creative) => creative.id) }
+  });
+
+  try {
+    const firstAsset = launchableCreatives[0];
+    const facebookAdId = await createAd({
+      name: adName({
+        notionTaskId: primary.notion_task_id,
+        projectType,
+        sourceFileName: group.group_key
+      }),
+      adSetId,
+      assetId: firstAsset.asset_id!,
+      assetType: firstAsset.asset_type!,
+      assets: launchableCreatives.map((creative) => ({
+        assetId: creative.asset_id!,
+        assetType: creative.asset_type!,
+        placement: creative.asset_placement
+      })),
+      adText,
+      headline,
+      headlineVariants: normalizeAdTextList(headline, headlineVariants, 5),
+      adTextVariants: normalizeAdTextList(adText, adTextVariants),
+      ctaType,
+      ctaTypeVariants: normalizeCtaTypeList(ctaType, ctaTypeVariants),
+      ctaLink,
+      requestId
+    });
+
+    const launchedAt = new Date();
+    for (const creative of launchableCreatives) {
+      await updateCreativeStatus(creative.id, DB_STATUS.LAUNCHED, {
+        facebookAdId,
+        launchedAt
+      });
+    }
+    await updateLaunchSuccess(primary.notion_task_id, facebookAdId);
+    await recordEvent({
+      requestId,
+      creativeId: primary.id,
+      notionTaskId: primary.notion_task_id,
+      action: "launch_group_completed",
+      status: "success",
+      metadata: { facebookAdId, campaignId, adSetId, groupId, creativeIds: launchableCreatives.map((creative) => creative.id) }
+    });
+
+    return getCreativeGroupById(groupId);
+  } catch (error) {
+    const message = getErrorMessage(error);
+    for (const creative of launchableCreatives) {
+      await updateCreativeStatus(creative.id, DB_STATUS.LAUNCH_FAILED);
+    }
+    await updateLaunchFailed(primary.notion_task_id, message);
+    await recordEvent({
+      requestId,
+      creativeId: primary.id,
+      notionTaskId: primary.notion_task_id,
+      action: "launch_group_completed",
+      status: "failed",
+      error: message,
+      metadata: { groupId, creativeIds: launchableCreatives.map((creative) => creative.id) }
     });
     throw error;
   }

@@ -31,6 +31,8 @@ import {
   CampaignDraftPayload,
   CampaignDraftTree,
   Creative,
+  CreativeAssetPlacement,
+  CreativeGroup,
   CreativeListKind,
   CreativeUpdateRequest,
   LaunchPlacement,
@@ -39,6 +41,7 @@ import {
   MetaCampaign,
   MetaTargetingLocation,
   archiveCreative,
+  archiveCreativeGroup,
   createAdDraft,
   createAdSetDraft,
   createCampaignDraft,
@@ -46,13 +49,16 @@ import {
   fetchCampaignDraft,
   fetchCampaignDrafts,
   fetchCampaigns,
+  fetchCreativeGroups,
   fetchCreatives,
   launchCreative,
+  launchCreativeGroup,
   generateCreativeCopySuggestions,
   searchTargetingLocations,
   syncCampaigns,
   uploadCreative,
   updateCreative,
+  updateCreativeGrouping,
   updateAdDraft,
   updateAdSetDraft,
   updateCampaignDraft
@@ -1250,6 +1256,64 @@ function launchPayloadForCreative(creative: Creative, placement: LaunchPlacement
   };
 }
 
+const placementOptions: Array<{ value: CreativeAssetPlacement; label: string }> = [
+  { value: "feed", label: "Feed" },
+  { value: "stories_reels", label: "Stories/Reels" },
+  { value: "horizontal", label: "Horizontal" },
+  { value: "unknown", label: "Auto/default" },
+  { value: "do_not_use", label: "Do not use" }
+];
+
+function placementLabel(value: CreativeAssetPlacement) {
+  return placementOptions.find((option) => option.value === value)?.label ?? value;
+}
+
+function groupPrimaryCreative(group: CreativeGroup) {
+  return group.primary_creative ?? group.creatives[0];
+}
+
+function missingGroupLaunchDetails(group: CreativeGroup): string[] {
+  return missingLaunchDetails(groupPrimaryCreative(group));
+}
+
+function launchPayloadForGroup(group: CreativeGroup, placement: LaunchPlacement): LaunchRequest {
+  return launchPayloadForCreative(groupPrimaryCreative(group), placement);
+}
+
+function groupMatchesSearch(
+  group: CreativeGroup,
+  search: string,
+  campaignNamesById?: ReadonlyMap<string, string>,
+  adSetNamesById?: ReadonlyMap<string, string>
+) {
+  if (!search) return true;
+  const primary = groupPrimaryCreative(group);
+  return [
+    group.group_name,
+    group.group_key,
+    group.status,
+    group.grouping_status,
+    primary.project_type,
+    primary.ad_text,
+    primary.headline,
+    primary.cta_type,
+    primary.cta_link,
+    displayCampaignName(primary, campaignNamesById),
+    displayAdSetName(primary, adSetNamesById),
+    ...group.creatives.flatMap((creative) => [
+      creative.source_file_name,
+      creative.asset_type,
+      creative.asset_placement,
+      creative.asset_id,
+      creative.facebook_ad_id
+    ])
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase()
+    .includes(search);
+}
+
 function errorNoticeBody(message: string) {
   const normalized = message.toLowerCase();
   if (normalized.includes("creativeid") || normalized.includes("creative id")) {
@@ -1561,6 +1625,7 @@ function BulkActionBar({
 
 function ConfirmModal({
   creative,
+  group,
   loading,
   saving = false,
   mode = "launch",
@@ -1569,6 +1634,7 @@ function ConfirmModal({
   onSave
 }: {
   creative: Creative;
+  group?: CreativeGroup;
   loading: boolean;
   saving?: boolean;
   mode?: "launch" | "edit";
@@ -1796,7 +1862,18 @@ function ConfirmModal({
         </div>
 
         <div className="modalGrid">
-          <CreativePreview creative={creative} />
+          <div className="modalPreviewStack">
+            <CreativePreview creative={creative} />
+            {group ? (
+              <div className="groupAssetStrip">
+                {group.creatives.map((asset) => (
+                  <span className={asset.asset_placement === "do_not_use" ? "assetRoleChip muted" : "assetRoleChip"} key={asset.id}>
+                    {placementLabel(asset.asset_placement)}
+                  </span>
+                ))}
+              </div>
+            ) : null}
+          </div>
           <div className="detailsForm">
             <section className="placementPanel">
               <div className="placementPanelHeader">
@@ -2037,6 +2114,168 @@ function CreativeRow({
             <span className="stateIcon success" aria-label="In use">
               <Check size={18} />
             </span>
+          ) : (
+            <span className="stateIcon warning" aria-label="Needs attention">
+              <AlertCircle size={18} />
+            </span>
+          )}
+        </div>
+      </div>
+    </article>
+  );
+}
+
+function CreativeGroupRow({
+  group,
+  groups,
+  onEdit,
+  onLaunch,
+  selectable = false,
+  selected = false,
+  onSelectChange,
+  onGroupingChange,
+  groupingBusyId,
+  campaignNamesById,
+  adSetNamesById
+}: {
+  group: CreativeGroup;
+  groups: CreativeGroup[];
+  onEdit?: (group: CreativeGroup) => void;
+  onLaunch?: (group: CreativeGroup) => void;
+  selectable?: boolean;
+  selected?: boolean;
+  onSelectChange?: (groupId: string, checked: boolean) => void;
+  onGroupingChange?: (
+    creative: Creative,
+    payload: { creativeGroupKey: string; creativeGroupName?: string | null; assetPlacement: CreativeAssetPlacement }
+  ) => Promise<void> | void;
+  groupingBusyId?: number | null;
+  campaignNamesById?: ReadonlyMap<string, string>;
+  adSetNamesById?: ReadonlyMap<string, string>;
+}) {
+  const primary = groupPrimaryCreative(group);
+  const creativeName = group.group_name || primary.project_type || `Creative set ${group.id}`;
+  const hasCampaign = Boolean(primary.campaign_id || primary.campaign_name);
+  const hasAdSet = Boolean(primary.adset_id || primary.adset_name);
+  const setupReady = hasCampaign && hasAdSet;
+  const campaignLabel = displayCampaignName(primary, campaignNamesById);
+  const adSetLabel = displayAdSetName(primary, adSetNamesById);
+  const textCount = 1 + cleanTextSequence(primary.ad_text_variants ?? []).length;
+  const titleCount = 1 + cleanTextSequence(primary.headline_variants ?? []).length;
+  const ctaCount = 1 + normalizeCtaTypeSequence(primary.cta_type_variants ?? []).length;
+  const groupOptions = groups.map((item) => ({ key: item.group_key, name: item.group_name }));
+
+  return (
+    <article className={["creativeRow creativeGroupRow", selectable ? "selectable" : "", selected ? "selected" : ""].filter(Boolean).join(" ")}>
+      {selectable ? (
+        <label className="creativeSelect" aria-label={`Select ${creativeName}`}>
+          <input
+            type="checkbox"
+            checked={selected}
+            onChange={(event) => onSelectChange?.(group.id, event.target.checked)}
+          />
+        </label>
+      ) : null}
+      <div className="groupPreviewStack">
+        {group.creatives.slice(0, 3).map((creative) => (
+          <CreativePreview creative={creative} key={creative.id} />
+        ))}
+      </div>
+      <div className="creativeMain">
+        <div className="creativeKicker">
+          <span>Creative set</span>
+          <span>{group.creatives.length} asset{group.creatives.length === 1 ? "" : "s"}</span>
+          <span>{group.grouping_status === "manual" ? "edited" : "auto grouped"}</span>
+        </div>
+        <div className="creativeTitleLine">
+          <h3>{creativeName}</h3>
+          <StatusChip value={group.status} />
+        </div>
+        <p className="creativeFileName">{group.group_key}</p>
+        {primary.headline ? <p className="creativeFileName">{primary.headline}</p> : null}
+        <p className="adText">{primary.ad_text || "No primary text yet."}</p>
+        <div className="creativeMetaGrid">
+          <MetadataItem label="Texts" value={`${textCount} variant${textCount === 1 ? "" : "s"}`} />
+          <MetadataItem label="Titles" value={`${titleCount} variant${titleCount === 1 ? "" : "s"}`} />
+          <MetadataItem label="CTA" value={`${formatCtaTypeLabel(primary.cta_type)}${ctaCount > 1 ? ` +${ctaCount - 1}` : ""}`} />
+          <MetadataItem label="Ad link" value={primary.cta_link ? "Added" : "Missing"} />
+        </div>
+        <div className="assetAssignmentGrid">
+          {group.creatives.map((creative) => (
+            <div className="assetAssignmentRow" key={creative.id}>
+              <span title={creative.source_file_name ?? undefined}>{creative.source_file_name ?? `Creative ${creative.id}`}</span>
+              <select
+                value={creative.asset_placement}
+                disabled={groupingBusyId === creative.id}
+                onChange={(event) =>
+                  void onGroupingChange?.(creative, {
+                    creativeGroupKey: creative.creative_group_key,
+                    creativeGroupName: creative.creative_group_name,
+                    assetPlacement: event.target.value as CreativeAssetPlacement
+                  })
+                }
+              >
+                {placementOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+              <select
+                value={creative.creative_group_key}
+                disabled={groupingBusyId === creative.id}
+                onChange={(event) => {
+                  const nextGroup = groupOptions.find((option) => option.key === event.target.value);
+                  void onGroupingChange?.(creative, {
+                    creativeGroupKey: event.target.value,
+                    creativeGroupName: nextGroup?.name ?? event.target.value.replaceAll("_", " "),
+                    assetPlacement: creative.asset_placement
+                  });
+                }}
+              >
+                {groupOptions.map((option) => (
+                  <option key={option.key} value={option.key}>
+                    {option.name}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                className="secondaryButton compact"
+                disabled={groupingBusyId === creative.id}
+                onClick={() =>
+                  void onGroupingChange?.(creative, {
+                    creativeGroupKey: `${creative.creative_group_key}_${creative.id}`,
+                    creativeGroupName: `${creative.creative_group_name} ${creative.id}`,
+                    assetPlacement: creative.asset_placement
+                  })
+                }
+              >
+                Split
+              </button>
+            </div>
+          ))}
+        </div>
+      </div>
+      <div className="creativeContext">
+        <div className={setupReady ? "campaignSetupSummary" : "campaignSetupSummary missing"}>
+          <span>Campaign</span>
+          <strong title={campaignLabel}>{campaignLabel}</strong>
+          <span>Ad set</span>
+          <strong title={adSetLabel}>{adSetLabel}</strong>
+        </div>
+        <div className="rowActions">
+          {onEdit ? (
+            <button className="secondaryButton compact" onClick={() => onEdit(group)}>
+              <Pencil size={16} />
+              Edit
+            </button>
+          ) : null}
+          {onLaunch ? (
+            <button className="primaryButton compact" onClick={() => onLaunch(group)}>
+              <Play size={16} />
+              {setupReady ? "Review & launch set" : "Select campaign & ad set"}
+            </button>
           ) : (
             <span className="stateIcon warning" aria-label="Needs attention">
               <AlertCircle size={18} />
@@ -4263,14 +4502,19 @@ export function App() {
   const [route, setRoute] = useState<RouteState>(activeRoute());
   const creativeView = route.area === "creatives" ? route.view : "ready";
   const [creatives, setCreatives] = useState<Creative[]>([]);
+  const [creativeGroups, setCreativeGroups] = useState<CreativeGroup[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<Creative | null>(null);
+  const [selectedGroup, setSelectedGroup] = useState<CreativeGroup | null>(null);
   const [editing, setEditing] = useState<Creative | null>(null);
+  const [editingGroup, setEditingGroup] = useState<CreativeGroup | null>(null);
   const [launching, setLaunching] = useState(false);
   const [savingCreative, setSavingCreative] = useState(false);
   const [selectedCreativeIds, setSelectedCreativeIds] = useState<Set<number>>(() => new Set());
+  const [selectedGroupIds, setSelectedGroupIds] = useState<Set<string>>(() => new Set());
   const [bulkAction, setBulkAction] = useState<"launch" | "archive" | null>(null);
+  const [groupingBusyId, setGroupingBusyId] = useState<number | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [query, setQuery] = useState("");
   const [campaigns, setCampaigns] = useState<MetaCampaign[]>([]);
@@ -4321,7 +4565,14 @@ export function App() {
     setLoading(true);
     setError(null);
     try {
-      setCreatives(await fetchCreatives(viewConfig[route.view].listKind));
+      if (route.view === "ready") {
+        const groups = await fetchCreativeGroups("ready");
+        setCreativeGroups(groups);
+        setCreatives(groups.flatMap((group) => group.creatives));
+      } else {
+        setCreativeGroups([]);
+        setCreatives(await fetchCreatives(viewConfig[route.view].listKind));
+      }
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : String(loadError));
     } finally {
@@ -4338,6 +4589,7 @@ export function App() {
   useEffect(() => {
     if (route.area !== "creatives" || creativeView !== "ready") {
       setSelectedCreativeIds(new Set());
+      setSelectedGroupIds(new Set());
     }
   }, [creativeView, route.area]);
 
@@ -4435,6 +4687,11 @@ export function App() {
       );
   }, [adSetNamesById, campaignNamesById, creatives, query]);
 
+  const displayedCreativeGroups = useMemo(() => {
+    const search = query.trim().toLowerCase();
+    return creativeGroups.filter((group) => groupMatchesSearch(group, search, campaignNamesById, adSetNamesById));
+  }, [adSetNamesById, campaignNamesById, creativeGroups, query]);
+
   useEffect(() => {
     setSelectedCreativeIds((current) => {
       const availableIds = new Set(creatives.map((creative) => creative.id));
@@ -4443,21 +4700,35 @@ export function App() {
     });
   }, [creatives]);
 
+  useEffect(() => {
+    setSelectedGroupIds((current) => {
+      const availableIds = new Set(creativeGroups.map((group) => group.id));
+      const next = new Set([...current].filter((id) => availableIds.has(id)));
+      return next.size === current.size ? current : next;
+    });
+  }, [creativeGroups]);
+
   const selectedCreatives = useMemo(
     () => creatives.filter((creative) => selectedCreativeIds.has(creative.id)),
     [creatives, selectedCreativeIds]
   );
+  const selectedGroups = useMemo(
+    () => creativeGroups.filter((group) => selectedGroupIds.has(group.id)),
+    [creativeGroups, selectedGroupIds]
+  );
   const allDisplayedSelected = Boolean(
-    displayedCreatives.length && displayedCreatives.every((creative) => selectedCreativeIds.has(creative.id))
+    creativeView === "ready"
+      ? displayedCreativeGroups.length && displayedCreativeGroups.every((group) => selectedGroupIds.has(group.id))
+      : displayedCreatives.length && displayedCreatives.every((creative) => selectedCreativeIds.has(creative.id))
   );
 
   const counts = useMemo(
     () => ({
-      shown: displayedCreatives.length,
-      total: creatives.length,
+      shown: creativeView === "ready" ? displayedCreativeGroups.length : displayedCreatives.length,
+      total: creativeView === "ready" ? creativeGroups.length : creatives.length,
       viewLabel: viewConfig[creativeView].title
     }),
-    [creativeView, creatives.length, displayedCreatives.length]
+    [creativeGroups.length, creativeView, creatives.length, displayedCreativeGroups.length, displayedCreatives.length]
   );
 
   async function confirmLaunch(placement: LaunchRequest) {
@@ -4467,6 +4738,21 @@ export function App() {
     try {
       await launchCreative(selected.id, placement);
       setSelected(null);
+      await load();
+    } catch (launchError) {
+      setError(launchError instanceof Error ? launchError.message : String(launchError));
+    } finally {
+      setLaunching(false);
+    }
+  }
+
+  async function confirmGroupLaunch(placement: LaunchRequest) {
+    if (!selectedGroup) return;
+    setLaunching(true);
+    setError(null);
+    try {
+      await launchCreativeGroup(selectedGroup.id, placement);
+      setSelectedGroup(null);
       await load();
     } catch (launchError) {
       setError(launchError instanceof Error ? launchError.message : String(launchError));
@@ -4487,7 +4773,34 @@ export function App() {
     });
   }
 
+  function toggleGroupSelection(groupId: string, checked: boolean) {
+    setSelectedGroupIds((current) => {
+      const next = new Set(current);
+      if (checked) {
+        next.add(groupId);
+      } else {
+        next.delete(groupId);
+      }
+      return next;
+    });
+  }
+
   function toggleAllDisplayed(checked: boolean) {
+    if (creativeView === "ready") {
+      setSelectedGroupIds((current) => {
+        const next = new Set(current);
+        for (const group of displayedCreativeGroups) {
+          if (checked) {
+            next.add(group.id);
+          } else {
+            next.delete(group.id);
+          }
+        }
+        return next;
+      });
+      return;
+    }
+
     setSelectedCreativeIds((current) => {
       const next = new Set(current);
       for (const creative of displayedCreatives) {
@@ -4502,6 +4815,38 @@ export function App() {
   }
 
   async function handleBulkLaunch(placement: LaunchPlacement) {
+    if (creativeView === "ready") {
+      if (!selectedGroups.length) return;
+      const notReady = selectedGroups
+        .map((group) => {
+          const missing = missingGroupLaunchDetails(group);
+          return missing.length ? `${group.group_name}: ${missing.join(", ")}` : null;
+        })
+        .filter((item): item is string => Boolean(item));
+
+      if (notReady.length) {
+        setError(`Complete copy before launch: ${notReady.slice(0, 4).join("; ")}${notReady.length > 4 ? "..." : ""}`);
+        return;
+      }
+
+      setBulkAction("launch");
+      setError(null);
+      try {
+        for (const group of selectedGroups) {
+          await launchCreativeGroup(group.id, launchPayloadForGroup(group, placement));
+        }
+        const launchedCount = selectedGroups.length;
+        setSelectedGroupIds(new Set());
+        await load();
+        setError(`Launched ${launchedCount} creative set${launchedCount === 1 ? "" : "s"}.`);
+      } catch (launchError) {
+        setError(launchError instanceof Error ? launchError.message : String(launchError));
+      } finally {
+        setBulkAction(null);
+      }
+      return;
+    }
+
     if (!selectedCreatives.length) return;
     const notReady = selectedCreatives
       .map((creative) => {
@@ -4533,6 +4878,26 @@ export function App() {
   }
 
   async function handleBulkArchive() {
+    if (creativeView === "ready") {
+      if (!selectedGroups.length) return;
+      setBulkAction("archive");
+      setError(null);
+      try {
+        for (const group of selectedGroups) {
+          await archiveCreativeGroup(group.id);
+        }
+        const archivedCount = selectedGroups.length;
+        setSelectedGroupIds(new Set());
+        await load();
+        setError(`Archived ${archivedCount} creative set${archivedCount === 1 ? "" : "s"}.`);
+      } catch (archiveError) {
+        setError(archiveError instanceof Error ? archiveError.message : String(archiveError));
+      } finally {
+        setBulkAction(null);
+      }
+      return;
+    }
+
     if (!selectedCreatives.length) return;
     setBulkAction("archive");
     setError(null);
@@ -4565,6 +4930,28 @@ export function App() {
       throw saveError;
     } finally {
       setSavingCreative(false);
+    }
+  }
+
+  async function saveGroupDetails(group: CreativeGroup, payload: CreativeUpdateRequest) {
+    await saveCreativeDetails(groupPrimaryCreative(group).id, payload);
+    await load();
+  }
+
+  async function saveCreativeGrouping(
+    creative: Creative,
+    payload: { creativeGroupKey: string; creativeGroupName?: string | null; assetPlacement: CreativeAssetPlacement }
+  ) {
+    setGroupingBusyId(creative.id);
+    setError(null);
+    try {
+      await updateCreativeGrouping(creative.id, payload);
+      await load();
+      setError("Creative grouping saved.");
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : String(saveError));
+    } finally {
+      setGroupingBusyId(null);
     }
   }
 
@@ -4761,10 +5148,10 @@ export function App() {
                 </div>
               ) : null}
 
-              {creativeView === "ready" && selectedCreativeIds.size ? (
+              {creativeView === "ready" && selectedGroupIds.size ? (
                 <BulkActionBar
-                  selectedCount={selectedCreativeIds.size}
-                  visibleCount={displayedCreatives.length}
+                  selectedCount={selectedGroupIds.size}
+                  visibleCount={displayedCreativeGroups.length}
                   allVisibleSelected={allDisplayedSelected}
                   campaigns={campaigns}
                   busy={Boolean(bulkAction)}
@@ -4780,18 +5167,35 @@ export function App() {
                     <Loader2 className="spin" />
                     Loading creatives
                   </div>
-                ) : displayedCreatives.length === 0 ? (
+                ) : counts.shown === 0 ? (
                   <div className="emptyState">
                     {query.trim() ? `No creatives match "${query.trim()}".` : viewConfig[creativeView].empty}
                   </div>
+                ) : creativeView === "ready" ? (
+                  displayedCreativeGroups.map((group) => (
+                    <CreativeGroupRow
+                      key={group.id}
+                      group={group}
+                      groups={creativeGroups}
+                      onEdit={setEditingGroup}
+                      onLaunch={setSelectedGroup}
+                      selectable
+                      selected={selectedGroupIds.has(group.id)}
+                      onSelectChange={toggleGroupSelection}
+                      onGroupingChange={saveCreativeGrouping}
+                      groupingBusyId={groupingBusyId}
+                      campaignNamesById={campaignNamesById}
+                      adSetNamesById={adSetNamesById}
+                    />
+                  ))
                 ) : (
                   displayedCreatives.map((creative) => (
                     <CreativeRow
                       key={creative.id}
                       creative={creative}
-                      onEdit={creativeView === "ready" ? setEditing : undefined}
-                      onLaunch={creativeView === "ready" ? setSelected : undefined}
-                      selectable={creativeView === "ready"}
+                      onEdit={undefined}
+                      onLaunch={undefined}
+                      selectable={false}
                       selected={selectedCreativeIds.has(creative.id)}
                       onSelectChange={toggleCreativeSelection}
                       campaignNamesById={campaignNamesById}
@@ -4817,6 +5221,19 @@ export function App() {
         />
       ) : null}
 
+      {selectedGroup ? (
+        <ConfirmModal
+          creative={groupPrimaryCreative(selectedGroup)}
+          group={selectedGroup}
+          loading={launching}
+          saving={savingCreative}
+          mode="launch"
+          onClose={() => setSelectedGroup(null)}
+          onConfirm={confirmGroupLaunch}
+          onSave={(payload) => saveGroupDetails(selectedGroup, payload)}
+        />
+      ) : null}
+
       {editing ? (
         <ConfirmModal
           creative={editing}
@@ -4825,6 +5242,18 @@ export function App() {
           mode="edit"
           onClose={() => setEditing(null)}
           onSave={(payload) => saveCreativeDetails(editing.id, payload)}
+        />
+      ) : null}
+
+      {editingGroup ? (
+        <ConfirmModal
+          creative={groupPrimaryCreative(editingGroup)}
+          group={editingGroup}
+          loading={false}
+          saving={savingCreative}
+          mode="edit"
+          onClose={() => setEditingGroup(null)}
+          onSave={(payload) => saveGroupDetails(editingGroup, payload)}
         />
       ) : null}
     </div>

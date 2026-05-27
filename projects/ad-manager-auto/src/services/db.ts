@@ -12,6 +12,8 @@ import {
   CampaignDraft,
   CampaignDraftTree,
   Creative,
+  CreativeAssetPlacement,
+  CreativeGroup,
   DraftStatus
 } from "../types.js";
 import { DEFAULT_CTA_TYPE } from "../shared/creativeCopy.js";
@@ -95,6 +97,10 @@ export type CreativeUpsertInput = {
   notionTaskUrl?: string;
   sourceFileId?: string;
   sourceFileName?: string;
+  creativeGroupKey?: string;
+  creativeGroupName?: string;
+  assetPlacement?: CreativeAssetPlacement;
+  groupingStatus?: "auto" | "manual";
   status: string;
   assetId?: string;
   assetType?: string;
@@ -121,32 +127,53 @@ export type CreativeUpsertInput = {
 
 export async function upsertCreative(input: CreativeUpsertInput): Promise<Creative> {
   const sourceFileId = input.sourceFileId ?? input.notionTaskId;
+  const creativeGroupKey = input.creativeGroupKey ?? sourceFileId;
+  const creativeGroupName = input.creativeGroupName ?? input.sourceFileName ?? input.projectType ?? creativeGroupKey;
+  const assetPlacement = input.assetPlacement ?? "unknown";
+  const groupingStatus = input.groupingStatus ?? "auto";
   const result = await query<Creative>(
     `
       INSERT INTO creatives (
-        notion_task_id, notion_task_url, source_file_id, source_file_name, status, asset_id, asset_type, ad_text,
+        notion_task_id, notion_task_url, source_file_id, source_file_name, creative_group_key,
+        creative_group_name, asset_placement, grouping_status, status, asset_id, asset_type, ad_text,
         headline, headline_variants, ad_text_variants, cta_type, cta_type_variants, cta_link,
         audience, location, campaign_id, campaign_name, adset_id, adset_name, project_type, google_drive_url,
         preview_url, facebook_ad_id, uploaded_at, launched_at
       )
       VALUES (
-        $1, $2, $3, $4, $5, $6, $7, $8,
-        $9, COALESCE($10, '{}'::text[]), COALESCE($11, '{}'::text[]), COALESCE($12, 'LEARN_MORE'), COALESCE($13, '{}'::text[]), $14,
-        $15, $16, $17, $18, $19, $20, $21, $22,
-        $23, $24, $25, $26
+        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
+        $13, COALESCE($14, '{}'::text[]), COALESCE($15, '{}'::text[]), COALESCE($16, 'LEARN_MORE'), COALESCE($17, '{}'::text[]), $18,
+        $19, $20, $21, $22, $23, $24, $25, $26,
+        $27, $28, $29, $30
       )
       ON CONFLICT (notion_task_id, source_file_id) DO UPDATE SET
         notion_task_url = COALESCE(EXCLUDED.notion_task_url, creatives.notion_task_url),
         source_file_name = COALESCE(EXCLUDED.source_file_name, creatives.source_file_name),
+        creative_group_key = CASE
+          WHEN creatives.grouping_status = 'manual' AND $8 = 'auto' THEN creatives.creative_group_key
+          ELSE COALESCE(EXCLUDED.creative_group_key, creatives.creative_group_key)
+        END,
+        creative_group_name = CASE
+          WHEN creatives.grouping_status = 'manual' AND $8 = 'auto' THEN creatives.creative_group_name
+          ELSE COALESCE(EXCLUDED.creative_group_name, creatives.creative_group_name)
+        END,
+        asset_placement = CASE
+          WHEN creatives.grouping_status = 'manual' AND $8 = 'auto' THEN creatives.asset_placement
+          ELSE COALESCE(EXCLUDED.asset_placement, creatives.asset_placement)
+        END,
+        grouping_status = CASE
+          WHEN creatives.grouping_status = 'manual' AND $8 = 'auto' THEN creatives.grouping_status
+          ELSE COALESCE(EXCLUDED.grouping_status, creatives.grouping_status)
+        END,
         status = EXCLUDED.status,
         asset_id = COALESCE(EXCLUDED.asset_id, creatives.asset_id),
         asset_type = COALESCE(EXCLUDED.asset_type, creatives.asset_type),
         ad_text = COALESCE(EXCLUDED.ad_text, creatives.ad_text),
         headline = COALESCE(EXCLUDED.headline, creatives.headline),
-        headline_variants = COALESCE($10, creatives.headline_variants),
-        ad_text_variants = COALESCE($11, creatives.ad_text_variants),
-        cta_type = COALESCE($12, creatives.cta_type),
-        cta_type_variants = COALESCE($13, creatives.cta_type_variants),
+        headline_variants = COALESCE($14, creatives.headline_variants),
+        ad_text_variants = COALESCE($15, creatives.ad_text_variants),
+        cta_type = COALESCE($16, creatives.cta_type),
+        cta_type_variants = COALESCE($17, creatives.cta_type_variants),
         cta_link = COALESCE(EXCLUDED.cta_link, creatives.cta_link),
         audience = COALESCE(EXCLUDED.audience, creatives.audience),
         location = COALESCE(EXCLUDED.location, creatives.location),
@@ -167,6 +194,10 @@ export async function upsertCreative(input: CreativeUpsertInput): Promise<Creati
       input.notionTaskUrl ?? null,
       sourceFileId,
       input.sourceFileName ?? null,
+      creativeGroupKey,
+      creativeGroupName,
+      assetPlacement,
+      groupingStatus,
       input.status,
       input.assetId ?? null,
       input.assetType ?? null,
@@ -358,6 +389,39 @@ export async function updateCreativeDetails(
   return result.rows[0];
 }
 
+export async function updateCreativeGrouping(
+  id: number,
+  fields: {
+    creativeGroupKey: string;
+    creativeGroupName?: string | null;
+    assetPlacement: CreativeAssetPlacement;
+  }
+): Promise<Creative | undefined> {
+  const groupKey = fields.creativeGroupKey.trim();
+  if (!groupKey) {
+    throw new Error("Creative group key is required");
+  }
+
+  const result = await query<Creative>(
+    `
+      UPDATE creatives
+      SET creative_group_key = $2,
+        creative_group_name = $3,
+        asset_placement = $4,
+        grouping_status = 'manual'
+      WHERE id = $1
+      RETURNING *
+    `,
+    [
+      id,
+      groupKey,
+      fields.creativeGroupName?.trim() || groupKey.replace(/_/g, " "),
+      fields.assetPlacement
+    ]
+  );
+  return result.rows[0];
+}
+
 export async function listCreatives(statuses: string[]): Promise<Creative[]> {
   const result = await query<Creative>(
     "SELECT * FROM creatives WHERE status = ANY($1::text[]) ORDER BY updated_at DESC",
@@ -369,6 +433,104 @@ export async function listCreatives(statuses: string[]): Promise<Creative[]> {
 export async function getCreativeById(id: number): Promise<Creative | undefined> {
   const result = await query<Creative>("SELECT * FROM creatives WHERE id = $1", [id]);
   return result.rows[0];
+}
+
+function creativeGroupId(notionTaskId: string, groupKey: string): string {
+  return Buffer.from(`${notionTaskId}\n${groupKey}`, "utf8").toString("base64url");
+}
+
+export function decodeCreativeGroupId(id: string): { notionTaskId: string; groupKey: string } {
+  const decoded = Buffer.from(id, "base64url").toString("utf8");
+  const separatorIndex = decoded.indexOf("\n");
+  if (separatorIndex <= 0 || separatorIndex === decoded.length - 1) {
+    throw new Error("Invalid creative group id");
+  }
+
+  return {
+    notionTaskId: decoded.slice(0, separatorIndex),
+    groupKey: decoded.slice(separatorIndex + 1)
+  };
+}
+
+const placementOrder: CreativeAssetPlacement[] = ["feed", "stories_reels", "horizontal", "unknown", "do_not_use"];
+const statusOrder = ["launch_failed", "upload_failed", "launching", "ready_to_launch", "launched", "canceled"];
+
+function groupStatus(creatives: Creative[]): string {
+  const statuses = new Set(creatives.map((creative) => creative.status));
+  if (statuses.size === 1) return creatives[0].status;
+  return statusOrder.find((status) => statuses.has(status)) ?? creatives[0].status;
+}
+
+function primaryCreative(creatives: Creative[]): Creative {
+  return [...creatives].sort((left, right) => {
+    const leftPlacement = placementOrder.indexOf(left.asset_placement);
+    const rightPlacement = placementOrder.indexOf(right.asset_placement);
+    if (leftPlacement !== rightPlacement) return leftPlacement - rightPlacement;
+    return left.id - right.id;
+  })[0];
+}
+
+function buildCreativeGroups(creatives: Creative[]): CreativeGroup[] {
+  const groups = new Map<string, Creative[]>();
+
+  for (const creative of creatives) {
+    const groupKey = creative.creative_group_key || creative.source_file_id;
+    const key = `${creative.notion_task_id}\n${groupKey}`;
+    groups.set(key, [...(groups.get(key) ?? []), creative]);
+  }
+
+  return [...groups.entries()]
+    .map(([key, items]) => {
+      const [notionTaskId, groupKey] = key.split("\n");
+      const sortedCreatives = [...items].sort((left, right) => {
+        const leftPlacement = placementOrder.indexOf(left.asset_placement);
+        const rightPlacement = placementOrder.indexOf(right.asset_placement);
+        if (leftPlacement !== rightPlacement) return leftPlacement - rightPlacement;
+        return left.id - right.id;
+      });
+      const primary = primaryCreative(sortedCreatives);
+      const createdAt = sortedCreatives
+        .map((creative) => creative.created_at)
+        .sort((left, right) => Date.parse(left) - Date.parse(right))[0];
+      const updatedAt = sortedCreatives
+        .map((creative) => creative.updated_at)
+        .sort((left, right) => Date.parse(right) - Date.parse(left))[0];
+
+      return {
+        id: creativeGroupId(notionTaskId, groupKey),
+        notion_task_id: notionTaskId,
+        notion_task_url: primary.notion_task_url,
+        group_key: groupKey,
+        group_name: primary.creative_group_name || groupKey.replace(/_/g, " "),
+        status: groupStatus(sortedCreatives),
+        grouping_status: sortedCreatives.some((creative) => creative.grouping_status === "manual") ? "manual" as const : "auto" as const,
+        primary_creative: primary,
+        creatives: sortedCreatives,
+        created_at: createdAt,
+        updated_at: updatedAt
+      };
+    })
+    .sort((left, right) => Date.parse(right.updated_at) - Date.parse(left.updated_at));
+}
+
+export async function listCreativeGroups(statuses: string[]): Promise<CreativeGroup[]> {
+  return buildCreativeGroups(await listCreatives(statuses));
+}
+
+export async function getCreativeGroupById(id: string, statuses?: string[]): Promise<CreativeGroup | undefined> {
+  const { notionTaskId, groupKey } = decodeCreativeGroupId(id);
+  const result = await query<Creative>(
+    `
+      SELECT *
+      FROM creatives
+      WHERE notion_task_id = $1
+        AND creative_group_key = $2
+        ${statuses?.length ? "AND status = ANY($3::text[])" : ""}
+      ORDER BY id ASC
+    `,
+    statuses?.length ? [notionTaskId, groupKey, statuses] : [notionTaskId, groupKey]
+  );
+  return buildCreativeGroups(result.rows)[0];
 }
 
 type JsonObject = Record<string, unknown>;

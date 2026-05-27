@@ -1,10 +1,20 @@
 import { Router } from "express";
 import { DB_STATUS } from "../config/statuses.js";
 import { requireAuth } from "../middleware/auth.js";
-import { getCreativeById, listCreatives, updateCreativeDetails, updateCreativeStatus, upsertCreative } from "../services/db.js";
+import {
+  getCreativeById,
+  getCreativeGroupById,
+  listCreativeGroups,
+  listCreatives,
+  updateCreativeDetails,
+  updateCreativeGrouping,
+  updateCreativeStatus,
+  upsertCreative
+} from "../services/db.js";
 import { generateCreativeCopy } from "../services/copyGenerator.js";
 import { getFacebookAdSet, uploadCreativeAsset } from "../services/facebook.js";
 import { cleanTextSequence, normalizeCtaType, normalizeCtaTypeSequence } from "../shared/creativeCopy.js";
+import { creativeGroupingForFileName } from "../utils/assetNaming.js";
 import { AppError } from "../utils/errors.js";
 
 export const creativesRouter = Router();
@@ -20,6 +30,22 @@ creativesRouter.get("/", requireAuth, async (req, res, next) => {
           : [DB_STATUS.READY_TO_LAUNCH];
     const creatives = await listCreatives(statuses);
     res.json({ creatives });
+  } catch (error) {
+    next(error);
+  }
+});
+
+creativesRouter.get("/groups", requireAuth, async (req, res, next) => {
+  try {
+    const status = req.query.status as string | undefined;
+    const statuses =
+      status === "launched"
+        ? [DB_STATUS.LAUNCHED]
+        : status
+          ? [status]
+          : [DB_STATUS.READY_TO_LAUNCH];
+    const groups = await listCreativeGroups(statuses);
+    res.json({ groups });
   } catch (error) {
     next(error);
   }
@@ -110,6 +136,40 @@ creativesRouter.patch("/:id", requireAuth, async (req, res, next) => {
   }
 });
 
+creativesRouter.patch("/:id/grouping", requireAuth, async (req, res, next) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id)) {
+      throw new AppError("Invalid creative id", { statusCode: 400, code: "INVALID_CREATIVE_ID" });
+    }
+
+    const existing = await getCreativeById(id);
+    if (!existing) {
+      throw new AppError(`Creative ${id} not found`, { statusCode: 404, code: "CREATIVE_NOT_FOUND" });
+    }
+
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const creativeGroupKey = typeof body.creativeGroupKey === "string" ? body.creativeGroupKey.trim() : "";
+    const creativeGroupName = typeof body.creativeGroupName === "string" ? body.creativeGroupName.trim() : creativeGroupKey;
+    const assetPlacement = typeof body.assetPlacement === "string" ? body.assetPlacement : existing.asset_placement;
+    if (!creativeGroupKey) {
+      throw new AppError("creativeGroupKey is required", { statusCode: 400, code: "MISSING_CREATIVE_GROUP_KEY" });
+    }
+    if (!["feed", "stories_reels", "horizontal", "unknown", "do_not_use"].includes(assetPlacement)) {
+      throw new AppError("Invalid asset placement", { statusCode: 400, code: "INVALID_ASSET_PLACEMENT" });
+    }
+
+    const creative = await updateCreativeGrouping(id, {
+      creativeGroupKey,
+      creativeGroupName,
+      assetPlacement: assetPlacement as typeof existing.asset_placement
+    });
+    res.json({ creative });
+  } catch (error) {
+    next(error);
+  }
+});
+
 creativesRouter.post("/:id/copy-suggestions", requireAuth, async (req, res, next) => {
   try {
     const id = Number(req.params.id);
@@ -163,6 +223,23 @@ creativesRouter.post("/:id/archive", requireAuth, async (req, res, next) => {
   }
 });
 
+creativesRouter.post("/groups/:groupId/archive", requireAuth, async (req, res, next) => {
+  try {
+    const group = await getCreativeGroupById(req.params.groupId, [DB_STATUS.READY_TO_LAUNCH, DB_STATUS.LAUNCH_FAILED]);
+    if (!group) {
+      throw new AppError("Creative group not found", { statusCode: 404, code: "CREATIVE_GROUP_NOT_FOUND" });
+    }
+
+    for (const creative of group.creatives) {
+      await updateCreativeStatus(creative.id, DB_STATUS.CANCELED);
+    }
+
+    res.json({ group: await getCreativeGroupById(req.params.groupId) });
+  } catch (error) {
+    next(error);
+  }
+});
+
 creativesRouter.get("/launched", requireAuth, async (_req, res, next) => {
   try {
     const creatives = await listCreatives([DB_STATUS.LAUNCHED]);
@@ -201,10 +278,14 @@ creativesRouter.post("/upload", requireAuth, async (req, res, next) => {
       req.id as string | undefined
     );
     const sourceFileId = `manual:${uploaded.assetId}`;
+    const grouping = creativeGroupingForFileName(fileName);
     const creative = await upsertCreative({
       notionTaskId: `manual-upload:${sourceFileId}`,
       sourceFileId,
       sourceFileName: fileName,
+      creativeGroupKey: grouping.groupKey,
+      creativeGroupName: grouping.groupName,
+      assetPlacement: grouping.placement,
       status: DB_STATUS.READY_TO_LAUNCH,
       assetId: uploaded.assetId,
       assetType: uploaded.assetType,
