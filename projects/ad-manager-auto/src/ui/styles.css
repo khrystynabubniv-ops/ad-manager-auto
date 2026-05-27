@@ -3497,11 +3497,72 @@ button:disabled {
   overflow-wrap: anywhere;
 }
 
+.selectedFillAsset strong,
+.selectedFillAsset small {
+  display: block;
+}
+
+.selectedFillAsset small {
+  margin-top: 2px;
+  color: var(--warn-text);
+  font-size: 11px;
+  font-weight: 750;
+}
+
 .assetManagerActions {
   display: flex;
   flex-wrap: wrap;
   gap: 7px;
   align-items: center;
+}
+
+.assetTransferWarningOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: oklch(0.12 0.015 250 / 0.58);
+}
+
+.assetTransferWarning {
+  width: min(520px, 100%);
+  display: grid;
+  gap: 18px;
+  border: 1px solid var(--warn);
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: 0 26px 62px -20px rgba(0, 0, 0, 0.44);
+  padding: 18px;
+}
+
+.assetTransferWarning span {
+  color: var(--warn-text);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.assetTransferWarning strong {
+  display: block;
+  margin-top: 4px;
+  color: var(--fg-strong);
+  font-size: 18px;
+}
+
+.assetTransferWarning p {
+  margin: 10px 0 0;
+  color: var(--fg-muted);
+  line-height: 1.45;
+}
+
+.assetTransferActions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 .modalAssetGallery {
