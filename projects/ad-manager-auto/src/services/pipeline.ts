@@ -8,7 +8,7 @@ import { normalizeAssetFileName, validateAssetFileName } from "../utils/assetNam
 import { normalizeAdTextList, normalizeCtaTypeList } from "../shared/creativeCopy.js";
 import { generateCreativeCopy } from "./copyGenerator.js";
 import { downloadDriveCreatives, downloadDriveFile, extractDriveSourceId } from "./googleDrive.js";
-import { createAd, getFacebookAdSet, listFacebookCampaigns, uploadCreativeAsset } from "./facebook.js";
+import { createAd, getFacebookAdSet, getFacebookCampaign, listFacebookCampaigns, uploadCreativeAsset } from "./facebook.js";
 import {
   cancelStaleCreativesForTask,
   getCreativeById,
@@ -575,6 +575,15 @@ function isHttpUrl(value: string): boolean {
   }
 }
 
+function assertScheduleIsOpen(entity: "Campaign" | "AdSet", id: string, endTime?: string | null): void {
+  if (!endTime) return;
+  const date = new Date(endTime);
+  if (Number.isNaN(date.getTime())) return;
+  if (date.getTime() <= Date.now()) {
+    throw new Error(`${entity} ${id} schedule ended at ${endTime}. Extend its schedule in Meta or choose another ${entity.toLowerCase()}.`);
+  }
+}
+
 function isMockCreativeAsset(assetId: string, assetType: string): boolean {
   return assetId.startsWith(`mock_${assetType}_`);
 }
@@ -686,7 +695,12 @@ export async function launchCreative(id: number, placementInput?: LaunchPlacemen
 
   creative = await refreshMockLaunchAsset(creative, requestId);
 
-  const adSet = await getFacebookAdSet(adSetId, requestId);
+  const [campaign, adSet] = await Promise.all([
+    getFacebookCampaign(campaignId, requestId),
+    getFacebookAdSet(adSetId, requestId)
+  ]);
+  assertScheduleIsOpen("Campaign", campaignId, campaign.stop_time);
+  assertScheduleIsOpen("AdSet", adSetId, adSet.end_time);
   if (adSet.campaign_id !== campaignId) {
     throw new Error(`AdSet ${adSetId} belongs to campaign ${adSet.campaign_id}, not ${campaignId}`);
   }

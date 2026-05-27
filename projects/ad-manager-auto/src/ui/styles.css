@@ -1005,6 +1005,12 @@ button:disabled {
   text-transform: uppercase;
 }
 
+.fieldHint {
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
 .fieldGroup input,
 .fieldGroup select,
 .fieldGroup textarea {

@@ -1164,6 +1164,70 @@ function displayAdSetName(creative: Creative, adSetNamesById?: ReadonlyMap<strin
   );
 }
 
+type ScheduleItem = {
+  id: string;
+  status?: string;
+  effective_status?: string;
+  configured_status?: string;
+  start_time?: string | null;
+  end_time?: string | null;
+  stop_time?: string | null;
+};
+
+function parseMetaDate(value?: string | null): Date | null {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function formatMetaDate(value?: string | null) {
+  const date = parseMetaDate(value);
+  if (!date) return value ?? "";
+  return new Intl.DateTimeFormat("uk-UA", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZoneName: "short"
+  }).format(date);
+}
+
+function scheduleEndTime(item?: ScheduleItem | null) {
+  return item?.end_time ?? item?.stop_time ?? null;
+}
+
+function scheduleHasEnded(item?: ScheduleItem | null) {
+  const end = parseMetaDate(scheduleEndTime(item));
+  return Boolean(end && end.getTime() <= Date.now());
+}
+
+function scheduleSummary(item?: ScheduleItem | null) {
+  if (!item) return "";
+  const status = item.effective_status ?? item.status ?? item.configured_status;
+  const end = scheduleEndTime(item);
+  const parts = [status, end ? `ends ${formatMetaDate(end)}` : "no end date", `ID ${item.id}`].filter(Boolean);
+  return parts.join(" · ");
+}
+
+function campaignOptionLabel(campaign: MetaCampaign) {
+  return `${campaign.name} (${scheduleSummary(campaign)})`;
+}
+
+function adSetOptionLabel(adSet: MetaAdSet) {
+  return `${adSet.name} (${scheduleSummary(adSet)})`;
+}
+
+function placementScheduleIssue(campaign?: MetaCampaign, adSet?: MetaAdSet) {
+  if (campaign && scheduleHasEnded(campaign)) {
+    return `Selected campaign schedule ended ${formatMetaDate(scheduleEndTime(campaign))}. Choose another campaign or extend its schedule in Meta.`;
+  }
+  if (adSet && scheduleHasEnded(adSet)) {
+    return `Selected ad set schedule ended ${formatMetaDate(scheduleEndTime(adSet))}. Choose another ad set or extend its schedule in Meta.`;
+  }
+  return null;
+}
+
 function missingLaunchDetails(creative: Creative): string[] {
   return [
     creative.ad_text?.trim() ? undefined : "text",
@@ -1413,7 +1477,8 @@ function BulkActionBar({
 
   const selectedCampaign = campaigns.find((campaign) => campaign.id === campaignId);
   const selectedAdSet = adSets.find((adSet) => adSet.id === adSetId);
-  const placementReady = Boolean(campaignId && adSetId);
+  const scheduleIssue = placementScheduleIssue(selectedCampaign, selectedAdSet);
+  const placementReady = Boolean(campaignId && adSetId && !scheduleIssue);
 
   return (
     <section className="bulkActionBar" aria-label="Selected creative actions">
@@ -1440,10 +1505,11 @@ function BulkActionBar({
           <option value="">Select campaign</option>
           {campaigns.map((campaign) => (
             <option key={campaign.id} value={campaign.id}>
-              {campaign.name} {campaign.status ? `(${campaign.status})` : ""}
+              {campaignOptionLabel(campaign)}
             </option>
           ))}
         </select>
+        {selectedCampaign ? <small className="fieldHint">{scheduleSummary(selectedCampaign)}</small> : null}
       </label>
 
       <label className="fieldGroup bulkField">
@@ -1458,10 +1524,11 @@ function BulkActionBar({
           </option>
           {adSets.map((adSet) => (
             <option key={adSet.id} value={adSet.id}>
-              {adSet.name} {adSet.effective_status || adSet.status ? `(${adSet.effective_status ?? adSet.status})` : ""}
+              {adSetOptionLabel(adSet)}
             </option>
           ))}
         </select>
+        {selectedAdSet ? <small className="fieldHint">{scheduleSummary(selectedAdSet)}</small> : null}
       </label>
 
       <div className="bulkActions">
@@ -1487,7 +1554,7 @@ function BulkActionBar({
         </button>
       </div>
 
-      {placementError ? <div className="bulkError">{placementError}</div> : null}
+      {scheduleIssue || placementError ? <div className="bulkError">{scheduleIssue ?? placementError}</div> : null}
     </section>
   );
 }
@@ -1586,7 +1653,8 @@ function ConfirmModal({
 
   const selectedCampaign = campaigns.find((campaign) => campaign.id === campaignId);
   const selectedAdSet = adSets.find((adSet) => adSet.id === adSetId);
-  const placementReady = Boolean(campaignId && adSetId);
+  const scheduleIssue = placementScheduleIssue(selectedCampaign, selectedAdSet);
+  const placementReady = Boolean(campaignId && adSetId && !scheduleIssue);
   const busy = loading || saving || generatingCopy;
   const detailsReady = Boolean(
     draft.adText.trim() &&
@@ -1628,6 +1696,11 @@ function ConfirmModal({
 
     if (!campaignId || !adSetId) {
       setPlacementError("Choose a campaign and ad set before launch.");
+      return;
+    }
+
+    if (scheduleIssue) {
+      setPlacementError(scheduleIssue);
       return;
     }
 
@@ -1746,10 +1819,11 @@ function ConfirmModal({
                   <option value="">{campaignsLoading ? "Loading campaigns..." : "Select campaign"}</option>
                   {campaigns.map((campaign) => (
                     <option key={campaign.id} value={campaign.id}>
-                      {campaign.name} {campaign.status ? `(${campaign.status})` : ""}
+                      {campaignOptionLabel(campaign)}
                     </option>
                   ))}
                 </select>
+                {selectedCampaign ? <small className="fieldHint">{scheduleSummary(selectedCampaign)}</small> : null}
               </label>
               <label className="fieldGroup">
                 <span>Ad set</span>
@@ -1763,10 +1837,11 @@ function ConfirmModal({
                   </option>
                   {adSets.map((adSet) => (
                     <option key={adSet.id} value={adSet.id}>
-                      {adSet.name} {adSet.effective_status || adSet.status ? `(${adSet.effective_status ?? adSet.status})` : ""}
+                      {adSetOptionLabel(adSet)}
                     </option>
                   ))}
                 </select>
+                {selectedAdSet ? <small className="fieldHint">{scheduleSummary(selectedAdSet)}</small> : null}
               </label>
             </section>
 
@@ -1840,10 +1915,10 @@ function ConfirmModal({
           </div>
         </div>
 
-        {placementError ? (
+        {scheduleIssue || placementError ? (
           <div className="modalNotice">
             <AlertCircle size={16} />
-            {placementError}
+            {scheduleIssue ?? placementError}
           </div>
         ) : null}
 

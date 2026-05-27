@@ -62,6 +62,9 @@ export type FacebookCampaign = {
   name: string;
   status?: string;
   objective?: string;
+  configured_status?: string;
+  start_time?: string | null;
+  stop_time?: string | null;
 };
 
 export type FacebookAdSet = {
@@ -70,6 +73,9 @@ export type FacebookAdSet = {
   campaign_id: string;
   status?: string;
   effective_status?: string;
+  configured_status?: string;
+  start_time?: string | null;
+  end_time?: string | null;
   optimization_goal?: string;
   billing_event?: string;
   daily_budget?: string;

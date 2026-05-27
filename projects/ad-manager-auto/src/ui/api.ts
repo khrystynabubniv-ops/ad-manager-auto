@@ -42,6 +42,9 @@ export type MetaCampaign = {
   name: string;
   status?: string;
   objective?: string;
+  configured_status?: string;
+  start_time?: string | null;
+  stop_time?: string | null;
 };
 
 export type MetaAdSet = {
@@ -50,6 +53,9 @@ export type MetaAdSet = {
   campaign_id: string;
   status?: string;
   effective_status?: string;
+  configured_status?: string;
+  start_time?: string | null;
+  end_time?: string | null;
   optimization_goal?: string;
   billing_event?: string;
   daily_budget?: string;

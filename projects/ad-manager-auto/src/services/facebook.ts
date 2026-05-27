@@ -270,7 +270,10 @@ export async function listFacebookCampaigns(requestId?: string): Promise<Faceboo
         id: "mock_campaign_1",
         name: "Mock Campaign",
         status: "ACTIVE",
-        objective: "OUTCOME_TRAFFIC"
+        objective: "OUTCOME_TRAFFIC",
+        configured_status: "ACTIVE",
+        start_time: null,
+        stop_time: null
       }
     ];
   }
@@ -278,7 +281,7 @@ export async function listFacebookCampaigns(requestId?: string): Promise<Faceboo
   const response = await graphGet<any>(
     `${adAccountId()}/campaigns`,
     {
-      fields: "id,name,status,objective",
+      fields: "id,name,status,objective,configured_status,start_time,stop_time",
       limit: "200"
     },
     requestId
@@ -288,8 +291,40 @@ export async function listFacebookCampaigns(requestId?: string): Promise<Faceboo
     id: campaign.id,
     name: campaign.name,
     status: campaign.status,
-    objective: campaign.objective
+    objective: campaign.objective,
+    configured_status: campaign.configured_status,
+    start_time: campaign.start_time ?? null,
+    stop_time: campaign.stop_time ?? null
   }));
+}
+
+export async function getFacebookCampaign(campaignId: string, requestId?: string): Promise<FacebookCampaign> {
+  if (env.MOCK_FACEBOOK) {
+    return {
+      id: campaignId,
+      name: campaignId === "mock_campaign_1" ? "Mock Campaign" : `Mock Campaign ${campaignId}`,
+      status: "ACTIVE",
+      objective: "OUTCOME_TRAFFIC",
+      configured_status: "ACTIVE",
+      start_time: null,
+      stop_time: null
+    };
+  }
+
+  const campaign = await graphGet<any>(
+    campaignId,
+    { fields: "id,name,status,objective,configured_status,start_time,stop_time" },
+    requestId
+  );
+  return {
+    id: campaign.id,
+    name: campaign.name,
+    status: campaign.status,
+    objective: campaign.objective,
+    configured_status: campaign.configured_status,
+    start_time: campaign.start_time ?? null,
+    stop_time: campaign.stop_time ?? null
+  };
 }
 
 function mapFacebookAdSet(adSet: any): FacebookAdSet {
@@ -299,6 +334,9 @@ function mapFacebookAdSet(adSet: any): FacebookAdSet {
     campaign_id: adSet.campaign_id,
     status: adSet.status,
     effective_status: adSet.effective_status,
+    configured_status: adSet.configured_status,
+    start_time: adSet.start_time ?? null,
+    end_time: adSet.end_time ?? null,
     optimization_goal: adSet.optimization_goal,
     billing_event: adSet.billing_event,
     daily_budget: adSet.daily_budget,
@@ -313,6 +351,9 @@ const adSetFields = [
   "campaign_id",
   "status",
   "effective_status",
+  "configured_status",
+  "start_time",
+  "end_time",
   "optimization_goal",
   "billing_event",
   "daily_budget",
@@ -329,6 +370,9 @@ export async function listFacebookAdSets(input: { campaignId: string; requestId?
         campaign_id: input.campaignId,
         status: "ACTIVE",
         effective_status: "ACTIVE",
+        configured_status: "ACTIVE",
+        start_time: null,
+        end_time: null,
         optimization_goal: "LINK_CLICKS",
         billing_event: "IMPRESSIONS",
         daily_budget: String(env.FB_DEFAULT_DAILY_BUDGET_MINOR ?? 1000),
@@ -414,6 +458,9 @@ export async function getFacebookAdSet(adSetId: string, requestId?: string): Pro
       campaign_id: "mock_campaign_1",
       status: "ACTIVE",
       effective_status: "ACTIVE",
+      configured_status: "ACTIVE",
+      start_time: null,
+      end_time: null,
       optimization_goal: "LINK_CLICKS",
       billing_event: "IMPRESSIONS",
       daily_budget: String(env.FB_DEFAULT_DAILY_BUDGET_MINOR ?? 1000),
