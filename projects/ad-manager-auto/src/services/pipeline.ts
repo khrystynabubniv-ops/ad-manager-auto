@@ -1,7 +1,7 @@
 import { AD_STATUS, DB_STATUS, DESIGN_STATUS } from "../config/statuses.js";
 import { env } from "../config/env.js";
 import { logger } from "../logger.js";
-import { Creative, NotionCreativeFields } from "../types.js";
+import { Creative, CreativeAssetPlacement, NotionCreativeFields } from "../types.js";
 import { getErrorMessage } from "../utils/errors.js";
 import { detectAssetType } from "../utils/mime.js";
 import { creativeGroupingForFileName, normalizeAssetFileName, validateAssetFileName } from "../utils/assetNaming.js";
@@ -590,6 +590,36 @@ function assertScheduleIsOpen(entity: "Campaign" | "AdSet", id: string, endTime?
   }
 }
 
+function placementName(placement: CreativeAssetPlacement): string {
+  if (placement === "feed") return "feed";
+  if (placement === "stories_reels") return "stories/reels";
+  if (placement === "horizontal") return "horizontal";
+  return "unknown placement";
+}
+
+function assertUniqueLaunchPlacements(groupName: string, creatives: Creative[]): void {
+  const placements = new Map<CreativeAssetPlacement, Creative[]>();
+  for (const creative of creatives) {
+    const existing = placements.get(creative.asset_placement) ?? [];
+    existing.push(creative);
+    placements.set(creative.asset_placement, existing);
+  }
+
+  const duplicates = [...placements.entries()].filter(([, items]) => items.length > 1);
+  if (!duplicates.length) return;
+
+  const details = duplicates
+    .map(([placement, items]) => {
+      const names = items.map((item) => item.source_file_name ?? `Creative ${item.id}`).join(", ");
+      return `${placementName(placement)}: ${names}`;
+    })
+    .join("; ");
+
+  throw new Error(
+    `Creative group "${groupName}" has multiple assets for the same placement (${details}). Keep one asset per placement, mark extras as do_not_use, or rename variants into separate creative sets before launch.`
+  );
+}
+
 function isMockCreativeAsset(assetId: string, assetType: string): boolean {
   return assetId.startsWith(`mock_${assetType}_`);
 }
@@ -840,6 +870,7 @@ export async function launchCreativeGroup(groupId: string, placementInput?: Laun
   }
 
   launchableCreatives = await Promise.all(launchableCreatives.map((creative) => refreshMockLaunchAsset(creative, requestId)));
+  assertUniqueLaunchPlacements(group.group_name, launchableCreatives);
   const assetTypes = new Set(launchableCreatives.map((creative) => creative.asset_type));
   if (assetTypes.size > 1) {
     throw new Error(`Creative group "${group.group_name}" mixes image and video assets. Separate them before launch.`);

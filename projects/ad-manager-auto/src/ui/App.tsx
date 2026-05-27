@@ -1270,6 +1270,37 @@ function placementLabel(value: CreativeAssetPlacement) {
   return placementOptions.find((option) => option.value === value)?.label ?? value;
 }
 
+function normalizedAssetStem(fileName?: string | null, fallback = "creative") {
+  const rawStem = (fileName ?? fallback).replace(/\.[^.]+$/, "");
+  return rawStem
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/['`]/g, "")
+    .replace(/[^a-z0-9&]+/g, "_")
+    .replace(/_+/g, "_")
+    .replace(/^_+|_+$/g, "") || fallback;
+}
+
+function assetSetFromFileName(creative: Creative) {
+  const key = normalizedAssetStem(creative.source_file_name, `creative_${creative.id}`);
+  return {
+    creativeGroupKey: key,
+    creativeGroupName: key.replaceAll("_", " "),
+    assetPlacement: creative.asset_placement
+  };
+}
+
+function sizeToken(value?: string | null) {
+  return normalizedAssetStem(value, "").split("_").find((part) => ["1x1", "4x5", "9x16", "16x9"].includes(part));
+}
+
+function hasMismatchedSetLabel(creative: Creative) {
+  const assetSize = sizeToken(creative.source_file_name);
+  const groupSize = sizeToken(creative.creative_group_key) ?? sizeToken(creative.creative_group_name);
+  return Boolean(assetSize && groupSize && assetSize !== groupSize);
+}
+
 function groupPrimaryCreative(group: CreativeGroup) {
   return group.primary_creative ?? group.creatives[0];
 }
@@ -2372,14 +2403,22 @@ function CreativeGroupRow({
                   disabled={groupingBusyId === creative.id}
                   title="Move this asset into its own creative set"
                   onClick={() =>
-                    void onGroupingChange?.(creative, {
-                      creativeGroupKey: `${creative.creative_group_key}_${creative.id}`,
-                      creativeGroupName: `${creative.creative_group_name} ${creative.id}`,
-                      assetPlacement: creative.asset_placement
-                    })
+                    void onGroupingChange?.(creative, assetSetFromFileName(creative))
                   }
                 >
                   Separate
+                </button>
+              ) : hasMismatchedSetLabel(creative) ? (
+                <button
+                  type="button"
+                  className="secondaryButton compact"
+                  disabled={groupingBusyId === creative.id}
+                  title="Reset this creative set label from the asset filename"
+                  onClick={() =>
+                    void onGroupingChange?.(creative, assetSetFromFileName(creative))
+                  }
+                >
+                  Fix label
                 </button>
               ) : (
                 <span className="assetAssignmentMuted">Single asset</span>

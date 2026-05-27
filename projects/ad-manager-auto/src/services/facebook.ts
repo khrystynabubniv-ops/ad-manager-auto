@@ -176,10 +176,17 @@ function facebookErrorMessage(error: unknown): string {
     const data = error.response?.data as any;
     const facebookError = data?.error;
     const message = facebookError?.error_user_msg ?? facebookError?.message ?? data?.message ?? error.message;
+    const errorData =
+      typeof facebookError?.error_data === "string"
+        ? facebookError.error_data
+        : facebookError?.error_data
+          ? JSON.stringify(facebookError.error_data)
+          : undefined;
     const details = [
       facebookError?.code ? `code ${facebookError.code}` : undefined,
       facebookError?.error_subcode ? `subcode ${facebookError.error_subcode}` : undefined,
-      facebookError?.fbtrace_id ? `trace ${facebookError.fbtrace_id}` : undefined
+      facebookError?.fbtrace_id ? `trace ${facebookError.fbtrace_id}` : undefined,
+      errorData ? `details ${errorData.slice(0, 500)}` : undefined
     ].filter(Boolean);
     return details.length ? `${message} (${details.join(", ")})` : message;
   }
