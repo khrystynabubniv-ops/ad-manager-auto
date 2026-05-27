@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { randomUUID } from "node:crypto";
 import { DB_STATUS } from "../config/statuses.js";
 import { requireAuth } from "../middleware/auth.js";
 import {
@@ -15,9 +16,20 @@ import { generateCreativeCopy } from "../services/copyGenerator.js";
 import { getFacebookAdSet, uploadCreativeAsset } from "../services/facebook.js";
 import { cleanTextSequence, normalizeCtaType, normalizeCtaTypeSequence } from "../shared/creativeCopy.js";
 import { creativeGroupingForFileName } from "../utils/assetNaming.js";
+import { CreativeAssetPlacement } from "../types.js";
 import { AppError } from "../utils/errors.js";
 
 export const creativesRouter = Router();
+
+const assetPlacements = ["feed", "stories_reels", "horizontal", "unknown", "do_not_use"] as const;
+
+function parseAssetPlacement(value: unknown, fallback?: CreativeAssetPlacement): CreativeAssetPlacement {
+  const placement = typeof value === "string" ? value : fallback;
+  if (!placement || !assetPlacements.includes(placement as CreativeAssetPlacement)) {
+    throw new AppError("Invalid asset placement", { statusCode: 400, code: "INVALID_ASSET_PLACEMENT" });
+  }
+  return placement as CreativeAssetPlacement;
+}
 
 creativesRouter.get("/", requireAuth, async (req, res, next) => {
   try {
@@ -151,20 +163,61 @@ creativesRouter.patch("/:id/grouping", requireAuth, async (req, res, next) => {
     const body = (req.body ?? {}) as Record<string, unknown>;
     const creativeGroupKey = typeof body.creativeGroupKey === "string" ? body.creativeGroupKey.trim() : "";
     const creativeGroupName = typeof body.creativeGroupName === "string" ? body.creativeGroupName.trim() : creativeGroupKey;
-    const assetPlacement = typeof body.assetPlacement === "string" ? body.assetPlacement : existing.asset_placement;
+    const assetPlacement = parseAssetPlacement(body.assetPlacement, existing.asset_placement);
     if (!creativeGroupKey) {
       throw new AppError("creativeGroupKey is required", { statusCode: 400, code: "MISSING_CREATIVE_GROUP_KEY" });
-    }
-    if (!["feed", "stories_reels", "horizontal", "unknown", "do_not_use"].includes(assetPlacement)) {
-      throw new AppError("Invalid asset placement", { statusCode: 400, code: "INVALID_ASSET_PLACEMENT" });
     }
 
     const creative = await updateCreativeGrouping(id, {
       creativeGroupKey,
       creativeGroupName,
-      assetPlacement: assetPlacement as typeof existing.asset_placement
+      assetPlacement
     });
     res.json({ creative });
+  } catch (error) {
+    next(error);
+  }
+});
+
+creativesRouter.post("/groups/:groupId/slots", requireAuth, async (req, res, next) => {
+  try {
+    const group = await getCreativeGroupById(req.params.groupId, [DB_STATUS.READY_TO_LAUNCH, DB_STATUS.LAUNCH_FAILED]);
+    if (!group) {
+      throw new AppError("Creative group not found", { statusCode: 404, code: "CREATIVE_GROUP_NOT_FOUND" });
+    }
+
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const assetPlacement = parseAssetPlacement(body.assetPlacement, "unknown");
+    const sourceFileId = `slot:${group.group_key}:${randomUUID()}`;
+    const sourceFileName = `Empty ${assetPlacement.replaceAll("_", "/")} slot`;
+    const primary = group.primary_creative;
+
+    await upsertCreative({
+      notionTaskId: group.notion_task_id,
+      notionTaskUrl: group.notion_task_url ?? undefined,
+      sourceFileId,
+      sourceFileName,
+      creativeGroupKey: group.group_key,
+      creativeGroupName: group.group_name,
+      assetPlacement,
+      groupingStatus: "manual",
+      status: DB_STATUS.READY_TO_LAUNCH,
+      projectType: primary.project_type ?? undefined,
+      adText: primary.ad_text ?? undefined,
+      headline: primary.headline ?? undefined,
+      headlineVariants: primary.headline_variants ?? undefined,
+      adTextVariants: primary.ad_text_variants ?? undefined,
+      ctaType: primary.cta_type ?? undefined,
+      ctaTypeVariants: primary.cta_type_variants ?? undefined,
+      ctaLink: primary.cta_link ?? undefined,
+      campaignId: primary.campaign_id ?? undefined,
+      campaignName: primary.campaign_name ?? undefined,
+      adSetId: primary.adset_id ?? undefined,
+      adSetName: primary.adset_name ?? undefined,
+      googleDriveUrl: primary.google_drive_url ?? undefined
+    });
+
+    res.status(201).json({ group: await getCreativeGroupById(req.params.groupId) });
   } catch (error) {
     next(error);
   }

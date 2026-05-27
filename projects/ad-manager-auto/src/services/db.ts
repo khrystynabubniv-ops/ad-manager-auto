@@ -455,6 +455,10 @@ export function decodeCreativeGroupId(id: string): { notionTaskId: string; group
 const placementOrder: CreativeAssetPlacement[] = ["feed", "stories_reels", "horizontal", "unknown", "do_not_use"];
 const statusOrder = ["launch_failed", "upload_failed", "launching", "ready_to_launch", "launched", "canceled"];
 
+function hasUploadedAsset(creative: Creative): boolean {
+  return Boolean(creative.asset_id && creative.asset_type);
+}
+
 function groupStatus(creatives: Creative[]): string {
   const statuses = new Set(creatives.map((creative) => creative.status));
   if (statuses.size === 1) return creatives[0].status;
@@ -463,6 +467,9 @@ function groupStatus(creatives: Creative[]): string {
 
 function primaryCreative(creatives: Creative[]): Creative {
   return [...creatives].sort((left, right) => {
+    const leftHasAsset = hasUploadedAsset(left);
+    const rightHasAsset = hasUploadedAsset(right);
+    if (leftHasAsset !== rightHasAsset) return leftHasAsset ? -1 : 1;
     const leftPlacement = placementOrder.indexOf(left.asset_placement);
     const rightPlacement = placementOrder.indexOf(right.asset_placement);
     if (leftPlacement !== rightPlacement) return leftPlacement - rightPlacement;
@@ -483,6 +490,9 @@ function buildCreativeGroups(creatives: Creative[]): CreativeGroup[] {
     .map(([key, items]) => {
       const [notionTaskId, groupKey] = key.split("\n");
       const sortedCreatives = [...items].sort((left, right) => {
+        const leftHasAsset = hasUploadedAsset(left);
+        const rightHasAsset = hasUploadedAsset(right);
+        if (leftHasAsset !== rightHasAsset) return leftHasAsset ? -1 : 1;
         const leftPlacement = placementOrder.indexOf(left.asset_placement);
         const rightPlacement = placementOrder.indexOf(right.asset_placement);
         if (leftPlacement !== rightPlacement) return leftPlacement - rightPlacement;

@@ -45,6 +45,7 @@ import {
   createAdDraft,
   createAdSetDraft,
   createCampaignDraft,
+  createCreativeGroupSlot,
   fetchAdSets,
   fetchCampaignDraft,
   fetchCampaignDrafts,
@@ -1099,7 +1100,7 @@ function CreativePreview({ creative }: { creative: Creative }) {
 
   return (
     <div className="previewFallback">
-      <span>{creative.asset_type === "video" ? "Video preview unavailable" : "Preview unavailable"}</span>
+      <span>{isEmptyCreativeSlot(creative) ? "Empty slot" : creative.asset_type === "video" ? "Video preview unavailable" : "Preview unavailable"}</span>
     </div>
   );
 }
@@ -1270,6 +1271,10 @@ function placementLabel(value: CreativeAssetPlacement) {
 
 function groupPrimaryCreative(group: CreativeGroup) {
   return group.primary_creative ?? group.creatives[0];
+}
+
+function isEmptyCreativeSlot(creative: Creative) {
+  return creative.source_file_id.startsWith("slot:") || !creative.asset_id;
 }
 
 function missingGroupLaunchDetails(group: CreativeGroup): string[] {
@@ -2147,7 +2152,10 @@ function CreativeGroupRow({
   selected = false,
   onSelectChange,
   onGroupingChange,
+  onAddSlot,
+  onRemoveSlot,
   groupingBusyId,
+  slotBusyGroupId,
   campaignNamesById,
   adSetNamesById
 }: {
@@ -2162,10 +2170,14 @@ function CreativeGroupRow({
     creative: Creative,
     payload: { creativeGroupKey: string; creativeGroupName?: string | null; assetPlacement: CreativeAssetPlacement }
   ) => Promise<void> | void;
+  onAddSlot?: (group: CreativeGroup, assetPlacement: CreativeAssetPlacement) => Promise<void> | void;
+  onRemoveSlot?: (creative: Creative) => Promise<void> | void;
   groupingBusyId?: number | null;
+  slotBusyGroupId?: string | null;
   campaignNamesById?: ReadonlyMap<string, string>;
   adSetNamesById?: ReadonlyMap<string, string>;
 }) {
+  const [newSlotPlacement, setNewSlotPlacement] = useState<CreativeAssetPlacement>("feed");
   const primary = groupPrimaryCreative(group);
   const creativeName = group.group_name || primary.project_type || `Creative set ${group.id}`;
   const hasCampaign = Boolean(primary.campaign_id || primary.campaign_name);
@@ -2177,6 +2189,12 @@ function CreativeGroupRow({
   const titleCount = 1 + cleanTextSequence(primary.headline_variants ?? []).length;
   const ctaCount = 1 + normalizeCtaTypeSequence(primary.cta_type_variants ?? []).length;
   const groupOptions = groups.map((item) => ({ key: item.group_key, name: item.group_name }));
+  const slotBusy = slotBusyGroupId === group.id;
+  const emptySlotCount = group.creatives.filter(isEmptyCreativeSlot).length;
+  const uploadedAssetCount = group.creatives.length - emptySlotCount;
+  const assetSummary = `${uploadedAssetCount} asset${uploadedAssetCount === 1 ? "" : "s"}${
+    emptySlotCount ? `, ${emptySlotCount} empty slot${emptySlotCount === 1 ? "" : "s"}` : ""
+  }`;
 
   return (
     <article className={["creativeRow creativeGroupRow", selectable ? "selectable" : "", selected ? "selected" : ""].filter(Boolean).join(" ")}>
@@ -2197,7 +2215,7 @@ function CreativeGroupRow({
       <div className="creativeMain">
         <div className="creativeKicker">
           <span>Creative set</span>
-          <span>{group.creatives.length} asset{group.creatives.length === 1 ? "" : "s"}</span>
+          <span>{assetSummary}</span>
           <span>{group.grouping_status === "manual" ? "edited" : "auto grouped"}</span>
         </div>
         <div className="creativeTitleLine">
@@ -2214,6 +2232,34 @@ function CreativeGroupRow({
           <MetadataItem label="Ad link" value={primary.cta_link ? "Added" : "Missing"} />
         </div>
         <div className="assetAssignmentGrid">
+          <div className="assetAssignmentToolbar">
+            <div>
+              <strong>Assets in set</strong>
+            </div>
+            <select
+              value={newSlotPlacement}
+              disabled={slotBusy}
+              aria-label="Placement role for new empty slot"
+              onChange={(event) => setNewSlotPlacement(event.target.value as CreativeAssetPlacement)}
+            >
+              {placementOptions
+                .filter((option) => option.value !== "do_not_use")
+                .map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+            </select>
+            <button
+              type="button"
+              className="secondaryButton compact"
+              disabled={slotBusy}
+              onClick={() => void onAddSlot?.(group, newSlotPlacement)}
+            >
+              {slotBusy ? <Loader2 size={14} className="spin" /> : <Plus size={14} />}
+              Add empty slot
+            </button>
+          </div>
           <div className="assetAssignmentHeader">
             <span>Asset</span>
             <span>Placement role</span>
@@ -2222,7 +2268,10 @@ function CreativeGroupRow({
           </div>
           {group.creatives.map((creative) => (
             <div className="assetAssignmentRow" key={creative.id}>
-              <span title={creative.source_file_name ?? undefined}>{creative.source_file_name ?? `Creative ${creative.id}`}</span>
+              <span title={creative.source_file_name ?? undefined}>
+                {creative.source_file_name ?? `Creative ${creative.id}`}
+                {isEmptyCreativeSlot(creative) ? <small>Empty slot</small> : null}
+              </span>
               <select
                 aria-label={`Placement role for ${creative.source_file_name ?? `Creative ${creative.id}`}`}
                 value={creative.asset_placement}
@@ -2260,7 +2309,17 @@ function CreativeGroupRow({
                   </option>
                 ))}
               </select>
-              {group.creatives.length > 1 ? (
+              {isEmptyCreativeSlot(creative) ? (
+                <button
+                  type="button"
+                  className="secondaryButton compact dangerButton"
+                  disabled={groupingBusyId === creative.id}
+                  title="Remove this empty slot"
+                  onClick={() => void onRemoveSlot?.(creative)}
+                >
+                  Remove
+                </button>
+              ) : group.creatives.length > 1 ? (
                 <button
                   type="button"
                   className="secondaryButton compact"
@@ -4541,6 +4600,7 @@ export function App() {
   const [selectedGroupIds, setSelectedGroupIds] = useState<Set<string>>(() => new Set());
   const [bulkAction, setBulkAction] = useState<"launch" | "archive" | null>(null);
   const [groupingBusyId, setGroupingBusyId] = useState<number | null>(null);
+  const [slotBusyGroupId, setSlotBusyGroupId] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [query, setQuery] = useState("");
   const [campaigns, setCampaigns] = useState<MetaCampaign[]>([]);
@@ -4981,6 +5041,34 @@ export function App() {
     }
   }
 
+  async function addEmptySlot(group: CreativeGroup, assetPlacement: CreativeAssetPlacement) {
+    setSlotBusyGroupId(group.id);
+    setError(null);
+    try {
+      await createCreativeGroupSlot(group.id, { assetPlacement });
+      await load();
+      setError("Empty slot added.");
+    } catch (addError) {
+      setError(addError instanceof Error ? addError.message : String(addError));
+    } finally {
+      setSlotBusyGroupId(null);
+    }
+  }
+
+  async function removeEmptySlot(creative: Creative) {
+    setGroupingBusyId(creative.id);
+    setError(null);
+    try {
+      await archiveCreative(creative.id);
+      await load();
+      setError("Empty slot removed.");
+    } catch (removeError) {
+      setError(removeError instanceof Error ? removeError.message : String(removeError));
+    } finally {
+      setGroupingBusyId(null);
+    }
+  }
+
   async function handleSyncCampaigns() {
     setSyncing(true);
     setError(null);
@@ -5209,7 +5297,10 @@ export function App() {
                       selected={selectedGroupIds.has(group.id)}
                       onSelectChange={toggleGroupSelection}
                       onGroupingChange={saveCreativeGrouping}
+                      onAddSlot={addEmptySlot}
+                      onRemoveSlot={removeEmptySlot}
                       groupingBusyId={groupingBusyId}
+                      slotBusyGroupId={slotBusyGroupId}
                       campaignNamesById={campaignNamesById}
                       adSetNamesById={adSetNamesById}
                     />

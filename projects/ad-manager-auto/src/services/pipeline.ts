@@ -804,21 +804,16 @@ export async function launchCreativeGroup(groupId: string, placementInput?: Laun
     throw new Error("Creative group not found or not ready to launch");
   }
 
-  let launchableCreatives = group.creatives.filter((creative) => creative.asset_placement !== "do_not_use");
+  let launchableCreatives = group.creatives.filter(
+    (creative) => creative.asset_placement !== "do_not_use" && creative.asset_id && creative.asset_type
+  );
   if (!launchableCreatives.length) {
     throw new Error(`Creative group "${group.group_name}" has no launchable assets`);
   }
+  const launchableCreativeIds = new Set(launchableCreatives.map((creative) => creative.id));
+  const skippedCreatives = group.creatives.filter((creative) => !launchableCreativeIds.has(creative.id));
   const primary =
     launchableCreatives.find((creative) => creative.id === group.primary_creative.id) ?? launchableCreatives[0];
-
-  const missingAssets = launchableCreatives.filter((creative) => !creative.asset_id || !creative.asset_type);
-  if (missingAssets.length) {
-    throw new Error(
-      `Creative group "${group.group_name}" has assets missing launch data: ${missingAssets
-        .map((creative) => creative.source_file_name ?? `Creative ${creative.id}`)
-        .join(", ")}`
-    );
-  }
 
   const launchInput = cleanLaunchInput(placementInput);
   const campaignId = launchInput.campaignId ?? cleanText(primary.campaign_id);
@@ -847,7 +842,7 @@ export async function launchCreativeGroup(groupId: string, placementInput?: Laun
   launchableCreatives = await Promise.all(launchableCreatives.map((creative) => refreshMockLaunchAsset(creative, requestId)));
   const assetTypes = new Set(launchableCreatives.map((creative) => creative.asset_type));
   if (assetTypes.size > 1) {
-    throw new Error(`Creative group "${group.group_name}" mixes image and video assets. Split it before launch.`);
+    throw new Error(`Creative group "${group.group_name}" mixes image and video assets. Separate them before launch.`);
   }
 
   const [campaign, adSet] = await Promise.all([
@@ -923,6 +918,9 @@ export async function launchCreativeGroup(groupId: string, placementInput?: Laun
         launchedAt
       });
     }
+    for (const creative of skippedCreatives) {
+      await updateCreativeStatus(creative.id, DB_STATUS.CANCELED);
+    }
     await updateLaunchSuccess(primary.notion_task_id, facebookAdId);
     await recordEvent({
       requestId,
@@ -937,6 +935,9 @@ export async function launchCreativeGroup(groupId: string, placementInput?: Laun
   } catch (error) {
     const message = getErrorMessage(error);
     for (const creative of launchableCreatives) {
+      await updateCreativeStatus(creative.id, DB_STATUS.LAUNCH_FAILED);
+    }
+    for (const creative of skippedCreatives) {
       await updateCreativeStatus(creative.id, DB_STATUS.LAUNCH_FAILED);
     }
     await updateLaunchFailed(primary.notion_task_id, message);
