@@ -3342,18 +3342,20 @@ button:disabled {
 
 .assetManagerPanel {
   display: grid;
-  gap: 10px;
+  gap: 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  padding: 12px;
 }
 
 .assetManagerHeader {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  gap: 10px;
-  align-items: center;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--surface);
-  padding: 10px;
+  gap: 12px;
+  align-items: end;
+  border-bottom: 1px solid var(--border-soft);
+  padding: 0 0 12px;
 }
 
 .assetManagerHeader > div:first-child {
@@ -3373,17 +3375,34 @@ button:disabled {
 
 .assetManagerHeader strong {
   color: var(--fg-strong);
-  font-size: 13px;
+  font-size: 16px;
+}
+
+.assetManagerHeader small {
+  color: var(--fg-muted);
+  font-size: 12px;
+  font-weight: 650;
 }
 
 .assetManagerAddSlot {
   display: inline-flex;
-  gap: 8px;
-  align-items: center;
+  gap: 10px;
+  align-items: end;
+}
+
+.assetManagerAddSlot label {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
 }
 
 .assetManagerAddSlot select {
-  width: 180px;
+  width: 190px;
+}
+
+.assetManagerAddSlot .secondaryButton {
+  min-height: 34px;
+  white-space: nowrap;
 }
 
 .assetManagerList {
@@ -3396,7 +3415,7 @@ button:disabled {
   display: grid;
   grid-template-columns: 112px minmax(0, 1fr);
   gap: 10px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-soft);
   border-radius: 8px;
   background: var(--surface-alt);
   padding: 10px;

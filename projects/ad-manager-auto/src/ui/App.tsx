@@ -1402,6 +1402,8 @@ function AssetManagementPanel({
   const [slotFillAssetIds, setSlotFillAssetIds] = useState<Record<number, string>>({});
   const groupOptions = groups.map((item) => ({ key: item.group_key, name: item.group_name }));
   const slotBusy = slotBusyGroupId === group.id;
+  const emptySlotCount = group.creatives.filter(isEmptyCreativeSlot).length;
+  const realAssetCount = group.creatives.length - emptySlotCount;
   const fillableAssets = groups
     .flatMap((item) => item.creatives)
     .filter(
@@ -1417,24 +1419,31 @@ function AssetManagementPanel({
     <section className="assetManagerPanel">
       <div className="assetManagerHeader">
         <div>
-          <span>Assets</span>
-          <strong>Placement roles</strong>
+          <span>Creative assets</span>
+          <strong>Assets in this set</strong>
+          <small>
+            {realAssetCount} asset{realAssetCount === 1 ? "" : "s"}
+            {emptySlotCount ? ` · ${emptySlotCount} empty slot${emptySlotCount === 1 ? "" : "s"}` : ""}
+          </small>
         </div>
         <div className="assetManagerAddSlot">
-          <select
-            value={newSlotPlacement}
-            disabled={slotBusy}
-            aria-label="Placement role for new empty slot"
-            onChange={(event) => setNewSlotPlacement(event.target.value as CreativeAssetPlacement)}
-          >
-            {placementOptions
-              .filter((option) => option.value !== "do_not_use")
-              .map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-          </select>
+          <label>
+            <span>New slot</span>
+            <select
+              value={newSlotPlacement}
+              disabled={slotBusy}
+              aria-label="Placement role for new empty slot"
+              onChange={(event) => setNewSlotPlacement(event.target.value as CreativeAssetPlacement)}
+            >
+              {placementOptions
+                .filter((option) => option.value !== "do_not_use")
+                .map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+            </select>
+          </label>
           <button
             type="button"
             className="secondaryButton compact"
@@ -1442,7 +1451,7 @@ function AssetManagementPanel({
             onClick={() => void onAddSlot?.(group, newSlotPlacement)}
           >
             {slotBusy ? <Loader2 size={14} className="spin" /> : <Plus size={14} />}
-            Add slot
+            Add placement slot
           </button>
         </div>
       </div>
@@ -1567,7 +1576,7 @@ function AssetManagementPanel({
                       disabled={groupingBusyId === creative.id || !onGroupingChange}
                       onClick={() => void onGroupingChange?.(creative, assetSetFromFileName(creative))}
                     >
-                      Separate
+                      Move to own set
                     </button>
                   ) : hasMismatchedSetLabel(creative) ? (
                     <button
