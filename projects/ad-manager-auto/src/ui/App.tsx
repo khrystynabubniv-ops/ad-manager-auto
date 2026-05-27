@@ -1846,7 +1846,15 @@ function ConfirmModal({
       <div className="modal creativeReviewModal">
         <div className="modalHeader">
           <div>
-            <p className="eyebrow">{mode === "edit" ? "Edit creative" : "Review & launch"}</p>
+            <p className="eyebrow">
+              {group
+                ? mode === "edit"
+                  ? "Edit creative set"
+                  : "Review & launch set"
+                : mode === "edit"
+                  ? "Edit creative"
+                  : "Review & launch"}
+            </p>
             <input
               className="modalTitleInput"
               aria-label="Project type"
@@ -1863,16 +1871,21 @@ function ConfirmModal({
 
         <div className="modalGrid">
           <div className="modalPreviewStack">
-            <CreativePreview creative={creative} />
             {group ? (
-              <div className="groupAssetStrip">
+              <div className="modalAssetGallery">
                 {group.creatives.map((asset) => (
-                  <span className={asset.asset_placement === "do_not_use" ? "assetRoleChip muted" : "assetRoleChip"} key={asset.id}>
-                    {placementLabel(asset.asset_placement)}
-                  </span>
+                  <figure className={asset.asset_placement === "do_not_use" ? "modalAssetCard muted" : "modalAssetCard"} key={asset.id}>
+                    <CreativePreview creative={asset} />
+                    <figcaption>
+                      <strong>{placementLabel(asset.asset_placement)}</strong>
+                      <span title={asset.source_file_name ?? undefined}>{asset.source_file_name ?? `Creative ${asset.id}`}</span>
+                    </figcaption>
+                  </figure>
                 ))}
               </div>
-            ) : null}
+            ) : (
+              <CreativePreview creative={creative} />
+            )}
           </div>
           <div className="detailsForm">
             <section className="placementPanel">
@@ -2201,10 +2214,17 @@ function CreativeGroupRow({
           <MetadataItem label="Ad link" value={primary.cta_link ? "Added" : "Missing"} />
         </div>
         <div className="assetAssignmentGrid">
+          <div className="assetAssignmentHeader">
+            <span>Asset</span>
+            <span>Placement role</span>
+            <span>Move / join set</span>
+            <span>Action</span>
+          </div>
           {group.creatives.map((creative) => (
             <div className="assetAssignmentRow" key={creative.id}>
               <span title={creative.source_file_name ?? undefined}>{creative.source_file_name ?? `Creative ${creative.id}`}</span>
               <select
+                aria-label={`Placement role for ${creative.source_file_name ?? `Creative ${creative.id}`}`}
                 value={creative.asset_placement}
                 disabled={groupingBusyId === creative.id}
                 onChange={(event) =>
@@ -2222,6 +2242,7 @@ function CreativeGroupRow({
                 ))}
               </select>
               <select
+                aria-label={`Move ${creative.source_file_name ?? `Creative ${creative.id}`} to another set`}
                 value={creative.creative_group_key}
                 disabled={groupingBusyId === creative.id}
                 onChange={(event) => {
@@ -2239,20 +2260,25 @@ function CreativeGroupRow({
                   </option>
                 ))}
               </select>
-              <button
-                type="button"
-                className="secondaryButton compact"
-                disabled={groupingBusyId === creative.id}
-                onClick={() =>
-                  void onGroupingChange?.(creative, {
-                    creativeGroupKey: `${creative.creative_group_key}_${creative.id}`,
-                    creativeGroupName: `${creative.creative_group_name} ${creative.id}`,
-                    assetPlacement: creative.asset_placement
-                  })
-                }
-              >
-                Split
-              </button>
+              {group.creatives.length > 1 ? (
+                <button
+                  type="button"
+                  className="secondaryButton compact"
+                  disabled={groupingBusyId === creative.id}
+                  title="Move this asset into its own creative set"
+                  onClick={() =>
+                    void onGroupingChange?.(creative, {
+                      creativeGroupKey: `${creative.creative_group_key}_${creative.id}`,
+                      creativeGroupName: `${creative.creative_group_name} ${creative.id}`,
+                      assetPlacement: creative.asset_placement
+                    })
+                  }
+                >
+                  Separate
+                </button>
+              ) : (
+                <span className="assetAssignmentMuted">Single asset</span>
+              )}
             </div>
           ))}
         </div>

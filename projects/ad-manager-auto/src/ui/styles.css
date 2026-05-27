@@ -3076,11 +3076,24 @@ button:disabled {
   margin-top: 3px;
 }
 
+.assetAssignmentHeader,
 .assetAssignmentRow {
   display: grid;
   grid-template-columns: minmax(150px, 1fr) minmax(118px, 148px) minmax(130px, 180px) auto;
   gap: 6px;
   align-items: center;
+}
+
+.assetAssignmentHeader {
+  color: var(--fg-soft);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 0 6px;
+}
+
+.assetAssignmentRow {
   padding: 6px;
   border: 1px solid var(--border-soft);
   border-radius: 6px;
@@ -3107,33 +3120,70 @@ button:disabled {
   font-size: 12px;
 }
 
+.assetAssignmentMuted {
+  color: var(--fg-muted);
+  font-size: 12px;
+  font-weight: 600;
+  text-align: center;
+}
+
 .modalPreviewStack {
   display: grid;
   gap: 8px;
   align-content: start;
 }
 
-.groupAssetStrip {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 5px;
+.modalAssetGallery {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(156px, 1fr));
+  gap: 10px;
 }
 
-.assetRoleChip {
-  display: inline-flex;
-  align-items: center;
-  min-height: 24px;
-  border-radius: 4px;
-  padding: 3px 7px;
-  background: var(--info-soft);
+.modalAssetCard {
+  min-width: 0;
+  display: grid;
+  gap: 7px;
+  margin: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-alt);
+  padding: 8px;
+}
+
+.modalAssetCard.muted {
+  opacity: 0.62;
+}
+
+.modalGrid .modalAssetCard .previewImage,
+.modalGrid .modalAssetCard .previewFallback {
+  width: 100%;
+  height: 220px;
+  min-height: 0;
+  aspect-ratio: auto;
+  object-fit: contain;
+  background: var(--surface);
+}
+
+.modalAssetCard figcaption {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.modalAssetCard figcaption strong {
   color: var(--info-text);
-  font-size: 11px;
-  font-weight: 650;
+  font-size: 12px;
+  font-weight: 700;
 }
 
-.assetRoleChip.muted {
-  background: var(--neutral-chip);
+.modalAssetCard figcaption span {
+  min-width: 0;
   color: var(--fg-muted);
+  font-size: 11.5px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .metadataItem {
@@ -3974,6 +4024,10 @@ button:disabled {
     grid-column: 3;
   }
 
+  .assetAssignmentHeader {
+    display: none;
+  }
+
   .assetAssignmentRow {
     grid-template-columns: minmax(0, 1fr) minmax(118px, 148px);
   }
@@ -4121,6 +4175,12 @@ button:disabled {
   .creativeReviewModal .modalGrid .previewFallback {
     height: auto;
     min-height: 180px;
+  }
+
+  .creativeReviewModal .modalGrid .modalAssetCard .previewImage,
+  .creativeReviewModal .modalGrid .modalAssetCard .previewFallback {
+    height: 180px;
+    min-height: 0;
   }
 
   .modalOverlay {
