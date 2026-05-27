@@ -1428,7 +1428,7 @@ function AssetManagementPanel({
   );
 
   function selectedCandidateFor(target: Creative) {
-    const selectedId = selectedAssetIds[target.id];
+    const selectedId = selectedAssetIds[target.id] ?? (isEmptyCreativeSlot(target) ? "" : String(target.id));
     return candidateAssets.find((candidate) => String(candidate.creative.id) === selectedId);
   }
 
@@ -1498,6 +1498,8 @@ function AssetManagementPanel({
         {group.creatives.map((creative) => {
           const selectedCandidate = selectedCandidateFor(creative);
           const selectedAsset = selectedCandidate?.creative;
+          const selectedAssetId = selectedAssetIds[creative.id] ?? (isEmptyCreativeSlot(creative) ? "" : String(creative.id));
+          const canChooseAnotherAsset = candidateAssets.some((candidate) => candidate.creative.id !== creative.id);
 
           return (
             <article className={creative.asset_placement === "do_not_use" ? "assetManagerCard muted" : "assetManagerCard"} key={creative.id}>
@@ -1535,8 +1537,8 @@ function AssetManagementPanel({
                   <span>Choose asset</span>
                   <select
                     aria-label={`Choose asset for ${placementLabel(creative.asset_placement)}`}
-                    value={selectedAssetIds[creative.id] ?? ""}
-                    disabled={groupingBusyId === creative.id || !candidateAssets.some((candidate) => candidate.creative.id !== creative.id)}
+                    value={selectedAssetId}
+                    disabled={groupingBusyId === creative.id || !canChooseAnotherAsset}
                     onChange={(event) =>
                       setSelectedAssetIds((current) => ({
                         ...current,
@@ -1544,22 +1546,23 @@ function AssetManagementPanel({
                       }))
                     }
                   >
-                    <option value="">
-                      {candidateAssets.some((candidate) => candidate.creative.id !== creative.id) ? "Choose asset" : "No available assets"}
-                    </option>
+                    {isEmptyCreativeSlot(creative) ? (
+                      <option value="">{candidateAssets.length ? "Choose asset" : "No available assets"}</option>
+                    ) : null}
                     {candidateAssets
-                      .filter((candidate) => candidate.creative.id !== creative.id)
                       .map((candidate) => {
                         const isInAnotherSet = candidate.group.group_key !== group.group_key;
+                        const isCurrentAsset = candidate.creative.id === creative.id;
                         return (
-                          <option key={candidate.creative.id} value={candidate.creative.id}>
+                          <option key={candidate.creative.id} value={String(candidate.creative.id)}>
                             {placementLabel(candidate.creative.asset_placement)} - {assetDisplayName(candidate.creative)}
+                            {isCurrentAsset ? " - current" : ""}
                             {isInAnotherSet ? ` - already in ${candidate.group.group_name}` : ""}
                           </option>
                         );
                       })}
                   </select>
-                  {selectedAsset && selectedCandidate ? (
+                  {selectedAsset && selectedCandidate && selectedAsset.id !== creative.id ? (
                     <div className="selectedFillAsset">
                       <span>
                         <strong>{assetDisplayName(selectedAsset)}</strong>
