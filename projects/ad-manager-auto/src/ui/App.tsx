@@ -5478,7 +5478,7 @@ export function App() {
     try {
       await moveCreativeToReady(creative.id);
       await load();
-      setError("Moved creative to Ready.");
+      setError("Moved archived creative to Ready.");
     } catch (restoreError) {
       setError(restoreError instanceof Error ? restoreError.message : String(restoreError));
     } finally {
@@ -5810,7 +5810,7 @@ export function App() {
                       creative={creative}
                       onEdit={undefined}
                       onLaunch={undefined}
-                      onRestore={creativeView === "drafts" && !isEmptyCreativeSlot(creative) ? handleMoveCreativeToReady : undefined}
+                      onRestore={creativeView === "archived" && !isEmptyCreativeSlot(creative) ? handleMoveCreativeToReady : undefined}
                       restoreBusy={restoringCreativeId === creative.id}
                       selectable={false}
                       selected={selectedCreativeIds.has(creative.id)}

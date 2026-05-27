@@ -308,10 +308,10 @@ creativesRouter.post("/:id/ready", requireAuth, async (req, res, next) => {
     if (!existing) {
       throw new AppError(`Creative ${id} not found`, { statusCode: 404, code: "CREATIVE_NOT_FOUND" });
     }
-    if (existing.status !== DB_STATUS.NEEDS_DETAILS) {
-      throw new AppError("Only draft creatives can be moved to Ready", {
+    if (existing.status !== DB_STATUS.CANCELED) {
+      throw new AppError("Only archived creatives can be moved to Ready", {
         statusCode: 400,
-        code: "CREATIVE_NOT_DRAFT"
+        code: "CREATIVE_NOT_ARCHIVED"
       });
     }
     if (isEmptyCreativeSlot(existing)) {
