@@ -544,9 +544,9 @@ function placementLabel(placement: CreativeAssetPlacement): string {
   return `asset_${placement}`;
 }
 
-function objectStoryIdentity(pageId: string): { page_id: string; instagram_actor_id?: string } {
-  const instagramActorId = env.FB_INSTAGRAM_ACTOR_ID?.trim();
-  return instagramActorId ? { page_id: pageId, instagram_actor_id: instagramActorId } : { page_id: pageId };
+function objectStoryIdentity(pageId: string): { page_id: string; instagram_user_id?: string } {
+  const instagramUserId = env.FB_INSTAGRAM_USER_ID?.trim() || env.FB_INSTAGRAM_ACTOR_ID?.trim();
+  return instagramUserId ? { page_id: pageId, instagram_user_id: instagramUserId } : { page_id: pageId };
 }
 
 function placementCustomizationSpec(placement: CreativeAssetPlacement, assetType: AssetType): Record<string, unknown> | undefined {
@@ -662,8 +662,8 @@ export async function createAd(input: {
   const usePlacementAssets = mediaAssets.length > 1;
   const primaryAsset = mediaAssets[0];
   const storyIdentity = objectStoryIdentity(pageId);
-  if (usePlacementAssets && !storyIdentity.instagram_actor_id) {
-    throw new Error("FB_INSTAGRAM_ACTOR_ID is required for placement-specific creatives that include Instagram placements.");
+  if (usePlacementAssets && !storyIdentity.instagram_user_id) {
+    throw new Error("FB_INSTAGRAM_USER_ID is required for placement-specific creatives that include Instagram placements.");
   }
   const assetFeedAdTexts = usePlacementAssets ? adTexts.slice(0, 1) : adTexts;
   const assetFeedHeadlines = usePlacementAssets ? headlines.slice(0, 1) : headlines;

@@ -46,6 +46,7 @@ const envSchema = z.object({
   FB_ACCESS_TOKEN: z.string().optional(),
   FB_AD_ACCOUNT_ID: z.string().optional(),
   FB_PAGE_ID: z.string().optional(),
+  FB_INSTAGRAM_USER_ID: z.string().optional(),
   FB_INSTAGRAM_ACTOR_ID: z.string().optional(),
   FB_ENABLE_ADSET_CREATE: booleanFromString.default("false"),
   FB_DEFAULT_DAILY_BUDGET_MINOR: z.coerce.number().optional(),
