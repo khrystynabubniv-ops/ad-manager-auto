@@ -3,6 +3,7 @@ import { env, notionPropertyNames, requireEnv } from "../config/env.js";
 import { AD_STATUS } from "../config/statuses.js";
 import { logger } from "../logger.js";
 import { AssetType, NotionCreativeFields } from "../types.js";
+import { withRetry } from "../utils/retry.js";
 
 type NotionPage = Awaited<ReturnType<Client["pages"]["retrieve"]>>;
 type Properties = Record<string, any>;
@@ -59,6 +60,26 @@ const subItemPropertyAliases = [
 export function getNotionClient(): Client {
   notion ??= new Client({ auth: requireEnv("NOTION_TOKEN") });
   return notion;
+}
+
+function isRetryableNotionError(error: unknown): boolean {
+  const status = (error as any)?.status;
+  const code = (error as any)?.code;
+  return status === 429 || code === "rate_limited" || status === 500 || status === 502 || status === 503 || status === 504;
+}
+
+async function notionRequest<T>(action: string, fn: () => Promise<T>): Promise<T> {
+  return withRetry(fn, {
+    attempts: 5,
+    baseDelayMs: 1200,
+    maxDelayMs: 15000,
+    shouldRetry: isRetryableNotionError,
+    onRetry: (error, attempt, delayMs) =>
+      logger.warn(
+        { action, attempt, delayMs, code: (error as any)?.code, status: (error as any)?.status },
+        "Retrying Notion request"
+      )
+  });
 }
 
 function normalizePropertyName(name: string): string {
@@ -221,9 +242,9 @@ function notionProperties(properties: Record<string, unknown>) {
 }
 
 async function resolveAdPropertyNames(pageId: string) {
-  const page = (await getNotionClient().pages.retrieve({ page_id: pageId })) as NotionPage & {
-    properties: Properties;
-  };
+  const page = (await notionRequest("pages.retrieve", () =>
+    getNotionClient().pages.retrieve({ page_id: pageId })
+  )) as NotionPage & { properties: Properties };
   const p = page.properties;
 
   return {
@@ -242,11 +263,9 @@ async function resolveAdPropertyNames(pageId: string) {
 }
 
 export async function retrieveCreativePage(pageId: string): Promise<NotionCreativeFields> {
-  const page = (await getNotionClient().pages.retrieve({ page_id: pageId })) as NotionPage & {
-    properties: Properties;
-    url?: string;
-    id: string;
-  };
+  const page = (await notionRequest("pages.retrieve", () =>
+    getNotionClient().pages.retrieve({ page_id: pageId })
+  )) as NotionPage & { properties: Properties; url?: string; id: string };
 
   return mapNotionPage(page);
 }
@@ -280,9 +299,9 @@ export async function retrieveCampaignPage(pageId: string): Promise<{
   status?: string;
   objective?: string;
 }> {
-  const page = (await getNotionClient().pages.retrieve({ page_id: pageId })) as NotionPage & {
-    properties: Properties;
-  };
+  const page = (await notionRequest("pages.retrieve", () =>
+    getNotionClient().pages.retrieve({ page_id: pageId })
+  )) as NotionPage & { properties: Properties };
   const p = page.properties;
   return {
     name: propertyToString(findProperty(p, "Name")),
@@ -298,7 +317,7 @@ export async function updateAdPreparation(
   errorMessage?: string
 ): Promise<void> {
   const names = await resolveAdPropertyNames(pageId);
-  await getNotionClient().pages.update({
+  await notionRequest("pages.update", () => getNotionClient().pages.update({
     page_id: pageId,
     properties: notionProperties({
       [names.adStatus]: status(AD_STATUS.APPROVED_FOR_AD),
@@ -306,19 +325,19 @@ export async function updateAdPreparation(
       [names.adLastSyncedAt]: date(new Date()),
       [names.adError]: richText(errorMessage)
     })
-  });
+  }));
 }
 
 export async function updateUploadStarted(pageId: string): Promise<void> {
   const names = await resolveAdPropertyNames(pageId);
-  await getNotionClient().pages.update({
+  await notionRequest("pages.update", () => getNotionClient().pages.update({
     page_id: pageId,
     properties: notionProperties({
       [names.adStatus]: status(AD_STATUS.UPLOADING),
       [names.adError]: richText(undefined),
       [names.adLastSyncedAt]: date(new Date())
     })
-  });
+  }));
 }
 
 export async function updateUploadSuccess(
@@ -326,7 +345,7 @@ export async function updateUploadSuccess(
   input: { assetId: string; assetType: AssetType; previewUrl?: string }
 ): Promise<void> {
   const names = await resolveAdPropertyNames(pageId);
-  await getNotionClient().pages.update({
+  await notionRequest("pages.update", () => getNotionClient().pages.update({
     page_id: pageId,
     properties: notionProperties({
       [names.adStatus]: status(AD_STATUS.READY_TO_LAUNCH),
@@ -337,36 +356,36 @@ export async function updateUploadSuccess(
       ...(input.previewUrl ? { [names.adPreviewUrl]: url(input.previewUrl) } : {}),
       [names.adError]: richText(undefined)
     })
-  });
+  }));
 }
 
 export async function updateUploadFailed(pageId: string, message: string): Promise<void> {
   const names = await resolveAdPropertyNames(pageId);
-  await getNotionClient().pages.update({
+  await notionRequest("pages.update", () => getNotionClient().pages.update({
     page_id: pageId,
     properties: notionProperties({
       [names.adStatus]: status(AD_STATUS.UPLOAD_FAILED),
       [names.adError]: richText(message),
       [names.adLastSyncedAt]: date(new Date())
     })
-  });
+  }));
 }
 
 export async function updateLaunchStarted(pageId: string): Promise<void> {
   const names = await resolveAdPropertyNames(pageId);
-  await getNotionClient().pages.update({
+  await notionRequest("pages.update", () => getNotionClient().pages.update({
     page_id: pageId,
     properties: notionProperties({
       [names.adStatus]: status(AD_STATUS.LAUNCHING),
       [names.adError]: richText(undefined),
       [names.adLastSyncedAt]: date(new Date())
     })
-  });
+  }));
 }
 
 export async function updateLaunchSuccess(pageId: string, facebookAdId: string): Promise<void> {
   const names = await resolveAdPropertyNames(pageId);
-  await getNotionClient().pages.update({
+  await notionRequest("pages.update", () => getNotionClient().pages.update({
     page_id: pageId,
     properties: notionProperties({
       [names.adStatus]: status(AD_STATUS.LAUNCHED),
@@ -375,29 +394,30 @@ export async function updateLaunchSuccess(pageId: string, facebookAdId: string):
       [names.adLastSyncedAt]: date(new Date()),
       [names.adError]: richText(undefined)
     })
-  });
+  }));
 }
 
 export async function updateLaunchFailed(pageId: string, message: string): Promise<void> {
   const names = await resolveAdPropertyNames(pageId);
-  await getNotionClient().pages.update({
+  await notionRequest("pages.update", () => getNotionClient().pages.update({
     page_id: pageId,
     properties: notionProperties({
       [names.adStatus]: status(AD_STATUS.LAUNCH_FAILED),
       [names.adError]: richText(message),
       [names.adLastSyncedAt]: date(new Date())
     })
-  });
+  }));
 }
 
 export async function queryCampaignsDatabase(): Promise<Array<{ pageId: string; campaignId?: string; name?: string }>> {
-  if (!env.NOTION_CAMPAIGNS_DATABASE_ID) {
+  const databaseId = env.NOTION_CAMPAIGNS_DATABASE_ID;
+  if (!databaseId) {
     return [];
   }
 
-  const response = await getNotionClient().databases.query({
-    database_id: env.NOTION_CAMPAIGNS_DATABASE_ID
-  });
+  const response = await notionRequest("databases.query", () => getNotionClient().databases.query({
+    database_id: databaseId
+  }));
 
   return response.results.map((result: any) => ({
     pageId: result.id,
@@ -412,7 +432,8 @@ export async function upsertCampaignPage(input: {
   status?: string;
   objective?: string;
 }): Promise<void> {
-  if (!env.NOTION_CAMPAIGNS_DATABASE_ID) {
+  const databaseId = env.NOTION_CAMPAIGNS_DATABASE_ID;
+  if (!databaseId) {
     logger.warn("NOTION_CAMPAIGNS_DATABASE_ID is missing; skipping Notion campaign sync");
     return;
   }
@@ -432,12 +453,14 @@ export async function upsertCampaignPage(input: {
   };
 
   if (existing) {
-    await getNotionClient().pages.update({ page_id: existing.pageId, properties: notionProperties(properties) });
+    await notionRequest("pages.update", () =>
+      getNotionClient().pages.update({ page_id: existing.pageId, properties: notionProperties(properties) })
+    );
     return;
   }
 
-  await getNotionClient().pages.create({
-    parent: { database_id: env.NOTION_CAMPAIGNS_DATABASE_ID },
+  await notionRequest("pages.create", () => getNotionClient().pages.create({
+    parent: { database_id: databaseId },
     properties: notionProperties(properties)
-  });
+  }));
 }
