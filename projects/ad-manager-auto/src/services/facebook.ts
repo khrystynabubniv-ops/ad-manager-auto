@@ -549,36 +549,58 @@ function objectStoryIdentity(pageId: string): { page_id: string; instagram_user_
   return instagramUserId ? { page_id: pageId, instagram_user_id: instagramUserId } : { page_id: pageId };
 }
 
-function placementCustomizationSpec(placement: CreativeAssetPlacement, assetType: AssetType): Record<string, unknown> | undefined {
+function placementCustomizationSpecs(placement: CreativeAssetPlacement, assetType: AssetType): Array<Record<string, unknown>> {
   if (placement === "feed") {
-    return {
-      publisher_platforms: ["facebook", "instagram"],
-      facebook_positions: ["feed"],
-      instagram_positions: ["stream"]
-    };
+    return [
+      {
+        publisher_platforms: ["facebook"],
+        facebook_positions: ["feed", "video_feeds", "instream_video", "marketplace", "search", "right_hand_column"]
+      },
+      {
+        publisher_platforms: ["instagram"],
+        instagram_positions: ["stream", "explore", "explore_home", "profile_feed", "ig_search"]
+      }
+    ];
   }
 
   if (placement === "stories_reels") {
-    return {
-      publisher_platforms: ["facebook", "instagram"],
-      facebook_positions: ["story", "facebook_reels"],
-      instagram_positions: ["story", "reels"]
-    };
+    return [
+      {
+        publisher_platforms: ["facebook"],
+        facebook_positions: ["story", "facebook_reels"]
+      },
+      {
+        publisher_platforms: ["instagram"],
+        instagram_positions: ["story", "reels"]
+      },
+      {
+        publisher_platforms: ["audience_network"],
+        audience_network_positions: ["classic", "rewarded_video"]
+      },
+      {
+        publisher_platforms: ["messenger"],
+        messenger_positions: ["messenger_home", "story"]
+      }
+    ];
   }
 
   if (placement === "horizontal") {
     return assetType === "video"
-      ? {
-          publisher_platforms: ["facebook"],
-          facebook_positions: ["video_feeds", "instream_video"]
-        }
-      : {
-          publisher_platforms: ["facebook"],
-          facebook_positions: ["right_hand_column"]
-        };
+      ? [
+          {
+            publisher_platforms: ["facebook"],
+            facebook_positions: ["video_feeds", "instream_video"]
+          }
+        ]
+      : [
+          {
+            publisher_platforms: ["facebook"],
+            facebook_positions: ["right_hand_column", "search"]
+          }
+        ];
   }
 
-  return undefined;
+  return [];
 }
 
 function placementAssetRules(
@@ -589,12 +611,12 @@ function placementAssetRules(
 
   for (const asset of assets) {
     if (asset.placement === "unknown") continue;
-    const customizationSpec = placementCustomizationSpec(asset.placement, asset.assetType);
-    if (!customizationSpec) continue;
-    rules.push({
-      customization_spec: customizationSpec,
-      ...(asset.assetType === "image" ? { image_label: { name: asset.label } } : { video_label: { name: asset.label } })
-    });
+    for (const customizationSpec of placementCustomizationSpecs(asset.placement, asset.assetType)) {
+      rules.push({
+        customization_spec: customizationSpec,
+        ...(asset.assetType === "image" ? { image_label: { name: asset.label } } : { video_label: { name: asset.label } })
+      });
+    }
   }
 
   return [
