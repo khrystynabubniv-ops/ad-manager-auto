@@ -656,7 +656,11 @@ export async function createAd(input: {
 
   const usePlacementAssets = mediaAssets.length > 1;
   const primaryAsset = mediaAssets[0];
-  const useAssetFeedSpec = usePlacementAssets || adTexts.length > 1 || headlines.length > 1 || ctaTypes.length > 1;
+  const assetFeedAdTexts = usePlacementAssets ? adTexts.slice(0, 1) : adTexts;
+  const assetFeedHeadlines = usePlacementAssets ? headlines.slice(0, 1) : headlines;
+  const assetFeedCtaTypes = usePlacementAssets ? ctaTypes.slice(0, 1) : ctaTypes;
+  const useAssetFeedSpec =
+    usePlacementAssets || assetFeedAdTexts.length > 1 || assetFeedHeadlines.length > 1 || assetFeedCtaTypes.length > 1;
   const creativeBody =
     primaryAsset.assetType === "image"
       ? {
@@ -684,10 +688,10 @@ export async function createAd(input: {
   }));
   const assetFeedSpec = {
     ad_formats: [primaryAsset.assetType === "image" ? "SINGLE_IMAGE" : "SINGLE_VIDEO"],
-    bodies: adTexts.map((text) => ({ text })),
-    titles: headlines.map((text) => ({ text })),
+    bodies: assetFeedAdTexts.map((text) => ({ text })),
+    titles: assetFeedHeadlines.map((text) => ({ text })),
     link_urls: [{ website_url: input.ctaLink }],
-    call_to_action_types: ctaTypes,
+    call_to_action_types: assetFeedCtaTypes,
     ...(primaryAsset.assetType === "image"
       ? {
           images: labeledAssets.map((asset) =>
