@@ -24,6 +24,17 @@ type FacebookAssetUploadResult = {
   previewUrl?: string;
 };
 
+type PlacementAssetRole = CreativeAssetPlacement | "right_search";
+
+type LabeledPlacementAsset = {
+  assetId: string;
+  assetType: AssetType;
+  placement: CreativeAssetPlacement;
+  role: PlacementAssetRole;
+  label: string;
+  imageCrops?: Record<string, [[number, number], [number, number]]>;
+};
+
 function adAccountId(): string {
   const raw = requireEnv("FB_AD_ACCOUNT_ID");
   return raw.startsWith("act_") ? raw : `act_${raw}`;
@@ -544,17 +555,21 @@ function placementLabel(placement: CreativeAssetPlacement): string {
   return `asset_${placement}`;
 }
 
+function placementRoleLabel(role: PlacementAssetRole): string {
+  return `asset_${role}`;
+}
+
 function objectStoryIdentity(pageId: string): { page_id: string; instagram_user_id?: string } {
   const instagramUserId = env.FB_INSTAGRAM_USER_ID?.trim() || env.FB_INSTAGRAM_ACTOR_ID?.trim();
   return instagramUserId ? { page_id: pageId, instagram_user_id: instagramUserId } : { page_id: pageId };
 }
 
-function placementCustomizationSpecs(placement: CreativeAssetPlacement, assetType: AssetType): Array<Record<string, unknown>> {
-  if (placement === "feed") {
+function placementCustomizationSpecs(role: PlacementAssetRole, assetType: AssetType): Array<Record<string, unknown>> {
+  if (role === "feed") {
     return [
       {
         publisher_platforms: ["facebook"],
-        facebook_positions: ["feed", "marketplace", "search", "right_hand_column"]
+        facebook_positions: ["feed", "marketplace"]
       },
       {
         publisher_platforms: ["instagram"],
@@ -563,7 +578,16 @@ function placementCustomizationSpecs(placement: CreativeAssetPlacement, assetTyp
     ];
   }
 
-  if (placement === "stories_reels") {
+  if (role === "right_search") {
+    return [
+      {
+        publisher_platforms: ["facebook"],
+        facebook_positions: ["right_hand_column", "search"]
+      }
+    ];
+  }
+
+  if (role === "stories_reels") {
     return [
       {
         publisher_platforms: ["facebook"],
@@ -580,7 +604,7 @@ function placementCustomizationSpecs(placement: CreativeAssetPlacement, assetTyp
     ];
   }
 
-  if (placement === "horizontal") {
+  if (role === "horizontal") {
     return assetType === "video"
       ? [
           {
@@ -599,15 +623,102 @@ function placementCustomizationSpecs(placement: CreativeAssetPlacement, assetTyp
   return [];
 }
 
-function placementAssetRules(
-  assets: Array<{ assetType: AssetType; placement: CreativeAssetPlacement; label: string }>
-): Array<Record<string, unknown>> {
-  const defaultAsset = assets.find((asset) => asset.placement === "feed") ?? assets[0];
+function cropBoxForRatio(width: number, height: number, ratioWidth: number, ratioHeight: number): [[number, number], [number, number]] {
+  const ratio = ratioWidth / ratioHeight;
+  let cropWidth = width;
+  let cropHeight = Math.round(width / ratio);
+  if (cropHeight > height) {
+    cropHeight = height;
+    cropWidth = Math.round(height * ratio);
+  }
+  const x = Math.round((width - cropWidth) / 2);
+  const y = Math.round((height - cropHeight) / 2);
+  return [
+    [x, y],
+    [x + cropWidth, y + cropHeight]
+  ];
+}
+
+function cropKeyForAsset(role: PlacementAssetRole, width: number, height: number): { key: string; ratio: [number, number] } {
+  if (role === "stories_reels") return { key: "90x160", ratio: [90, 160] };
+  if (role === "right_search" || role === "horizontal") return { key: "600x360", ratio: [600, 360] };
+  const sourceRatio = width / height;
+  return Math.abs(sourceRatio - 0.8) < Math.abs(sourceRatio - 1) ? { key: "400x500", ratio: [400, 500] } : { key: "100x100", ratio: [100, 100] };
+}
+
+async function imageDimensionsByHash(
+  hashes: string[],
+  requestId?: string
+): Promise<Map<string, { width: number; height: number }>> {
+  if (!hashes.length) return new Map();
+  const response = await graphGet<any>(
+    `${adAccountId()}/adimages`,
+    {
+      hashes: JSON.stringify([...new Set(hashes)]),
+      fields: "hash,width,height,original_width,original_height"
+    },
+    requestId
+  );
+  const dimensions = new Map<string, { width: number; height: number }>();
+  for (const image of response.data ?? []) {
+    const width = Number(image.width ?? image.original_width);
+    const height = Number(image.height ?? image.original_height);
+    if (image.hash && Number.isFinite(width) && Number.isFinite(height) && width > 0 && height > 0) {
+      dimensions.set(image.hash, { width, height });
+    }
+  }
+  return dimensions;
+}
+
+async function placementAssetsWithImageCrops(
+  assets: LabeledPlacementAsset[],
+  requestId?: string
+): Promise<LabeledPlacementAsset[]> {
+  if (!assets.every((asset) => asset.assetType === "image")) return assets;
+  const dimensions = await imageDimensionsByHash(
+    assets.map((asset) => asset.assetId),
+    requestId
+  );
+  return assets.map((asset) => {
+    const size = dimensions.get(asset.assetId);
+    if (!size) return asset;
+    const crop = cropKeyForAsset(asset.role, size.width, size.height);
+    return {
+      ...asset,
+      imageCrops: {
+        [crop.key]: cropBoxForRatio(size.width, size.height, crop.ratio[0], crop.ratio[1])
+      }
+    };
+  });
+}
+
+function labeledPlacementAssets(
+  assets: Array<{ assetId: string; assetType: AssetType; placement: CreativeAssetPlacement }>
+): LabeledPlacementAsset[] {
+  const labeledAssets = assets.map((asset) => ({
+    ...asset,
+    role: asset.placement as PlacementAssetRole,
+    label: placementLabel(asset.placement)
+  }));
+  const feedImage = labeledAssets.find((asset) => asset.assetType === "image" && asset.placement === "feed");
+  const horizontalImage = labeledAssets.find((asset) => asset.assetType === "image" && asset.placement === "horizontal");
+  if (feedImage && !horizontalImage) {
+    labeledAssets.push({
+      ...feedImage,
+      role: "right_search",
+      label: placementRoleLabel("right_search")
+    });
+  }
+  return labeledAssets;
+}
+
+function placementAssetRules(assets: LabeledPlacementAsset[]): Array<Record<string, unknown>> {
+  const defaultAsset = assets.find((asset) => asset.role === "feed") ?? assets[0];
   const rules: Array<Record<string, unknown>> = [];
 
   for (const asset of assets) {
-    if (asset.placement === "unknown") continue;
-    for (const customizationSpec of placementCustomizationSpecs(asset.placement, asset.assetType)) {
+    if (asset.role === "unknown") continue;
+    for (const customizationSpec of placementCustomizationSpecs(asset.role, asset.assetType)) {
       rules.push({
         customization_spec: customizationSpec,
         ...(asset.assetType === "image" ? { image_label: { name: asset.label } } : { video_label: { name: asset.label } })
@@ -709,10 +820,9 @@ export async function createAd(input: {
             call_to_action: callToAction
           }
         };
-  const labeledAssets = mediaAssets.map((asset) => ({
-    ...asset,
-    label: placementLabel(asset.placement)
-  }));
+  const labeledAssets = usePlacementAssets
+    ? await placementAssetsWithImageCrops(labeledPlacementAssets(mediaAssets), input.requestId)
+    : labeledPlacementAssets(mediaAssets);
   const assetFeedSpec = {
     ad_formats: [primaryAsset.assetType === "image" ? "SINGLE_IMAGE" : "SINGLE_VIDEO"],
     ...(usePlacementAssets ? { optimization_type: "PLACEMENT" } : {}),
@@ -723,7 +833,9 @@ export async function createAd(input: {
     ...(primaryAsset.assetType === "image"
       ? {
           images: labeledAssets.map((asset) =>
-            usePlacementAssets ? { hash: asset.assetId, adlabels: [{ name: asset.label }] } : { hash: asset.assetId }
+            usePlacementAssets
+              ? { hash: asset.assetId, adlabels: [{ name: asset.label }], ...(asset.imageCrops ? { image_crops: asset.imageCrops } : {}) }
+              : { hash: asset.assetId }
           )
         }
       : {

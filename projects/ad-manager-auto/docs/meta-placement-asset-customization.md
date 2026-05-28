@@ -18,6 +18,7 @@ Required payload details:
 - Add `adlabels` to each image, for example `asset_feed` and `asset_stories_reels`.
 - Use `asset_customization_rules` with `image_label` pointing at those labels.
 - Add explicit rules for secondary placement buckets that Ads Manager displays separately and that fit the available image ratios, such as Facebook search/right column and Instagram explore/search/profile feed. Do not map 9:16 story assets into Feed. Do not map 1:1 feed assets into in-stream video. Apps/sites need their own decision or a separate asset format; mapping them to the 9:16 story asset can create extra Ads Manager warnings.
+- For image PAC, include one `image_crops` key per `asset_feed_spec.images` entry. Meta rejects multiple crop keys on the same asset-feed image. To mirror Ads Manager's manual two-upload behavior, duplicate the 1:1 image hash with a second label for Facebook right-column/search and give that duplicate a horizontal crop.
 - Use `object_story_spec.instagram_user_id`, not `instagram_actor_id`, on Graph API v25.
 - The default/fallback asset rule must use `customization_spec: {}`. Do not use `is_default: true`; Meta returned code `100`, subcode `1487390` for that shape.
 - Keep placement groups in one ad creative. Do not fall back to creating separate ads unless the product decision changes.
@@ -56,7 +57,7 @@ Expanded rule shape for cleaner Ads Manager placement rows:
   {
     "customization_spec": {
       "publisher_platforms": ["facebook"],
-      "facebook_positions": ["feed", "marketplace", "search", "right_hand_column"]
+      "facebook_positions": ["feed", "marketplace"]
     },
     "image_label": { "name": "asset_feed" }
   },
@@ -66,6 +67,13 @@ Expanded rule shape for cleaner Ads Manager placement rows:
       "instagram_positions": ["stream", "explore", "profile_feed", "ig_search"]
     },
     "image_label": { "name": "asset_feed" }
+  },
+  {
+    "customization_spec": {
+      "publisher_platforms": ["facebook"],
+      "facebook_positions": ["right_hand_column", "search"]
+    },
+    "image_label": { "name": "asset_right_search" }
   },
   {
     "customization_spec": {
@@ -103,3 +111,4 @@ Debug notes from the fix:
 - `is_default: true` in the default asset rule caused generic `code 100`, subcode `1487390`.
 - Changing that default rule to `customization_spec: {}` passed `execution_options: ["validate_only"]` and then launched successfully.
 - A very broad expanded mapping that included Facebook in-stream video, Audience Network apps/sites, and Messenger home also validated, but produced too many Ads Manager media warnings for a two-image setup. Keep the two-image mapping focused on Feed/Search/Right Column plus Stories/Reels.
+- Ads Manager can still warn "edit image to match requirements" when Graph-created image PAC entries do not include explicit crops. The validated fix is to send `image_crops` in the image entries: `100x100` for the feed label, `600x360` for a duplicate right-column/search label that uses the same 1:1 hash, and `90x160` for the stories/reels label.
