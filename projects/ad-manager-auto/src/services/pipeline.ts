@@ -620,6 +620,12 @@ function assertUniqueLaunchPlacements(groupName: string, creatives: Creative[]):
   );
 }
 
+function shouldFallbackToIndividualAds(error: unknown, creatives: Creative[]): boolean {
+  if (creatives.length <= 1) return false;
+  const message = getErrorMessage(error);
+  return message.includes("subcode 1487390");
+}
+
 function isMockCreativeAsset(assetId: string, assetType: string): boolean {
   return assetId.startsWith(`mock_${assetType}_`);
 }
@@ -916,56 +922,111 @@ export async function launchCreativeGroup(groupId: string, placementInput?: Laun
     metadata: { groupId, groupKey: group.group_key, campaignId, adSetId, creativeIds: launchableCreatives.map((creative) => creative.id) }
   });
 
+  const launchedCreativeIds = new Set<number>();
+
   try {
     const firstAsset = launchableCreatives[0];
-    const facebookAdId = await createAd({
-      name: adName({
-        notionTaskId: primary.notion_task_id,
-        projectType,
-        sourceFileName: group.group_key
-      }),
-      adSetId,
-      assetId: firstAsset.asset_id!,
-      assetType: firstAsset.asset_type!,
-      assets: launchableCreatives.map((creative) => ({
-        assetId: creative.asset_id!,
-        assetType: creative.asset_type!,
-        placement: creative.asset_placement
-      })),
-      adText,
-      headline,
-      headlineVariants: normalizeAdTextList(headline, headlineVariants, 5),
-      adTextVariants: normalizeAdTextList(adText, adTextVariants),
-      ctaType,
-      ctaTypeVariants: normalizeCtaTypeList(ctaType, ctaTypeVariants),
-      ctaLink,
-      requestId
+    const baseName = adName({
+      notionTaskId: primary.notion_task_id,
+      projectType,
+      sourceFileName: group.group_key
     });
-
     const launchedAt = new Date();
-    for (const creative of launchableCreatives) {
-      await updateCreativeStatus(creative.id, DB_STATUS.LAUNCHED, {
-        facebookAdId,
-        launchedAt
+    const facebookAdIds: string[] = [];
+    let launchMode = "placement_customization";
+
+    try {
+      const facebookAdId = await createAd({
+        name: baseName,
+        adSetId,
+        assetId: firstAsset.asset_id!,
+        assetType: firstAsset.asset_type!,
+        assets: launchableCreatives.map((creative) => ({
+          assetId: creative.asset_id!,
+          assetType: creative.asset_type!,
+          placement: creative.asset_placement
+        })),
+        adText,
+        headline,
+        headlineVariants: normalizeAdTextList(headline, headlineVariants, 5),
+        adTextVariants: normalizeAdTextList(adText, adTextVariants),
+        ctaType,
+        ctaTypeVariants: normalizeCtaTypeList(ctaType, ctaTypeVariants),
+        ctaLink,
+        requestId
       });
+
+      facebookAdIds.push(facebookAdId);
+      for (const creative of launchableCreatives) {
+        await updateCreativeStatus(creative.id, DB_STATUS.LAUNCHED, {
+          facebookAdId,
+          launchedAt
+        });
+        launchedCreativeIds.add(creative.id);
+      }
+    } catch (error) {
+      if (!shouldFallbackToIndividualAds(error, launchableCreatives)) {
+        throw error;
+      }
+
+      launchMode = "individual_ads_fallback";
+      logger.warn(
+        {
+          requestId,
+          groupId,
+          groupKey: group.group_key,
+          creativeIds: launchableCreatives.map((creative) => creative.id),
+          error: getErrorMessage(error)
+        },
+        "Placement asset customization failed; launching group assets as individual ads"
+      );
+
+      for (const creative of launchableCreatives) {
+        const facebookAdId = await createAd({
+          name: `${baseName}_${creative.asset_placement}_${creative.id}`,
+          adSetId,
+          assetId: creative.asset_id!,
+          assetType: creative.asset_type!,
+          adText,
+          headline,
+          ctaType,
+          ctaLink,
+          requestId
+        });
+        facebookAdIds.push(facebookAdId);
+        await updateCreativeStatus(creative.id, DB_STATUS.LAUNCHED, {
+          facebookAdId,
+          launchedAt
+        });
+        launchedCreativeIds.add(creative.id);
+      }
     }
+
     for (const creative of skippedCreatives) {
       await updateCreativeStatus(creative.id, DB_STATUS.CANCELED);
     }
-    await updateLaunchSuccess(primary.notion_task_id, facebookAdId);
+    await updateLaunchSuccess(primary.notion_task_id, facebookAdIds.join(", "));
     await recordEvent({
       requestId,
       creativeId: primary.id,
       notionTaskId: primary.notion_task_id,
       action: "launch_group_completed",
       status: "success",
-      metadata: { facebookAdId, campaignId, adSetId, groupId, creativeIds: launchableCreatives.map((creative) => creative.id) }
+      metadata: {
+        facebookAdIds,
+        launchMode,
+        campaignId,
+        adSetId,
+        groupId,
+        creativeIds: launchableCreatives.map((creative) => creative.id)
+      }
     });
 
     return getCreativeGroupById(groupId);
   } catch (error) {
     const message = getErrorMessage(error);
     for (const creative of launchableCreatives) {
+      if (launchedCreativeIds.has(creative.id)) continue;
       await updateCreativeStatus(creative.id, DB_STATUS.LAUNCH_FAILED);
     }
     await updateLaunchFailed(primary.notion_task_id, message);
