@@ -554,11 +554,11 @@ function placementCustomizationSpecs(placement: CreativeAssetPlacement, assetTyp
     return [
       {
         publisher_platforms: ["facebook"],
-        facebook_positions: ["feed", "video_feeds", "instream_video", "marketplace", "search", "right_hand_column"]
+        facebook_positions: ["feed", "marketplace", "search", "right_hand_column"]
       },
       {
         publisher_platforms: ["instagram"],
-        instagram_positions: ["stream", "explore", "explore_home", "profile_feed", "ig_search"]
+        instagram_positions: ["stream", "explore", "profile_feed", "ig_search"]
       }
     ];
   }
@@ -574,12 +574,8 @@ function placementCustomizationSpecs(placement: CreativeAssetPlacement, assetTyp
         instagram_positions: ["story", "reels"]
       },
       {
-        publisher_platforms: ["audience_network"],
-        audience_network_positions: ["classic", "rewarded_video"]
-      },
-      {
         publisher_platforms: ["messenger"],
-        messenger_positions: ["messenger_home", "story"]
+        messenger_positions: ["story"]
       }
     ];
   }
