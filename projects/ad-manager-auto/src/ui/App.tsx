@@ -1758,6 +1758,12 @@ function missingGroupLaunchDetails(group: CreativeGroup): string[] {
   return missingLaunchDetails(groupPrimaryCreative(group));
 }
 
+function launchSuccessMessage(count = 1) {
+  return count === 1
+    ? "Uploaded to Ads Manager in Paused status. Moved to In Use."
+    : `${count} ads uploaded to Ads Manager in Paused status. Moved to In Use.`;
+}
+
 function launchPayloadForGroup(group: CreativeGroup, placement: LaunchPlacement): LaunchRequest {
   return launchPayloadForCreative(groupPrimaryCreative(group), placement);
 }
@@ -5306,6 +5312,7 @@ export function App() {
       await launchCreative(selected.id, placement);
       setSelected(null);
       await load();
+      setError(launchSuccessMessage());
     } catch (launchError) {
       setError(launchError instanceof Error ? launchError.message : String(launchError));
     } finally {
@@ -5321,6 +5328,7 @@ export function App() {
       await launchCreativeGroup(selectedGroup.id, placement);
       setSelectedGroup(null);
       await load();
+      setError(launchSuccessMessage());
     } catch (launchError) {
       setError(launchError instanceof Error ? launchError.message : String(launchError));
     } finally {
@@ -5405,7 +5413,7 @@ export function App() {
         const launchedCount = selectedGroups.length;
         setSelectedGroupIds(new Set());
         await load();
-        setError(`Launched ${launchedCount} creative set${launchedCount === 1 ? "" : "s"}.`);
+        setError(launchSuccessMessage(launchedCount));
       } catch (launchError) {
         setError(launchError instanceof Error ? launchError.message : String(launchError));
       } finally {
@@ -5436,7 +5444,7 @@ export function App() {
       const launchedCount = selectedCreatives.length;
       setSelectedCreativeIds(new Set());
       await load();
-      setError(`Launched ${launchedCount} creative${launchedCount === 1 ? "" : "s"}.`);
+      setError(launchSuccessMessage(launchedCount));
     } catch (launchError) {
       setError(launchError instanceof Error ? launchError.message : String(launchError));
     } finally {
@@ -5629,6 +5637,7 @@ export function App() {
 
     return ["Workspace", "Creatives", viewConfig[creativeView].navLabel];
   }, [campaignRouteId, creativeView, route.area]);
+  const noticeIsSuccess = Boolean(error && (/^(Synced|Uploaded|Archived|Moved)/.test(error) || error.endsWith("saved.")));
 
   return (
     <div className="app">
@@ -5770,8 +5779,8 @@ export function App() {
               </section>
 
               {error ? (
-                <div className={/^(Synced|Launched|Archived|Moved)/.test(error) || error.endsWith("saved.") ? "notice success" : "notice"}>
-                  <AlertCircle size={18} />
+                <div className={noticeIsSuccess ? "notice success" : "notice"}>
+                  {noticeIsSuccess ? <Check size={18} /> : <AlertCircle size={18} />}
                   {error}
                 </div>
               ) : null}
