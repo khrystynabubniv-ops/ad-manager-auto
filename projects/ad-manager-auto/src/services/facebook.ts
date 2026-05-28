@@ -600,7 +600,7 @@ function placementAssetRules(
   return [
     ...rules,
     {
-      is_default: true,
+      customization_spec: {},
       ...(defaultAsset.assetType === "image"
         ? { image_label: { name: defaultAsset.label } }
         : { video_label: { name: defaultAsset.label } })
