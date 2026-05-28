@@ -544,6 +544,11 @@ function placementLabel(placement: CreativeAssetPlacement): string {
   return `asset_${placement}`;
 }
 
+function objectStoryIdentity(pageId: string): { page_id: string; instagram_actor_id?: string } {
+  const instagramActorId = env.FB_INSTAGRAM_ACTOR_ID?.trim();
+  return instagramActorId ? { page_id: pageId, instagram_actor_id: instagramActorId } : { page_id: pageId };
+}
+
 function placementCustomizationSpec(placement: CreativeAssetPlacement, assetType: AssetType): Record<string, unknown> | undefined {
   if (placement === "feed") {
     return {
@@ -656,6 +661,10 @@ export async function createAd(input: {
 
   const usePlacementAssets = mediaAssets.length > 1;
   const primaryAsset = mediaAssets[0];
+  const storyIdentity = objectStoryIdentity(pageId);
+  if (usePlacementAssets && !storyIdentity.instagram_actor_id) {
+    throw new Error("FB_INSTAGRAM_ACTOR_ID is required for placement-specific creatives that include Instagram placements.");
+  }
   const assetFeedAdTexts = usePlacementAssets ? adTexts.slice(0, 1) : adTexts;
   const assetFeedHeadlines = usePlacementAssets ? headlines.slice(0, 1) : headlines;
   const assetFeedCtaTypes = usePlacementAssets ? ctaTypes.slice(0, 1) : ctaTypes;
@@ -664,7 +673,7 @@ export async function createAd(input: {
   const creativeBody =
     primaryAsset.assetType === "image"
       ? {
-          page_id: pageId,
+          ...storyIdentity,
           link_data: {
             message: adTexts[0],
             link: input.ctaLink,
@@ -674,7 +683,7 @@ export async function createAd(input: {
           }
         }
       : {
-          page_id: pageId,
+          ...storyIdentity,
           video_data: {
             video_id: primaryAsset.assetId,
             message: adTexts[0],
@@ -717,7 +726,7 @@ export async function createAd(input: {
       useAssetFeedSpec
         ? {
             name: `${input.name}_creative`,
-            object_story_spec: JSON.stringify({ page_id: pageId }),
+            object_story_spec: JSON.stringify(storyIdentity),
             asset_feed_spec: JSON.stringify(assetFeedSpec)
           }
         : {
