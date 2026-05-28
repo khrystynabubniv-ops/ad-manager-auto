@@ -688,6 +688,7 @@ export async function createAd(input: {
   }));
   const assetFeedSpec = {
     ad_formats: [primaryAsset.assetType === "image" ? "SINGLE_IMAGE" : "SINGLE_VIDEO"],
+    ...(usePlacementAssets ? { optimization_type: "PLACEMENT" } : {}),
     bodies: assetFeedAdTexts.map((text) => ({ text })),
     titles: assetFeedHeadlines.map((text) => ({ text })),
     link_urls: [{ website_url: input.ctaLink }],

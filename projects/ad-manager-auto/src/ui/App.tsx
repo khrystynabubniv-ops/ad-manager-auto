@@ -1158,9 +1158,10 @@ function AssetPreviewTile({ creative, onPreview }: { creative: Creative; onPrevi
 }
 
 function UploadStatusBadge({ creative }: { creative: Creative }) {
+  const launchFailed = creative.status === "launch_failed";
   const failed = creative.status.includes("failed");
   const uploaded = Boolean(creative.asset_id || creative.uploaded_at || creative.status === "ready_to_launch" || creative.status === "launched");
-  const label = failed ? "Upload failed" : uploaded ? "Uploaded" : "Pending upload";
+  const label = launchFailed ? "Launch failed" : failed ? "Upload failed" : uploaded ? "Uploaded" : "Pending upload";
   const className = failed ? "uploadStatus failed" : uploaded ? "uploadStatus uploaded" : "uploadStatus pending";
 
   return <span className={className}>{label}</span>;
@@ -5229,10 +5230,11 @@ export function App() {
   }, [adSetsByCampaign]);
 
   const displayedCreatives = useMemo(() => {
+    const visibleCreatives = creativeView === "archived" ? creatives.filter((creative) => !isEmptyCreativeSlot(creative)) : creatives;
     const search = query.trim().toLowerCase();
-    if (!search) return creatives;
+    if (!search) return visibleCreatives;
 
-    return creatives.filter((creative) =>
+    return visibleCreatives.filter((creative) =>
       [
         creative.project_type,
         creative.source_file_name,
@@ -5258,7 +5260,7 @@ export function App() {
         .toLowerCase()
         .includes(search)
       );
-  }, [adSetNamesById, campaignNamesById, creatives, query]);
+  }, [adSetNamesById, campaignNamesById, creativeView, creatives, query]);
 
   const displayedCreativeGroups = useMemo(() => {
     const search = query.trim().toLowerCase();

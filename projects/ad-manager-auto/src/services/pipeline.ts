@@ -968,9 +968,6 @@ export async function launchCreativeGroup(groupId: string, placementInput?: Laun
     for (const creative of launchableCreatives) {
       await updateCreativeStatus(creative.id, DB_STATUS.LAUNCH_FAILED);
     }
-    for (const creative of skippedCreatives) {
-      await updateCreativeStatus(creative.id, DB_STATUS.LAUNCH_FAILED);
-    }
     await updateLaunchFailed(primary.notion_task_id, message);
     await recordEvent({
       requestId,

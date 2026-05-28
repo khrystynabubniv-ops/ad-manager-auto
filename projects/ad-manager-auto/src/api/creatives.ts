@@ -24,6 +24,16 @@ export const creativesRouter = Router();
 
 const assetPlacements = ["feed", "stories_reels", "horizontal", "unknown", "do_not_use"] as const;
 
+function creativeListStatuses(status?: string): string[] {
+  if (status === "launched") {
+    return [DB_STATUS.LAUNCHED];
+  }
+  if (status === "ready" || !status) {
+    return [DB_STATUS.READY_TO_LAUNCH, DB_STATUS.LAUNCH_FAILED];
+  }
+  return [status];
+}
+
 function isEmptyCreativeSlot(creative: { source_file_id: string; asset_id: string | null; asset_type: string | null }) {
   return creative.source_file_id.startsWith("slot:") || !creative.asset_id || !creative.asset_type;
 }
@@ -39,12 +49,7 @@ function parseAssetPlacement(value: unknown, fallback?: CreativeAssetPlacement):
 creativesRouter.get("/", requireAuth, async (req, res, next) => {
   try {
     const status = req.query.status as string | undefined;
-    const statuses =
-      status === "launched"
-        ? [DB_STATUS.LAUNCHED]
-        : status
-          ? [status]
-          : [DB_STATUS.READY_TO_LAUNCH];
+    const statuses = creativeListStatuses(status);
     const creatives = await listCreatives(statuses);
     res.json({ creatives });
   } catch (error) {
@@ -55,12 +60,7 @@ creativesRouter.get("/", requireAuth, async (req, res, next) => {
 creativesRouter.get("/groups", requireAuth, async (req, res, next) => {
   try {
     const status = req.query.status as string | undefined;
-    const statuses =
-      status === "launched"
-        ? [DB_STATUS.LAUNCHED]
-        : status
-          ? [status]
-          : [DB_STATUS.READY_TO_LAUNCH];
+    const statuses = creativeListStatuses(status);
     const groups = await listCreativeGroups(statuses);
     res.json({ groups });
   } catch (error) {
