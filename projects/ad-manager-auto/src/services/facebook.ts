@@ -794,9 +794,9 @@ export async function createAd(input: {
   if (usePlacementAssets && !storyIdentity.instagram_user_id) {
     throw new Error("FB_INSTAGRAM_USER_ID is required for placement-specific creatives that include Instagram placements.");
   }
-  const assetFeedAdTexts = usePlacementAssets ? adTexts.slice(0, 1) : adTexts;
-  const assetFeedHeadlines = usePlacementAssets ? headlines.slice(0, 1) : headlines;
-  const assetFeedCtaTypes = usePlacementAssets ? ctaTypes.slice(0, 1) : ctaTypes;
+  const assetFeedAdTexts = adTexts;
+  const assetFeedHeadlines = headlines;
+  const assetFeedCtaTypes = ctaTypes;
   const useAssetFeedSpec =
     usePlacementAssets || assetFeedAdTexts.length > 1 || assetFeedHeadlines.length > 1 || assetFeedCtaTypes.length > 1;
   const creativeBody =
