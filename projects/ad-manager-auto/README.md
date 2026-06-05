@@ -93,6 +93,7 @@ jun26_talent_sourcer_video1_16x9
 Accepted optional business tokens: `ga`, `ug`, `wisey`, `forma`, `ruut`, `sg`/`s&g`.
 Accepted format tokens: `staticN` for static images and `videoN` for videos, where `N` is the ad number for that vacancy in the month/year prefix, for example `static1`, `static11`, or `video2`. Legacy `concept_stat_vN_size` and `concept_video_vN_size` filenames are still accepted and are converted to the next available `staticN` / `videoN` name during upload; the legacy `vN` token is treated as part of the source group, not as the final ad number.
 Accepted size suffixes: `1x1`, `4x5`, `9x16`, `16x9`.
+An optional copy suffix after the size, such as `1x1-1` or `9x16-1`, is treated as a separate source variant while still using the size for placement detection.
 
 Files with the same normalized name before the final size suffix are treated as one Meta ad. For example, `jun26_talent_sourcer_static1_1x1` and `jun26_talent_sourcer_static1_9x16` launch as one ad named `jun26_talent_sourcer_static1`. Default placement roles are:
 
