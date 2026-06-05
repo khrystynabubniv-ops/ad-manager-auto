@@ -16,7 +16,7 @@ import {
 import { generateCreativeCopy } from "../services/copyGenerator.js";
 import { getFacebookAdSet, uploadCreativeAsset } from "../services/facebook.js";
 import { cleanTextSequence, normalizeCtaType, normalizeCtaTypeSequence } from "../shared/creativeCopy.js";
-import { creativeGroupingForFileName } from "../utils/assetNaming.js";
+import { creativeAdNameParts, creativeGroupingForFileName } from "../utils/assetNaming.js";
 import { CreativeAssetPlacement } from "../types.js";
 import { AppError } from "../utils/errors.js";
 import { retryCreativeAssetUpload } from "../services/pipeline.js";
@@ -191,7 +191,7 @@ creativesRouter.post("/groups/:groupId/slots", requireAuth, async (req, res, nex
   try {
     const group = await getCreativeGroupById(req.params.groupId, [DB_STATUS.READY_TO_LAUNCH, DB_STATUS.LAUNCH_FAILED]);
     if (!group) {
-      throw new AppError("Creative group not found", { statusCode: 404, code: "CREATIVE_GROUP_NOT_FOUND" });
+      throw new AppError("Ad not found", { statusCode: 404, code: "CREATIVE_GROUP_NOT_FOUND" });
     }
 
     const body = (req.body ?? {}) as Record<string, unknown>;
@@ -409,7 +409,7 @@ creativesRouter.post("/groups/:groupId/archive", requireAuth, async (req, res, n
   try {
     const group = await getCreativeGroupById(req.params.groupId, [DB_STATUS.READY_TO_LAUNCH, DB_STATUS.LAUNCH_FAILED]);
     if (!group) {
-      throw new AppError("Creative group not found", { statusCode: 404, code: "CREATIVE_GROUP_NOT_FOUND" });
+      throw new AppError("Ad not found", { statusCode: 404, code: "CREATIVE_GROUP_NOT_FOUND" });
     }
 
     for (const creative of group.creatives) {
@@ -461,19 +461,22 @@ creativesRouter.post("/upload", requireAuth, async (req, res, next) => {
     );
     const sourceFileId = `manual:${uploaded.assetId}`;
     const grouping = creativeGroupingForFileName(fileName);
+    const requestedProjectType = typeof req.body?.projectType === "string" ? req.body.projectType.trim() : "";
+    const adNameParts = creativeAdNameParts(fileName, uploaded.assetType);
+    const fallbackAdName = adNameParts.explicitAdName ?? `${adNameParts.familyKey}_${adNameParts.format}1`;
     const creative = await upsertCreative({
       notionTaskId: `manual-upload:${sourceFileId}`,
       sourceFileId,
       sourceFileName: fileName,
-      creativeGroupKey: grouping.groupKey,
-      creativeGroupName: grouping.groupName,
+      creativeGroupKey: requestedProjectType || fallbackAdName,
+      creativeGroupName: (requestedProjectType || fallbackAdName).replace(/_/g, " "),
       assetPlacement: grouping.placement,
       status: DB_STATUS.READY_TO_LAUNCH,
       assetId: uploaded.assetId,
       assetType: uploaded.assetType,
       previewUrl: uploaded.previewUrl,
       uploadedAt: new Date(),
-      projectType: typeof req.body?.projectType === "string" ? req.body.projectType.trim() : undefined,
+      projectType: requestedProjectType || fallbackAdName,
       adText: typeof req.body?.adText === "string" ? req.body.adText.trim() : undefined,
       headline: typeof req.body?.headline === "string" ? req.body.headline.trim() : undefined,
       headlineVariants: Array.isArray(req.body?.headlineVariants) ? cleanTextSequence(req.body.headlineVariants) : undefined,

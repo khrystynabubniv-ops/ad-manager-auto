@@ -1600,8 +1600,8 @@ function AssetManagementPanel({
     <section className="assetManagerPanel">
       <div className="assetManagerHeader">
         <div>
-          <span>Creative assets</span>
-          <strong>Assets in this set</strong>
+          <span>Ad assets</span>
+          <strong>Assets in this ad</strong>
           <small>
             {realAssetCount} asset{realAssetCount === 1 ? "" : "s"}
             {emptySlotCount ? ` · ${emptySlotCount} empty slot${emptySlotCount === 1 ? "" : "s"}` : ""}
@@ -1709,7 +1709,7 @@ function AssetManagementPanel({
                     onClick={() => void onRemoveAsset?.(creative)}
                   >
                     <Trash2 size={14} />
-                    {isEmptyCreativeSlot(creative) ? "Remove slot" : "Remove from set"}
+                    {isEmptyCreativeSlot(creative) ? "Remove slot" : "Remove from ad"}
                   </button>
                 </div>
               </div>
@@ -1722,10 +1722,10 @@ function AssetManagementPanel({
           <div className="assetTransferWarning">
             <div>
               <span>Asset already used</span>
-              <strong>Move this asset to the current creative set?</strong>
+              <strong>Move this asset to the current ad?</strong>
               <p>
                 <b>{assetDisplayName(pendingTransfer.source)}</b> is currently in <b>{pendingTransfer.sourceGroupName}</b>. If you continue,
-                it will be removed from that creative set and used here instead.
+                it will be removed from that ad and used here instead.
               </p>
             </div>
             <div className="assetTransferActions">
@@ -1765,6 +1765,22 @@ function groupPrimaryCreative(group: CreativeGroup) {
 
 function isEmptyCreativeSlot(creative: Creative) {
   return creative.source_file_id.startsWith("slot:") || !creative.asset_id;
+}
+
+function duplicatePlacementMessage(group?: CreativeGroup | null): string | null {
+  if (!group) return null;
+  const placements = new Map<CreativeAssetPlacement, Creative[]>();
+  for (const creative of group.creatives) {
+    if (creative.asset_placement === "do_not_use" || isEmptyCreativeSlot(creative)) continue;
+    placements.set(creative.asset_placement, [...(placements.get(creative.asset_placement) ?? []), creative]);
+  }
+
+  const duplicate = [...placements.entries()].find(([, creatives]) => creatives.length > 1);
+  if (!duplicate) return null;
+
+  const [placement, creatives] = duplicate;
+  const names = creatives.map(assetDisplayName).join(", ");
+  return `This ad has ${creatives.length} assets for ${placementLabel(placement)}: ${names}. Keep one asset for this placement, change one asset's placement, or mark extras as Do not use.`;
 }
 
 function missingGroupLaunchDetails(group: CreativeGroup): string[] {
@@ -2408,23 +2424,33 @@ function ConfirmModal({
       return;
     }
 
+    const duplicatePlacement = duplicatePlacementMessage(assetGroupDraft ?? group);
+    if (duplicatePlacement) {
+      setPlacementError(duplicatePlacement);
+      return;
+    }
+
     const assetsSaved = await commitAssetChanges();
     if (!assetsSaved) return;
 
-    await onConfirm({
-      campaignId,
-      campaignName: selectedCampaign?.name,
-      adSetId,
-      adSetName: selectedAdSet?.name,
-      projectType: draft.projectType.trim(),
-      adText: draft.adText.trim(),
-      headline: draft.headline.trim() || null,
-      headlineVariants: cleanTextSequence(draft.headlineVariants),
-      adTextVariants: cleanTextSequence(draft.adTextVariants),
-      ctaType: normalizeCtaType(draft.ctaType),
-      ctaTypeVariants: normalizeCtaTypeSequence(draft.ctaTypeVariants),
-      ctaLink: draft.ctaLink.trim()
-    });
+    try {
+      await onConfirm({
+        campaignId,
+        campaignName: selectedCampaign?.name,
+        adSetId,
+        adSetName: selectedAdSet?.name,
+        projectType: draft.projectType.trim(),
+        adText: draft.adText.trim(),
+        headline: draft.headline.trim() || null,
+        headlineVariants: cleanTextSequence(draft.headlineVariants),
+        adTextVariants: cleanTextSequence(draft.adTextVariants),
+        ctaType: normalizeCtaType(draft.ctaType),
+        ctaTypeVariants: normalizeCtaTypeSequence(draft.ctaTypeVariants),
+        ctaLink: draft.ctaLink.trim()
+      });
+    } catch (error) {
+      setPlacementError(error instanceof Error ? error.message : String(error));
+    }
   }
 
   function updateDraft(field: keyof typeof draft, value: string) {
@@ -2487,16 +2513,17 @@ function ConfirmModal({
 
   const modalEyebrow = group
     ? mode === "view"
-      ? "View creative set"
+      ? "View ad"
       : mode === "edit"
-        ? "Edit creative set"
-        : "Review & launch set"
+        ? "Edit ad"
+        : "Review & launch ad"
     : mode === "view"
       ? "View creative"
       : mode === "edit"
         ? "Edit creative"
         : "Review & launch";
   const previewHandler = readOnly ? undefined : onPreview;
+  const modalIssue = scheduleIssue ?? placementError;
 
   return (
     <div className="modalOverlay" role="dialog" aria-modal="true">
@@ -2658,10 +2685,13 @@ function ConfirmModal({
           </div>
         </div>
 
-        {scheduleIssue || placementError ? (
+        {modalIssue ? (
           <div className="modalNotice">
             <AlertCircle size={16} />
-            {scheduleIssue ?? placementError}
+            <div className="noticeContent">
+              <strong>{scheduleIssue ? "Schedule issue" : "Launch needs attention"}</strong>
+              <p>{modalIssue}</p>
+            </div>
           </div>
         ) : null}
 
@@ -2832,7 +2862,7 @@ function CreativeGroupRow({
   adSetNamesById?: ReadonlyMap<string, string>;
 }) {
   const primary = groupPrimaryCreative(group);
-  const creativeName = group.group_name || primary.project_type || `Creative set ${group.id}`;
+  const creativeName = group.group_name || primary.project_type || `Ad ${group.id}`;
   const hasCampaign = Boolean(primary.campaign_id || primary.campaign_name);
   const hasAdSet = Boolean(primary.adset_id || primary.adset_name);
   const setupReady = hasCampaign && hasAdSet;
@@ -2865,7 +2895,7 @@ function CreativeGroupRow({
       </div>
       <div className="creativeMain">
         <div className="creativeKicker">
-          <span>Creative set</span>
+          <span>Ad</span>
           <span>{assetSummary}</span>
           <span>{group.grouping_status === "manual" ? "edited" : "auto grouped"}</span>
         </div>
@@ -2901,7 +2931,7 @@ function CreativeGroupRow({
           {onLaunch ? (
             <button className="primaryButton compact" onClick={() => onLaunch(group)}>
               <Play size={16} />
-              {setupReady ? "Review & launch set" : "Select campaign & ad set"}
+              {setupReady ? "Review & launch ad" : "Select campaign & ad set"}
             </button>
           ) : group.status === "launched" ? (
             <span className="stateIcon success" aria-label="In use">
@@ -4494,7 +4524,7 @@ function AddCreativeModal({
         fileName: file.name,
         mimeType: file.type || "application/octet-stream",
         dataBase64: await fileToBase64(file),
-        projectType: uploadDraft.projectType || file.name,
+        projectType: uploadDraft.projectType || undefined,
         adText: uploadDraft.adText || undefined,
         ctaLink: uploadDraft.ctaLink || undefined
       });
@@ -5394,6 +5424,7 @@ export function App() {
       setError(launchSuccessMessage());
     } catch (launchError) {
       setError(launchError instanceof Error ? launchError.message : String(launchError));
+      throw launchError;
     } finally {
       setLaunching(false);
     }
@@ -5410,6 +5441,7 @@ export function App() {
       setError(launchSuccessMessage());
     } catch (launchError) {
       setError(launchError instanceof Error ? launchError.message : String(launchError));
+      throw launchError;
     } finally {
       setLaunching(false);
     }
@@ -5543,7 +5575,7 @@ export function App() {
         const archivedCount = selectedGroups.length;
         setSelectedGroupIds(new Set());
         await load();
-        setError(`Archived ${archivedCount} creative set${archivedCount === 1 ? "" : "s"}.`);
+        setError(`Archived ${archivedCount} ad${archivedCount === 1 ? "" : "s"}.`);
       } catch (archiveError) {
         setError(archiveError instanceof Error ? archiveError.message : String(archiveError));
       } finally {

@@ -1,10 +1,10 @@
 import { AD_STATUS, DB_STATUS, DESIGN_STATUS } from "../config/statuses.js";
 import { env } from "../config/env.js";
 import { logger } from "../logger.js";
-import { Creative, CreativeAssetPlacement, NotionCreativeFields } from "../types.js";
+import { AssetType, Creative, CreativeAssetPlacement, NotionCreativeFields } from "../types.js";
 import { getErrorMessage } from "../utils/errors.js";
 import { detectAssetType } from "../utils/mime.js";
-import { creativeGroupingForFileName, normalizeAssetFileName, validateAssetFileName } from "../utils/assetNaming.js";
+import { creativeAdNameParts, creativeGroupingForFileName, normalizeAssetFileName, validateAssetFileName } from "../utils/assetNaming.js";
 import { normalizeAdTextList, normalizeCtaTypeList } from "../shared/creativeCopy.js";
 import { generateCreativeCopy } from "./copyGenerator.js";
 import { downloadDriveCreatives, downloadDriveFile, extractDriveSourceId } from "./googleDrive.js";
@@ -13,6 +13,8 @@ import {
   cancelStaleCreativesForTask,
   getCreativeById,
   getCreativeGroupById,
+  listCreativesForAdNameFamilies,
+  listCreativesForTask,
   recordEvent,
   updateCreativeStatus,
   upsertCreative
@@ -105,15 +107,102 @@ function findMissingFields(fields: NotionCreativeFields): string[] {
   return missing;
 }
 
-function adName(fields: { notionTaskId: string; projectType?: string; sourceFileName?: string }): string {
-  const now = new Date();
-  const yearMonth = `${now.getUTCFullYear()}_${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
-  const projectType = fields.projectType ?? "project";
-  const shortTaskId = fields.notionTaskId.replaceAll("-", "").slice(0, 10);
-  const source = fields.sourceFileName
-    ? `_${fields.sourceFileName.replace(/\.[^.]+$/, "").replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 40)}`
-    : "";
-  return `${projectType}_${yearMonth}_${shortTaskId}${source}`;
+function adName(fields: { projectType?: string; sourceFileName?: string; assetType?: AssetType }): string {
+  const sourceFileName = fields.sourceFileName?.trim();
+  if (sourceFileName && fields.assetType) {
+    const parts = creativeAdNameParts(sourceFileName, fields.assetType);
+    const projectTypeAdName = generatedAdNameForFamily(fields.projectType, parts.familyKey);
+    return (
+      parts.explicitAdName ??
+      projectTypeAdName ??
+      (parts.suggestedAdNumber ? `${parts.familyKey}_${parts.format}${parts.suggestedAdNumber}` : `${parts.familyKey}_${parts.format}1`)
+    ).slice(0, 80);
+  }
+
+  const projectTypeAdName = generatedAdNameMatch(fields.projectType);
+  if (projectTypeAdName && fields.projectType) {
+    return fields.projectType.slice(0, 80);
+  }
+
+  const projectType = fields.projectType?.trim() || "creative";
+  return normalizeAssetFileName(projectType).replace(/\.[^.]+$/, "").slice(0, 80);
+}
+
+type AdNameAllocationState = {
+  existingBySourceFileId: Map<string, Creative>;
+  assignedBySourceGroupKey: Map<string, string>;
+  maxAdNumberByFamilyKey: Map<string, number>;
+};
+
+function generatedAdNameMatch(value?: string | null): { familyKey: string; number: number } | undefined {
+  const match = value?.match(/^(.*)_(?:static|video)(\d+)$/);
+  if (!match) return undefined;
+  return { familyKey: match[1], number: Number(match[2]) };
+}
+
+function generatedAdNameForFamily(value: string | null | undefined, familyKey: string): string | undefined {
+  const match = generatedAdNameMatch(value);
+  return match && match.familyKey === familyKey ? value ?? undefined : undefined;
+}
+
+function allocationState(existingCreatives: Creative[]): AdNameAllocationState {
+  const state: AdNameAllocationState = {
+    existingBySourceFileId: new Map(),
+    assignedBySourceGroupKey: new Map(),
+    maxAdNumberByFamilyKey: new Map()
+  };
+
+  for (const creative of existingCreatives) {
+    state.existingBySourceFileId.set(creative.source_file_id, creative);
+    for (const value of [creative.project_type, creative.creative_group_key]) {
+      const match = generatedAdNameMatch(value);
+      if (!match) continue;
+      const currentMax = state.maxAdNumberByFamilyKey.get(match.familyKey) ?? 0;
+      state.maxAdNumberByFamilyKey.set(match.familyKey, Math.max(currentMax, match.number));
+    }
+  }
+
+  return state;
+}
+
+function allocateUploadAdName(state: AdNameAllocationState, fields: { fileName: string; assetType: ReturnType<typeof detectAssetType>; sourceFileId: string }): string {
+  const parts = creativeAdNameParts(fields.fileName, fields.assetType);
+  if (parts.explicitAdName) {
+    if (parts.explicitAdNumber) {
+      const currentMax = state.maxAdNumberByFamilyKey.get(parts.familyKey) ?? 0;
+      state.maxAdNumberByFamilyKey.set(parts.familyKey, Math.max(currentMax, parts.explicitAdNumber));
+    }
+    state.assignedBySourceGroupKey.set(parts.sourceGroupKey, parts.explicitAdName);
+    return parts.explicitAdName;
+  }
+
+  const existing = state.existingBySourceFileId.get(fields.sourceFileId);
+  const existingAdName =
+    generatedAdNameForFamily(existing?.project_type, parts.familyKey) ??
+    generatedAdNameForFamily(existing?.creative_group_key, parts.familyKey);
+  if (existingAdName) {
+    state.assignedBySourceGroupKey.set(parts.sourceGroupKey, existingAdName);
+    return existingAdName;
+  }
+
+  if (parts.suggestedAdNumber) {
+    const adNameValue = `${parts.familyKey}_${parts.format}${parts.suggestedAdNumber}`;
+    const currentMax = state.maxAdNumberByFamilyKey.get(parts.familyKey) ?? 0;
+    state.maxAdNumberByFamilyKey.set(parts.familyKey, Math.max(currentMax, parts.suggestedAdNumber));
+    state.assignedBySourceGroupKey.set(parts.sourceGroupKey, adNameValue);
+    return adNameValue;
+  }
+
+  const assigned = state.assignedBySourceGroupKey.get(parts.sourceGroupKey);
+  if (assigned) {
+    return assigned;
+  }
+
+  const nextNumber = (state.maxAdNumberByFamilyKey.get(parts.familyKey) ?? 0) + 1;
+  state.maxAdNumberByFamilyKey.set(parts.familyKey, nextNumber);
+  const adNameValue = `${parts.familyKey}_${parts.format}${nextNumber}`;
+  state.assignedBySourceGroupKey.set(parts.sourceGroupKey, adNameValue);
+  return adNameValue;
 }
 
 function dbDate(value?: string | null): Date | undefined {
@@ -368,23 +457,37 @@ export async function uploadCreativeFromNotion(fields: NotionCreativeFields, req
 
     const uploadedCreatives: Creative[] = [];
     const failedUploads: Array<{ fileName: string; message: string }> = [];
+    const uploadFamilyKeys = files.map((file) => {
+      const assetType = detectAssetType(file.fileName, file.mimeType);
+      const uploadFileName = normalizeAssetFileName(file.fileName);
+      return creativeAdNameParts(uploadFileName, assetType).familyKey;
+    });
+    const adNameState = allocationState([
+      ...(await listCreativesForAdNameFamilies(uploadFamilyKeys)),
+      ...(await listCreativesForTask(fields.notionTaskId))
+    ]);
 
     for (const file of files) {
       const assetType = detectAssetType(file.fileName, file.mimeType);
       const uploadFileName = normalizeAssetFileName(file.fileName);
       const uploadFile = uploadFileName === file.fileName ? file : { ...file, fileName: uploadFileName };
       const grouping = creativeGroupingForFileName(uploadFile.fileName);
+      const uploadAdName = allocateUploadAdName(adNameState, {
+        fileName: uploadFile.fileName,
+        assetType,
+        sourceFileId: file.fileId
+      });
       const baseInput = {
         notionTaskId: fields.notionTaskId,
         notionTaskUrl: fields.notionTaskUrl,
         sourceFileId: file.fileId,
         sourceFileName: file.fileName,
-        creativeGroupKey: grouping.groupKey,
-        creativeGroupName: grouping.groupName,
+        creativeGroupKey: uploadAdName,
+        creativeGroupName: uploadAdName.replace(/_/g, " "),
         assetPlacement: grouping.placement,
         groupingStatus: "auto" as const,
         ctaLink: fields.ctaLink,
-        projectType: fields.projectType,
+        projectType: uploadAdName,
         googleDriveUrl: fields.googleDriveLink ?? fields.finalProject
       };
 
@@ -549,17 +652,27 @@ export async function retryCreativeAssetUpload(id: number, requestId?: string): 
   const uploadFile = uploadFileName === file.fileName ? file : { ...file, fileName: uploadFileName };
   const grouping = creativeGroupingForFileName(uploadFile.fileName);
   const groupingIsManual = existing.grouping_status === "manual";
+  const retryFamilyKey = creativeAdNameParts(uploadFile.fileName, assetType).familyKey;
+  const adNameState = allocationState([
+    ...(await listCreativesForAdNameFamilies([retryFamilyKey])),
+    ...(await listCreativesForTask(existing.notion_task_id))
+  ]);
+  const uploadAdName = allocateUploadAdName(adNameState, {
+    fileName: uploadFile.fileName,
+    assetType,
+    sourceFileId: file.fileId
+  });
   const baseInput = {
     notionTaskId: existing.notion_task_id,
     notionTaskUrl: existing.notion_task_url ?? undefined,
     sourceFileId: file.fileId,
     sourceFileName: file.fileName,
-    creativeGroupKey: groupingIsManual ? existing.creative_group_key : grouping.groupKey,
-    creativeGroupName: groupingIsManual ? existing.creative_group_name : grouping.groupName,
+    creativeGroupKey: groupingIsManual ? existing.creative_group_key : uploadAdName,
+    creativeGroupName: groupingIsManual ? existing.creative_group_name : uploadAdName.replace(/_/g, " "),
     assetPlacement: groupingIsManual ? existing.asset_placement : grouping.placement,
     groupingStatus: existing.grouping_status,
     ctaLink: existing.cta_link ?? undefined,
-    projectType: existing.project_type ?? undefined,
+    projectType: groupingIsManual ? existing.project_type ?? undefined : uploadAdName,
     googleDriveUrl: existing.google_drive_url ?? undefined,
     adText: existing.ad_text ?? undefined,
     headline: existing.headline ?? undefined,
@@ -735,7 +848,7 @@ function assertUniqueLaunchPlacements(groupName: string, creatives: Creative[]):
     .join("; ");
 
   throw new Error(
-    `Creative group "${groupName}" has multiple assets for the same placement (${details}). Keep one asset per placement, mark extras as do_not_use, or rename variants into separate creative sets before launch.`
+    `Ad "${groupName}" has multiple assets for the same placement (${details}). Keep one asset per placement, mark extras as do_not_use, or rename variants into separate ads before launch.`
   );
 }
 
@@ -898,9 +1011,9 @@ export async function launchCreative(id: number, placementInput?: LaunchPlacemen
   try {
     const facebookAdId = await createAd({
       name: adName({
-        notionTaskId: creative.notion_task_id,
         projectType,
-        sourceFileName: creative.source_file_name ?? undefined
+        sourceFileName: creative.source_file_name ?? undefined,
+        assetType
       }),
       adSetId,
       assetId,
@@ -950,14 +1063,14 @@ export async function launchCreative(id: number, placementInput?: LaunchPlacemen
 export async function launchCreativeGroup(groupId: string, placementInput?: LaunchPlacementInput, requestId?: string) {
   const group = await getCreativeGroupById(groupId, [DB_STATUS.READY_TO_LAUNCH, DB_STATUS.LAUNCH_FAILED]);
   if (!group) {
-    throw new Error("Creative group not found or not ready to launch");
+    throw new Error("Ad not found or not ready to launch");
   }
 
   let launchableCreatives = group.creatives.filter(
     (creative) => creative.asset_placement !== "do_not_use" && creative.asset_id && creative.asset_type
   );
   if (!launchableCreatives.length) {
-    throw new Error(`Creative group "${group.group_name}" has no launchable assets`);
+    throw new Error(`Ad "${group.group_name}" has no launchable assets`);
   }
   const launchableCreativeIds = new Set(launchableCreatives.map((creative) => creative.id));
   const skippedCreatives = group.creatives.filter((creative) => !launchableCreativeIds.has(creative.id));
@@ -968,7 +1081,7 @@ export async function launchCreativeGroup(groupId: string, placementInput?: Laun
   const campaignId = launchInput.campaignId ?? cleanText(primary.campaign_id);
   const adSetId = launchInput.adSetId ?? cleanText(primary.adset_id);
   if (!campaignId || !adSetId) {
-    throw new Error(`Creative group "${group.group_name}" is missing Meta campaign/ad set selection`);
+    throw new Error(`Ad "${group.group_name}" is missing Meta campaign/ad set selection`);
   }
 
   const projectType = launchInput.projectType ?? cleanText(primary.project_type) ?? group.group_name ?? "creative";
@@ -982,17 +1095,17 @@ export async function launchCreativeGroup(groupId: string, placementInput?: Laun
   const audience = launchInput.audience ?? cleanText(primary.audience);
   const location = launchInput.location ?? cleanText(primary.location);
   if (!adText || !ctaLink) {
-    throw new Error(`Creative group "${group.group_name}" is missing required launch fields`);
+    throw new Error(`Ad "${group.group_name}" is missing required launch fields`);
   }
   if (!isHttpUrl(ctaLink)) {
-    throw new Error(`Creative group "${group.group_name}" ad link must be a valid http(s) URL`);
+    throw new Error(`Ad "${group.group_name}" link must be a valid http(s) URL`);
   }
 
   launchableCreatives = await Promise.all(launchableCreatives.map((creative) => refreshMockLaunchAsset(creative, requestId)));
   assertUniqueLaunchPlacements(group.group_name, launchableCreatives);
   const assetTypes = new Set(launchableCreatives.map((creative) => creative.asset_type));
   if (assetTypes.size > 1) {
-    throw new Error(`Creative group "${group.group_name}" mixes image and video assets. Separate them before launch.`);
+    throw new Error(`Ad "${group.group_name}" mixes image and video assets. Separate them before launch.`);
   }
 
   const [campaign, adSet] = await Promise.all([
@@ -1039,9 +1152,9 @@ export async function launchCreativeGroup(groupId: string, placementInput?: Laun
     const firstAsset = launchableCreatives[0];
     const facebookAdId = await createAd({
       name: adName({
-        notionTaskId: primary.notion_task_id,
         projectType,
-        sourceFileName: group.group_key
+        sourceFileName: group.group_key,
+        assetType: firstAsset.asset_type!
       }),
       adSetId,
       assetId: firstAsset.asset_id!,

@@ -435,6 +435,31 @@ export async function getCreativeById(id: number): Promise<Creative | undefined>
   return result.rows[0];
 }
 
+export async function listCreativesForTask(notionTaskId: string): Promise<Creative[]> {
+  const result = await query<Creative>(
+    "SELECT * FROM creatives WHERE notion_task_id = $1 ORDER BY created_at ASC, id ASC",
+    [notionTaskId]
+  );
+  return result.rows;
+}
+
+export async function listCreativesForAdNameFamilies(familyKeys: string[]): Promise<Creative[]> {
+  const patterns = [...new Set(familyKeys.filter(Boolean).flatMap((familyKey) => [`${familyKey}_static%`, `${familyKey}_video%`]))];
+  if (!patterns.length) return [];
+
+  const result = await query<Creative>(
+    `
+      SELECT DISTINCT *
+      FROM creatives
+      WHERE project_type LIKE ANY($1::text[])
+        OR creative_group_key LIKE ANY($1::text[])
+      ORDER BY created_at ASC, id ASC
+    `,
+    [patterns]
+  );
+  return result.rows;
+}
+
 export function creativeGroupId(notionTaskId: string, groupKey: string): string {
   return Buffer.from(`${notionTaskId}\n${groupKey}`, "utf8").toString("base64url");
 }

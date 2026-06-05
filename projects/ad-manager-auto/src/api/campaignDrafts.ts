@@ -336,7 +336,7 @@ adSetDraftsRouter.post("/:id/ads", requireAuth, async (req, res, next) => {
     const adDraft = await createAdDraft({
       ...input,
       adSetDraftId,
-      name: input.name ?? creative.source_file_name ?? creative.project_type ?? `Creative ${creative.id}`,
+      name: input.name ?? creative.project_type ?? creative.creative_group_key ?? creative.source_file_name ?? `Creative ${creative.id}`,
       primaryText: input.primaryText ?? creative.ad_text ?? undefined,
       headline: input.headline ?? creative.headline ?? undefined,
       headlineVariants: input.headlineVariants ?? creative.headline_variants ?? undefined,

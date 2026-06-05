@@ -843,7 +843,7 @@ export async function createAd(input: {
         };
   const uniqueAssetTypes = new Set(mediaAssets.map((asset) => asset.assetType));
   if (uniqueAssetTypes.size > 1) {
-    throw new Error("Placement-specific creative groups must use either images or videos, not both.");
+    throw new Error("Ads with placement-specific assets must use either images or videos, not both.");
   }
 
   const usePlacementAssets = mediaAssets.length > 1;
