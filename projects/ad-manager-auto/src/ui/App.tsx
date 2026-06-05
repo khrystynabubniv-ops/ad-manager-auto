@@ -5682,7 +5682,16 @@ export function App() {
       }
     }
 
-    await load();
+    const refreshedGroups = await fetchCreativeGroups(viewConfig[creativeView].listKind);
+    setCreativeGroups(refreshedGroups);
+    setCreatives(refreshedGroups.flatMap((group) => group.creatives));
+    syncOpenGroups(refreshedGroups);
+
+    return (
+      refreshedGroups.find((group) => group.id === draftGroup.id) ??
+      refreshedGroups.find((group) => group.creatives.some((creative) => draftById.has(creative.id))) ??
+      undefined
+    );
   }
 
   function detailsPayloadFromCreative(creative: Creative): CreativeUpdateRequest {
