@@ -17,6 +17,7 @@ Required payload details:
 - Put all placement-specific images in `asset_feed_spec.images`.
 - Add `adlabels` to each image, for example `asset_feed` and `asset_stories_reels`.
 - Use `asset_customization_rules` with `image_label` pointing at those labels.
+- When placement asset customization is combined with multiple primary texts, titles, URLs, or CTA actions, add `adlabels` to those assets too and reference them from each rule with `body_label`, `title_label`, `link_url_label`, and `call_to_action_label`. Without those copy labels, Ads Manager can collapse the creative back to the first visible text/title/CTA even though the dashboard counted multiple variants.
 - Add explicit rules for secondary placement buckets that Ads Manager displays separately and that fit the available image ratios, such as Facebook search/right column and Instagram explore/search/profile feed. Do not map 9:16 story assets into Feed. Do not map 1:1 feed assets into in-stream video. Apps/sites need their own decision or a separate asset format; mapping them to the 9:16 story asset can create extra Ads Manager warnings.
 - For image PAC, include one `image_crops` key per `asset_feed_spec.images` entry. Meta rejects multiple crop keys on the same asset-feed image. To mirror Ads Manager's manual two-upload behavior, duplicate the 1:1 image hash with a second label for Facebook right-column/search and give that duplicate a horizontal crop.
 - Use `object_story_spec.instagram_user_id`, not `instagram_actor_id`, on Graph API v25.

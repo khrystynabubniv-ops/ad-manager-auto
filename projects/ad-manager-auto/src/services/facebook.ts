@@ -35,6 +35,8 @@ type LabeledPlacementAsset = {
   imageCrops?: Record<string, [[number, number], [number, number]]>;
 };
 
+type AssetFeedLabelKind = "body" | "title" | "link_url" | "call_to_action";
+
 function adAccountId(): string {
   const raw = requireEnv("FB_AD_ACCOUNT_ID");
   return raw.startsWith("act_") ? raw : `act_${raw}`;
@@ -559,6 +561,18 @@ function placementRoleLabel(role: PlacementAssetRole): string {
   return `asset_${role}`;
 }
 
+function assetLabel(name: string): { name: string } {
+  return { name };
+}
+
+function placementCopyLabel(kind: AssetFeedLabelKind, role: PlacementAssetRole): string {
+  return `${kind}_${role}`;
+}
+
+function placementCopyLabels(kind: AssetFeedLabelKind, roles: PlacementAssetRole[]): Array<{ name: string }> {
+  return roles.map((role) => assetLabel(placementCopyLabel(kind, role)));
+}
+
 function objectStoryIdentity(pageId: string): { page_id: string; instagram_user_id?: string } {
   const instagramUserId = env.FB_INSTAGRAM_USER_ID?.trim() || env.FB_INSTAGRAM_ACTOR_ID?.trim();
   return instagramUserId ? { page_id: pageId, instagram_user_id: instagramUserId } : { page_id: pageId };
@@ -712,16 +726,37 @@ function labeledPlacementAssets(
   return labeledAssets;
 }
 
-function placementAssetRules(assets: LabeledPlacementAsset[]): Array<Record<string, unknown>> {
+function placementRoles(assets: LabeledPlacementAsset[]): PlacementAssetRole[] {
+  return [...new Set(assets.map((asset) => asset.role))];
+}
+
+function placementCopyRuleLabels(role: PlacementAssetRole, includeCallToActions: boolean): Record<string, { name: string }> {
+  return {
+    body_label: assetLabel(placementCopyLabel("body", role)),
+    title_label: assetLabel(placementCopyLabel("title", role)),
+    link_url_label: assetLabel(placementCopyLabel("link_url", role)),
+    ...(includeCallToActions
+      ? { call_to_action_label: assetLabel(placementCopyLabel("call_to_action", role)) }
+      : {})
+  };
+}
+
+function placementAssetRules(
+  assets: LabeledPlacementAsset[],
+  options: { includeCopyLabels?: boolean; includeCallToActionLabels?: boolean } = {}
+): Array<Record<string, unknown>> {
   const defaultAsset = assets.find((asset) => asset.role === "feed") ?? assets[0];
   const rules: Array<Record<string, unknown>> = [];
+  const ruleCopyLabels = (role: PlacementAssetRole) =>
+    options.includeCopyLabels ? placementCopyRuleLabels(role, Boolean(options.includeCallToActionLabels)) : {};
 
   for (const asset of assets) {
     if (asset.role === "unknown") continue;
     for (const customizationSpec of placementCustomizationSpecs(asset.role, asset.assetType)) {
       rules.push({
         customization_spec: customizationSpec,
-        ...(asset.assetType === "image" ? { image_label: { name: asset.label } } : { video_label: { name: asset.label } })
+        ...(asset.assetType === "image" ? { image_label: { name: asset.label } } : { video_label: { name: asset.label } }),
+        ...ruleCopyLabels(asset.role)
       });
     }
   }
@@ -732,9 +767,32 @@ function placementAssetRules(assets: LabeledPlacementAsset[]): Array<Record<stri
       customization_spec: {},
       ...(defaultAsset.assetType === "image"
         ? { image_label: { name: defaultAsset.label } }
-        : { video_label: { name: defaultAsset.label } })
+        : { video_label: { name: defaultAsset.label } }),
+      ...ruleCopyLabels(defaultAsset.role)
     }
   ];
+}
+
+function textAsset(text: string, labels?: Array<{ name: string }>): Record<string, unknown> {
+  return {
+    text,
+    ...(labels?.length ? { adlabels: labels } : {})
+  };
+}
+
+function linkUrlAsset(websiteUrl: string, labels?: Array<{ name: string }>): Record<string, unknown> {
+  return {
+    website_url: websiteUrl,
+    ...(labels?.length ? { adlabels: labels } : {})
+  };
+}
+
+function callToActionAsset(type: string, link: string, labels?: Array<{ name: string }>): Record<string, unknown> {
+  return {
+    type,
+    ...(type === "NO_BUTTON" ? {} : { value: { link } }),
+    ...(labels?.length ? { adlabels: labels } : {})
+  };
 }
 
 export async function createAd(input: {
@@ -823,13 +881,22 @@ export async function createAd(input: {
   const labeledAssets = usePlacementAssets
     ? await placementAssetsWithImageCrops(labeledPlacementAssets(mediaAssets), input.requestId)
     : labeledPlacementAssets(mediaAssets);
+  const copyPlacementRoles = usePlacementAssets ? placementRoles(labeledAssets) : [];
+  const bodyLabels = usePlacementAssets ? placementCopyLabels("body", copyPlacementRoles) : undefined;
+  const titleLabels = usePlacementAssets ? placementCopyLabels("title", copyPlacementRoles) : undefined;
+  const linkUrlLabels = usePlacementAssets ? placementCopyLabels("link_url", copyPlacementRoles) : undefined;
+  const ctaLabels = usePlacementAssets ? placementCopyLabels("call_to_action", copyPlacementRoles) : undefined;
+  const includeLabeledCallToActions = usePlacementAssets && assetFeedCtaTypes.length > 1;
   const assetFeedSpec = {
     ad_formats: [primaryAsset.assetType === "image" ? "SINGLE_IMAGE" : "SINGLE_VIDEO"],
     ...(usePlacementAssets ? { optimization_type: "PLACEMENT" } : {}),
-    bodies: assetFeedAdTexts.map((text) => ({ text })),
-    titles: assetFeedHeadlines.map((text) => ({ text })),
-    link_urls: [{ website_url: input.ctaLink }],
+    bodies: assetFeedAdTexts.map((text) => textAsset(text, bodyLabels)),
+    titles: assetFeedHeadlines.map((text) => textAsset(text, titleLabels)),
+    link_urls: [linkUrlAsset(input.ctaLink, linkUrlLabels)],
     call_to_action_types: assetFeedCtaTypes,
+    ...(includeLabeledCallToActions
+      ? { call_to_actions: assetFeedCtaTypes.map((type) => callToActionAsset(type, input.ctaLink, ctaLabels)) }
+      : {}),
     ...(primaryAsset.assetType === "image"
       ? {
           images: labeledAssets.map((asset) =>
@@ -845,7 +912,10 @@ export async function createAd(input: {
         }),
     ...(usePlacementAssets
       ? {
-          asset_customization_rules: placementAssetRules(labeledAssets)
+          asset_customization_rules: placementAssetRules(labeledAssets, {
+            includeCopyLabels: true,
+            includeCallToActionLabels: includeLabeledCallToActions
+          })
         }
       : {})
   };
