@@ -422,6 +422,28 @@ export async function updateCreativeGrouping(
   return result.rows[0];
 }
 
+export async function updateCreativeAutoGroupingName(id: number, adName: string): Promise<Creative | undefined> {
+  const result = await query<Creative>(
+    `
+      UPDATE creatives
+      SET creative_group_key = $2,
+        creative_group_name = $3,
+        project_type = CASE
+          WHEN project_type IS NULL
+            OR project_type = creative_group_key
+            OR project_type ~ '.*_(static|video)[0-9]+$'
+          THEN $2
+          ELSE project_type
+        END
+      WHERE id = $1
+        AND grouping_status = 'auto'
+      RETURNING *
+    `,
+    [id, adName, adName.replace(/_/g, " ")]
+  );
+  return result.rows[0];
+}
+
 export async function listCreatives(statuses: string[]): Promise<Creative[]> {
   const result = await query<Creative>(
     "SELECT * FROM creatives WHERE status = ANY($1::text[]) ORDER BY updated_at DESC",

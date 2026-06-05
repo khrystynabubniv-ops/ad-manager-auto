@@ -13,9 +13,11 @@ import {
   cancelStaleCreativesForTask,
   getCreativeById,
   getCreativeGroupById,
+  listCreatives,
   listCreativesForAdNameFamilies,
   listCreativesForTask,
   recordEvent,
+  updateCreativeAutoGroupingName,
   updateCreativeStatus,
   upsertCreative
 } from "./db.js";
@@ -112,11 +114,7 @@ function adName(fields: { projectType?: string; sourceFileName?: string; assetTy
   if (sourceFileName && fields.assetType) {
     const parts = creativeAdNameParts(sourceFileName, fields.assetType);
     const projectTypeAdName = generatedAdNameForFamily(fields.projectType, parts.familyKey);
-    return (
-      parts.explicitAdName ??
-      projectTypeAdName ??
-      (parts.suggestedAdNumber ? `${parts.familyKey}_${parts.format}${parts.suggestedAdNumber}` : `${parts.familyKey}_${parts.format}1`)
-    ).slice(0, 80);
+    return (parts.explicitAdName ?? projectTypeAdName ?? `${parts.familyKey}_${parts.format}1`).slice(0, 80);
   }
 
   const projectTypeAdName = generatedAdNameMatch(fields.projectType);
@@ -129,7 +127,6 @@ function adName(fields: { projectType?: string; sourceFileName?: string; assetTy
 }
 
 type AdNameAllocationState = {
-  existingBySourceFileId: Map<string, Creative>;
   assignedBySourceGroupKey: Map<string, string>;
   maxAdNumberByFamilyKey: Map<string, number>;
 };
@@ -147,19 +144,41 @@ function generatedAdNameForFamily(value: string | null | undefined, familyKey: s
 
 function allocationState(existingCreatives: Creative[]): AdNameAllocationState {
   const state: AdNameAllocationState = {
-    existingBySourceFileId: new Map(),
     assignedBySourceGroupKey: new Map(),
     maxAdNumberByFamilyKey: new Map()
   };
+  const sourceGroupAssignments = new Map<string, Set<string>>();
+  const sourceGroupsByAdName = new Map<string, Set<string>>();
 
   for (const creative of existingCreatives) {
-    state.existingBySourceFileId.set(creative.source_file_id, creative);
     for (const value of [creative.project_type, creative.creative_group_key]) {
       const match = generatedAdNameMatch(value);
       if (!match) continue;
       const currentMax = state.maxAdNumberByFamilyKey.get(match.familyKey) ?? 0;
       state.maxAdNumberByFamilyKey.set(match.familyKey, Math.max(currentMax, match.number));
     }
+
+    if (creative.grouping_status !== "auto" || !creative.source_file_name || !creative.asset_type) {
+      continue;
+    }
+
+    const parts = creativeAdNameParts(creative.source_file_name, creative.asset_type);
+    const existingAdName =
+      generatedAdNameForFamily(creative.creative_group_key, parts.familyKey) ??
+      generatedAdNameForFamily(creative.project_type, parts.familyKey);
+    if (!existingAdName) continue;
+
+    const sourceGroupKey = `${parts.familyKey}\n${parts.sourceGroupKey}`;
+    sourceGroupAssignments.set(sourceGroupKey, new Set([...(sourceGroupAssignments.get(sourceGroupKey) ?? []), existingAdName]));
+    sourceGroupsByAdName.set(existingAdName, new Set([...(sourceGroupsByAdName.get(existingAdName) ?? []), sourceGroupKey]));
+  }
+
+  for (const [sourceGroupKey, adNames] of sourceGroupAssignments.entries()) {
+    if (adNames.size !== 1) continue;
+    const [adNameValue] = adNames;
+    if ((sourceGroupsByAdName.get(adNameValue)?.size ?? 0) !== 1) continue;
+    const [, sourceGroup] = sourceGroupKey.split("\n");
+    state.assignedBySourceGroupKey.set(sourceGroup, adNameValue);
   }
 
   return state;
@@ -176,23 +195,6 @@ function allocateUploadAdName(state: AdNameAllocationState, fields: { fileName: 
     return parts.explicitAdName;
   }
 
-  const existing = state.existingBySourceFileId.get(fields.sourceFileId);
-  const existingAdName =
-    generatedAdNameForFamily(existing?.project_type, parts.familyKey) ??
-    generatedAdNameForFamily(existing?.creative_group_key, parts.familyKey);
-  if (existingAdName) {
-    state.assignedBySourceGroupKey.set(parts.sourceGroupKey, existingAdName);
-    return existingAdName;
-  }
-
-  if (parts.suggestedAdNumber) {
-    const adNameValue = `${parts.familyKey}_${parts.format}${parts.suggestedAdNumber}`;
-    const currentMax = state.maxAdNumberByFamilyKey.get(parts.familyKey) ?? 0;
-    state.maxAdNumberByFamilyKey.set(parts.familyKey, Math.max(currentMax, parts.suggestedAdNumber));
-    state.assignedBySourceGroupKey.set(parts.sourceGroupKey, adNameValue);
-    return adNameValue;
-  }
-
   const assigned = state.assignedBySourceGroupKey.get(parts.sourceGroupKey);
   if (assigned) {
     return assigned;
@@ -203,6 +205,69 @@ function allocateUploadAdName(state: AdNameAllocationState, fields: { fileName: 
   const adNameValue = `${parts.familyKey}_${parts.format}${nextNumber}`;
   state.assignedBySourceGroupKey.set(parts.sourceGroupKey, adNameValue);
   return adNameValue;
+}
+
+export async function repairAutoCreativeAdNames(statuses: string[], requestId?: string): Promise<number> {
+  const creatives = await listCreatives(statuses);
+  const candidates = creatives
+    .filter((creative) => creative.grouping_status === "auto" && creative.source_file_name && creative.asset_type)
+    .map((creative) => {
+      const fileName = normalizeAssetFileName(creative.source_file_name!);
+      if (validateAssetFileName(fileName, creative.asset_type!)) {
+        return undefined;
+      }
+      return {
+        creative,
+        fileName,
+        assetType: creative.asset_type!,
+        parts: creativeAdNameParts(fileName, creative.asset_type!)
+      };
+    })
+    .filter((candidate): candidate is NonNullable<typeof candidate> => Boolean(candidate));
+
+  if (!candidates.length) {
+    return 0;
+  }
+
+  const candidateIds = new Set(candidates.map((candidate) => candidate.creative.id));
+  const familyKeys = [...new Set(candidates.map((candidate) => candidate.parts.familyKey))];
+  const existingCreatives = (await listCreativesForAdNameFamilies(familyKeys)).filter((creative) => !candidateIds.has(creative.id));
+  const state = allocationState(existingCreatives);
+  let repaired = 0;
+
+  const sortedCandidates = [...candidates].sort((left, right) => {
+    const familySort = left.parts.familyKey.localeCompare(right.parts.familyKey);
+    if (familySort !== 0) return familySort;
+    const createdSort = Date.parse(left.creative.created_at) - Date.parse(right.creative.created_at);
+    if (createdSort !== 0) return createdSort;
+    return left.creative.id - right.creative.id;
+  });
+
+  for (const candidate of sortedCandidates) {
+    const adNameValue = allocateUploadAdName(state, {
+      fileName: candidate.fileName,
+      assetType: candidate.assetType,
+      sourceFileId: candidate.creative.source_file_id
+    });
+    const hasGeneratedProjectType = Boolean(generatedAdNameMatch(candidate.creative.project_type));
+    const needsProjectTypeRepair = !candidate.creative.project_type || hasGeneratedProjectType;
+
+    if (
+      candidate.creative.creative_group_key === adNameValue &&
+      (!needsProjectTypeRepair || candidate.creative.project_type === adNameValue)
+    ) {
+      continue;
+    }
+
+    await updateCreativeAutoGroupingName(candidate.creative.id, adNameValue);
+    repaired += 1;
+  }
+
+  if (repaired > 0) {
+    logger.info({ requestId, repaired }, "Repaired auto creative ad names");
+  }
+
+  return repaired;
 }
 
 function dbDate(value?: string | null): Date | undefined {

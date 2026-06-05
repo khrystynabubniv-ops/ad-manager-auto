@@ -19,7 +19,7 @@ import { cleanTextSequence, normalizeCtaType, normalizeCtaTypeSequence } from ".
 import { creativeAdNameParts, creativeGroupingForFileName } from "../utils/assetNaming.js";
 import { CreativeAssetPlacement } from "../types.js";
 import { AppError } from "../utils/errors.js";
-import { retryCreativeAssetUpload } from "../services/pipeline.js";
+import { repairAutoCreativeAdNames, retryCreativeAssetUpload } from "../services/pipeline.js";
 
 export const creativesRouter = Router();
 
@@ -62,6 +62,9 @@ creativesRouter.get("/groups", requireAuth, async (req, res, next) => {
   try {
     const status = req.query.status as string | undefined;
     const statuses = creativeListStatuses(status);
+    if (!statuses.includes(DB_STATUS.LAUNCHED)) {
+      await repairAutoCreativeAdNames(statuses, req.id as string | undefined);
+    }
     const groups = await listCreativeGroups(statuses, {
       groupByFacebookAdId: statuses.length === 1 && statuses[0] === DB_STATUS.LAUNCHED
     });

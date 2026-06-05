@@ -68,7 +68,6 @@ export function creativeAdNameParts(fileName: string, assetType: AssetType): {
   format: CreativeAdFormat;
   explicitAdName?: string;
   explicitAdNumber?: number;
-  suggestedAdNumber?: number;
 } {
   const grouping = creativeGroupingForFileName(fileName);
   const groupParts = grouping.groupKey.split("_").filter(Boolean);
@@ -84,7 +83,7 @@ export function creativeAdNameParts(fileName: string, assetType: AssetType): {
     };
   }
 
-  const legacyVariation = groupParts.at(-1)?.match(/^v(\d+)$/);
+  const legacyVariation = groupParts.at(-1)?.match(/^v\d+$/);
   const legacyFamilyParts =
     groupParts.length >= 4 &&
     /^(con|concept)\d+$/.test(groupParts.at(-3) ?? "") &&
@@ -96,8 +95,7 @@ export function creativeAdNameParts(fileName: string, assetType: AssetType): {
   return {
     sourceGroupKey: grouping.groupKey,
     familyKey: legacyFamilyParts.join("_") || grouping.groupKey,
-    format: creativeAdFormatForAssetType(assetType),
-    suggestedAdNumber: legacyVariation ? Number(legacyVariation[1]) : undefined
+    format: creativeAdFormatForAssetType(assetType)
   };
 }
 
