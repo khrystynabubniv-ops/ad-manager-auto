@@ -61,7 +61,9 @@ creativesRouter.get("/groups", requireAuth, async (req, res, next) => {
   try {
     const status = req.query.status as string | undefined;
     const statuses = creativeListStatuses(status);
-    const groups = await listCreativeGroups(statuses);
+    const groups = await listCreativeGroups(statuses, {
+      groupByFacebookAdId: statuses.length === 1 && statuses[0] === DB_STATUS.LAUNCHED
+    });
     res.json({ groups });
   } catch (error) {
     next(error);

@@ -477,11 +477,14 @@ function primaryCreative(creatives: Creative[]): Creative {
   })[0];
 }
 
-function buildCreativeGroups(creatives: Creative[]): CreativeGroup[] {
+function buildCreativeGroups(creatives: Creative[], options: { groupByFacebookAdId?: boolean } = {}): CreativeGroup[] {
   const groups = new Map<string, Creative[]>();
 
   for (const creative of creatives) {
-    const groupKey = creative.creative_group_key || creative.source_file_id;
+    const groupKey =
+      options.groupByFacebookAdId && creative.facebook_ad_id
+        ? `facebook_ad:${creative.facebook_ad_id}`
+        : creative.creative_group_key || creative.source_file_id;
     const key = `${creative.notion_task_id}\n${groupKey}`;
     groups.set(key, [...(groups.get(key) ?? []), creative]);
   }
@@ -499,6 +502,7 @@ function buildCreativeGroups(creatives: Creative[]): CreativeGroup[] {
         return left.id - right.id;
       });
       const primary = primaryCreative(sortedCreatives);
+      const displayGroupKey = groupKey.startsWith("facebook_ad:") ? primary.creative_group_key : groupKey;
       const createdAt = sortedCreatives
         .map((creative) => creative.created_at)
         .sort((left, right) => Date.parse(left) - Date.parse(right))[0];
@@ -510,8 +514,8 @@ function buildCreativeGroups(creatives: Creative[]): CreativeGroup[] {
         id: creativeGroupId(notionTaskId, groupKey),
         notion_task_id: notionTaskId,
         notion_task_url: primary.notion_task_url,
-        group_key: groupKey,
-        group_name: primary.creative_group_name || groupKey.replace(/_/g, " "),
+        group_key: displayGroupKey,
+        group_name: primary.creative_group_name || displayGroupKey.replace(/_/g, " "),
         status: groupStatus(sortedCreatives),
         grouping_status: sortedCreatives.some((creative) => creative.grouping_status === "manual") ? "manual" as const : "auto" as const,
         primary_creative: primary,
@@ -523,8 +527,11 @@ function buildCreativeGroups(creatives: Creative[]): CreativeGroup[] {
     .sort((left, right) => Date.parse(right.updated_at) - Date.parse(left.updated_at));
 }
 
-export async function listCreativeGroups(statuses: string[]): Promise<CreativeGroup[]> {
-  return buildCreativeGroups(await listCreatives(statuses));
+export async function listCreativeGroups(
+  statuses: string[],
+  options: { groupByFacebookAdId?: boolean } = {}
+): Promise<CreativeGroup[]> {
+  return buildCreativeGroups(await listCreatives(statuses), options);
 }
 
 export async function getCreativeGroupById(id: string, statuses?: string[]): Promise<CreativeGroup | undefined> {

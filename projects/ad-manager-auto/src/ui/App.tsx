@@ -1668,7 +1668,7 @@ function AssetManagementPanel({
                   <select
                     aria-label={`Choose asset for ${placementLabel(creative.asset_placement)}`}
                     value={selectedAssetId}
-                    disabled={rowBusy || !canChooseAnotherAsset}
+                    disabled={rowBusy || !onChooseAsset || !canChooseAnotherAsset}
                     onChange={(event) => chooseAsset(creative, event.target.value)}
                   >
                     {isEmptyCreativeSlot(creative) ? (
@@ -2130,7 +2130,7 @@ function ConfirmModal({
   groups?: CreativeGroup[];
   loading: boolean;
   saving?: boolean;
-  mode?: "launch" | "edit";
+  mode?: "launch" | "edit" | "view";
   onClose: () => void;
   onConfirm?: (payload: LaunchRequest) => Promise<void> | void;
   onSave?: (payload: CreativeUpdateRequest) => Promise<void> | void;
@@ -2227,6 +2227,8 @@ function ConfirmModal({
   const visibleGroup = assetGroupDraft ?? group;
   const visibleGroups = groupsWithDraftGroup(groups, assetGroupDraft);
   const busy = loading || saving || generatingCopy || assetsSaving;
+  const readOnly = mode === "view";
+  const controlsDisabled = busy || readOnly;
   const detailsReady = Boolean(
     draft.adText.trim() &&
       draft.headline.trim() &&
@@ -2326,6 +2328,7 @@ function ConfirmModal({
   }
 
   async function saveDetails() {
+    if (readOnly) return;
     if (!onSave) return;
     try {
       await onSave(savePayload());
@@ -2339,6 +2342,7 @@ function ConfirmModal({
   }
 
   async function confirmPlacement() {
+    if (readOnly) return;
     if (!onConfirm) return;
 
     if (!detailsReady) {
@@ -2376,11 +2380,13 @@ function ConfirmModal({
   }
 
   function updateDraft(field: keyof typeof draft, value: string) {
+    if (readOnly) return;
     setDraft((current) => ({ ...current, [field]: value }));
     setPlacementError(null);
   }
 
   async function generateCopy(auto = false) {
+    if (readOnly) return;
     if (generatingCopyRequestRef.current) return;
 
     generatingCopyRequestRef.current = true;
@@ -2423,12 +2429,26 @@ function ConfirmModal({
   }
 
   useEffect(() => {
+    if (readOnly) return;
     if (autoGenerateCreativeIdRef.current === creative.id || generatingCopy) return;
     if (draft.adText.trim()) return;
 
     autoGenerateCreativeIdRef.current = creative.id;
     void generateCopy(true);
-  }, [creative.id, draft.adText, draft.ctaLink, generatingCopy]);
+  }, [creative.id, draft.adText, draft.ctaLink, generatingCopy, readOnly]);
+
+  const modalEyebrow = group
+    ? mode === "view"
+      ? "View creative set"
+      : mode === "edit"
+        ? "Edit creative set"
+        : "Review & launch set"
+    : mode === "view"
+      ? "View creative"
+      : mode === "edit"
+        ? "Edit creative"
+        : "Review & launch";
+  const previewHandler = readOnly ? undefined : onPreview;
 
   return (
     <div className="modalOverlay" role="dialog" aria-modal="true">
@@ -2436,13 +2456,7 @@ function ConfirmModal({
         <div className="modalHeader">
           <div>
             <p className="eyebrow">
-              {group
-                ? mode === "edit"
-                  ? "Edit creative set"
-                  : "Review & launch set"
-                : mode === "edit"
-                  ? "Edit creative"
-                  : "Review & launch"}
+              {modalEyebrow}
             </p>
             <input
               className="modalTitleInput"
@@ -2450,7 +2464,7 @@ function ConfirmModal({
               value={draft.projectType}
               onChange={(event) => updateDraft("projectType", event.target.value)}
               placeholder="Project type (optional)"
-              disabled={busy}
+              disabled={controlsDisabled}
             />
           </div>
           <button className="iconButton" onClick={onClose} aria-label="Close" disabled={busy}>
@@ -2464,17 +2478,17 @@ function ConfirmModal({
               <AssetManagementPanel
                 group={visibleGroup}
                 groups={visibleGroups}
-                disabled={busy}
-                onGroupingChange={updateLocalGrouping}
-                onAddSlot={addLocalSlot}
-                onChooseAsset={chooseLocalAsset}
-                onRemoveAsset={removeLocalAsset}
-                onPreview={onPreview}
+                disabled={controlsDisabled}
+                onGroupingChange={readOnly ? undefined : updateLocalGrouping}
+                onAddSlot={readOnly ? undefined : addLocalSlot}
+                onChooseAsset={readOnly ? undefined : chooseLocalAsset}
+                onRemoveAsset={readOnly ? undefined : removeLocalAsset}
+                onPreview={previewHandler}
               />
             ) : (
               <div className="singleAssetPreview">
-                <AssetPreviewTile creative={creative} onPreview={onPreview} />
-                <AssetNameButton creative={creative} onPreview={onPreview} />
+                <AssetPreviewTile creative={creative} onPreview={previewHandler} />
+                <AssetNameButton creative={creative} onPreview={previewHandler} />
               </div>
             )}
           </div>
@@ -2495,7 +2509,7 @@ function ConfirmModal({
                     setCampaignId(event.target.value);
                     setAdSetId("");
                   }}
-                  disabled={busy || campaignsLoading}
+                  disabled={controlsDisabled || campaignsLoading}
                 >
                   <option value="">{campaignsLoading ? "Loading campaigns..." : "Select campaign"}</option>
                   {campaigns.map((campaign) => (
@@ -2511,7 +2525,7 @@ function ConfirmModal({
                 <select
                   value={adSetId}
                   onChange={(event) => setAdSetId(event.target.value)}
-                  disabled={busy || adSetsLoading || !campaignId}
+                  disabled={controlsDisabled || adSetsLoading || !campaignId}
                 >
                   <option value="">
                     {!campaignId ? "Select campaign first" : adSetsLoading ? "Loading ad sets..." : "Select ad set"}
@@ -2534,7 +2548,7 @@ function ConfirmModal({
                   {1 + normalizeCtaTypeSequence(draft.ctaTypeVariants).length} CTA
                 </strong>
               </div>
-              <button type="button" className="primaryButton generateCopyButton" onClick={() => void generateCopy()} disabled={busy}>
+              <button type="button" className="primaryButton generateCopyButton" onClick={() => void generateCopy()} disabled={controlsDisabled}>
                 {generatingCopy ? <Loader2 size={16} className="spin" /> : <Sparkles size={16} />}
                 {generatingCopy ? "Generating..." : "Generate copy"}
               </button>
@@ -2551,7 +2565,7 @@ function ConfirmModal({
                 setDraft((current) => ({ ...current, adTextVariants: values }));
                 setPlacementError(null);
               }}
-              disabled={busy}
+              disabled={controlsDisabled}
             />
             <CopyTextStack
               label="Title"
@@ -2564,7 +2578,7 @@ function ConfirmModal({
                 setDraft((current) => ({ ...current, headlineVariants: values }));
                 setPlacementError(null);
               }}
-              disabled={busy}
+              disabled={controlsDisabled}
             />
             <CtaStack
               primary={draft.ctaType}
@@ -2582,7 +2596,7 @@ function ConfirmModal({
                 setDraft((current) => ({ ...current, ctaTypeVariants: values }));
                 setPlacementError(null);
               }}
-              disabled={busy}
+              disabled={controlsDisabled}
             />
             <label className="fieldGroup">
               <span>Ad link</span>
@@ -2590,7 +2604,7 @@ function ConfirmModal({
                 type="url"
                 value={draft.ctaLink}
                 onChange={(event) => updateDraft("ctaLink", event.target.value)}
-                disabled={busy}
+                disabled={controlsDisabled}
               />
             </label>
           </div>
@@ -2605,13 +2619,13 @@ function ConfirmModal({
 
         <div className="modalActions">
           <button className="secondaryButton" onClick={onClose} disabled={busy}>
-            Cancel
+            {readOnly ? "Close" : "Cancel"}
           </button>
           {onSave ? (
             <button
               className={mode === "edit" ? "primaryButton" : "secondaryButton"}
               onClick={() => void saveDetails()}
-              disabled={busy || campaignsLoading || adSetsLoading}
+              disabled={controlsDisabled || campaignsLoading || adSetsLoading}
             >
               {saving || assetsSaving ? <Loader2 size={16} className="spin" /> : <Save size={16} />}
               Save
@@ -2743,6 +2757,8 @@ function CreativeRow({
 function CreativeGroupRow({
   group,
   onEdit,
+  editLabel = "Edit",
+  editIcon,
   onLaunch,
   selectable = false,
   selected = false,
@@ -2753,6 +2769,8 @@ function CreativeGroupRow({
 }: {
   group: CreativeGroup;
   onEdit?: (group: CreativeGroup) => void;
+  editLabel?: string;
+  editIcon?: ReactNode;
   onLaunch?: (group: CreativeGroup) => void;
   selectable?: boolean;
   selected?: boolean;
@@ -2824,8 +2842,8 @@ function CreativeGroupRow({
         <div className="rowActions">
           {onEdit ? (
             <button className="secondaryButton compact" onClick={() => onEdit(group)}>
-              <Pencil size={16} />
-              Edit
+              {editIcon ?? <Pencil size={16} />}
+              {editLabel}
             </button>
           ) : null}
           {onLaunch ? (
@@ -2833,6 +2851,10 @@ function CreativeGroupRow({
               <Play size={16} />
               {setupReady ? "Review & launch set" : "Select campaign & ad set"}
             </button>
+          ) : group.status === "launched" ? (
+            <span className="stateIcon success" aria-label="In use">
+              <Check size={18} />
+            </span>
           ) : (
             <span className="stateIcon warning" aria-label="Needs attention">
               <AlertCircle size={18} />
@@ -5058,6 +5080,7 @@ export function App() {
   const [ready, setReady] = useState(false);
   const [route, setRoute] = useState<RouteState>(activeRoute());
   const creativeView = route.area === "creatives" ? route.view : "ready";
+  const showsCreativeGroups = creativeView === "ready" || creativeView === "in-use";
   const [creatives, setCreatives] = useState<Creative[]>([]);
   const [creativeGroups, setCreativeGroups] = useState<CreativeGroup[]>([]);
   const [loading, setLoading] = useState(true);
@@ -5066,6 +5089,7 @@ export function App() {
   const [selectedGroup, setSelectedGroup] = useState<CreativeGroup | null>(null);
   const [editing, setEditing] = useState<Creative | null>(null);
   const [editingGroup, setEditingGroup] = useState<CreativeGroup | null>(null);
+  const [viewingGroup, setViewingGroup] = useState<CreativeGroup | null>(null);
   const [previewingAsset, setPreviewingAsset] = useState<Creative | null>(null);
   const [launching, setLaunching] = useState(false);
   const [savingCreative, setSavingCreative] = useState(false);
@@ -5131,6 +5155,7 @@ export function App() {
 
     setSelectedGroup(findUpdatedGroup);
     setEditingGroup(findUpdatedGroup);
+    setViewingGroup(findUpdatedGroup);
   }, []);
 
   const load = useCallback(async () => {
@@ -5138,8 +5163,8 @@ export function App() {
     setLoading(true);
     setError(null);
     try {
-      if (route.view === "ready") {
-        const groups = await fetchCreativeGroups("ready");
+      if (route.view === "ready" || route.view === "in-use") {
+        const groups = await fetchCreativeGroups(viewConfig[route.view].listKind);
         setCreativeGroups(groups);
         setCreatives(groups.flatMap((group) => group.creatives));
         syncOpenGroups(groups);
@@ -5299,11 +5324,11 @@ export function App() {
 
   const counts = useMemo(
     () => ({
-      shown: creativeView === "ready" ? displayedCreativeGroups.length : displayedCreatives.length,
-      total: creativeView === "ready" ? creativeGroups.length : creatives.length,
+      shown: showsCreativeGroups ? displayedCreativeGroups.length : displayedCreatives.length,
+      total: showsCreativeGroups ? creativeGroups.length : creatives.length,
       viewLabel: viewConfig[creativeView].title
     }),
-    [creativeGroups.length, creativeView, creatives.length, displayedCreativeGroups.length, displayedCreatives.length]
+    [creativeGroups.length, creativeView, creatives.length, displayedCreativeGroups.length, displayedCreatives.length, showsCreativeGroups]
   );
 
   async function confirmLaunch(placement: LaunchRequest) {
@@ -5810,16 +5835,18 @@ export function App() {
                   <div className="emptyState">
                     {query.trim() ? `No creatives match "${query.trim()}".` : viewConfig[creativeView].empty}
                   </div>
-                ) : creativeView === "ready" ? (
+                ) : showsCreativeGroups ? (
                   displayedCreativeGroups.map((group) => (
                     <CreativeGroupRow
                       key={group.id}
                       group={group}
-                      onEdit={setEditingGroup}
-                      onLaunch={setSelectedGroup}
-                      selectable
-                      selected={selectedGroupIds.has(group.id)}
-                      onSelectChange={toggleGroupSelection}
+                      onEdit={creativeView === "ready" ? setEditingGroup : setViewingGroup}
+                      editLabel={creativeView === "in-use" ? "View" : undefined}
+                      editIcon={creativeView === "in-use" ? <Maximize2 size={16} /> : undefined}
+                      onLaunch={creativeView === "ready" ? setSelectedGroup : undefined}
+                      selectable={creativeView === "ready"}
+                      selected={creativeView === "ready" && selectedGroupIds.has(group.id)}
+                      onSelectChange={creativeView === "ready" ? toggleGroupSelection : undefined}
                       onPreview={setPreviewingAsset}
                       campaignNamesById={campaignNamesById}
                       adSetNamesById={adSetNamesById}
@@ -5901,6 +5928,18 @@ export function App() {
           onSave={(payload) => saveGroupDetails(editingGroup, payload)}
           onCommitAssetChanges={(draftGroup) => saveGroupAssetChanges(editingGroup, draftGroup)}
           onPreview={setPreviewingAsset}
+        />
+      ) : null}
+
+      {viewingGroup ? (
+        <ConfirmModal
+          creative={groupPrimaryCreative(viewingGroup)}
+          group={viewingGroup}
+          groups={creativeGroups}
+          loading={false}
+          saving={false}
+          mode="view"
+          onClose={() => setViewingGroup(null)}
         />
       ) : null}
 
