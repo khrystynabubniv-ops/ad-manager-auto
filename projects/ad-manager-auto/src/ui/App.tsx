@@ -57,6 +57,7 @@ import {
   launchCreativeGroup,
   generateCreativeCopySuggestions,
   moveCreativeToReady,
+  retryCreativeUpload,
   searchTargetingLocations,
   syncCampaigns,
   uploadCreative,
@@ -75,7 +76,7 @@ import {
   normalizeCtaTypeSequence
 } from "../shared/creativeCopy";
 
-type CreativeView = "ready" | "in-use" | "drafts" | "archived";
+type CreativeView = "ready" | "in-use" | "drafts" | "failed" | "archived";
 type RouteState =
   | {
       area: "creatives";
@@ -338,6 +339,14 @@ const viewConfig: Record<
     summary: "need setup details",
     empty: "No draft creatives right now."
   },
+  failed: {
+    title: "Failed uploads",
+    navLabel: "Failed",
+    listKind: "upload_failed",
+    path: "/failed",
+    summary: "need upload retry",
+    empty: "No failed uploads right now."
+  },
   archived: {
     title: "Archived creatives",
     navLabel: "Archived",
@@ -363,6 +372,9 @@ function activeRoute(): RouteState {
   }
   if (window.location.pathname.includes("drafts") || window.location.pathname.includes("needs-details")) {
     return { area: "creatives", view: "drafts" };
+  }
+  if (window.location.pathname.includes("failed") || window.location.pathname.includes("upload-failed")) {
+    return { area: "creatives", view: "failed" };
   }
   if (window.location.pathname.includes("archived")) return { area: "creatives", view: "archived" };
   return { area: "creatives", view: "ready" };
@@ -2112,6 +2124,42 @@ function BulkActionBar({
   );
 }
 
+function FailedUploadActionBar({
+  selectedCount,
+  visibleCount,
+  allVisibleSelected,
+  busy,
+  onToggleAll,
+  onRetry
+}: {
+  selectedCount: number;
+  visibleCount: number;
+  allVisibleSelected: boolean;
+  busy: boolean;
+  onToggleAll: (checked: boolean) => void;
+  onRetry: () => Promise<void> | void;
+}) {
+  return (
+    <section className="bulkActionBar" aria-label="Selected failed upload actions">
+      <label className="bulkSelectAll">
+        <input
+          type="checkbox"
+          checked={allVisibleSelected}
+          onChange={(event) => onToggleAll(event.target.checked)}
+          disabled={busy || visibleCount === 0}
+        />
+        <span>{selectedCount} selected</span>
+      </label>
+      <div className="bulkActions">
+        <button type="button" className="primaryButton" disabled={busy || selectedCount === 0} onClick={() => void onRetry()}>
+          {busy ? <Loader2 size={16} className="spin" /> : <RefreshCw size={16} />}
+          Retry upload
+        </button>
+      </div>
+    </section>
+  );
+}
+
 function ConfirmModal({
   creative,
   group,
@@ -2652,6 +2700,8 @@ function CreativeRow({
   onEdit,
   onLaunch,
   onRestore,
+  restoreLabel = "Move to Ready",
+  restoreIcon,
   restoreBusy = false,
   selectable = false,
   selected = false,
@@ -2663,6 +2713,8 @@ function CreativeRow({
   onEdit?: (creative: Creative) => void;
   onLaunch?: (creative: Creative) => void;
   onRestore?: (creative: Creative) => void;
+  restoreLabel?: string;
+  restoreIcon?: ReactNode;
   restoreBusy?: boolean;
   selectable?: boolean;
   selected?: boolean;
@@ -2735,8 +2787,8 @@ function CreativeRow({
           ) : null}
           {onRestore ? (
             <button className="primaryButton compact" onClick={() => void onRestore(creative)} disabled={restoreBusy}>
-              {restoreBusy ? <Loader2 size={16} className="spin" /> : <Check size={16} />}
-              Move to Ready
+              {restoreBusy ? <Loader2 size={16} className="spin" /> : (restoreIcon ?? <Check size={16} />)}
+              {restoreLabel}
             </button>
           ) : null}
           {!onLaunch && !onRestore && creative.status === "launched" ? (
@@ -5095,7 +5147,7 @@ export function App() {
   const [savingCreative, setSavingCreative] = useState(false);
   const [selectedCreativeIds, setSelectedCreativeIds] = useState<Set<number>>(() => new Set());
   const [selectedGroupIds, setSelectedGroupIds] = useState<Set<string>>(() => new Set());
-  const [bulkAction, setBulkAction] = useState<"launch" | "archive" | null>(null);
+  const [bulkAction, setBulkAction] = useState<"launch" | "archive" | "retry" | null>(null);
   const [restoringCreativeId, setRestoringCreativeId] = useState<number | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [query, setQuery] = useState("");
@@ -5532,6 +5584,40 @@ export function App() {
     }
   }
 
+  async function handleRetryCreativeUpload(creative: Creative) {
+    setRestoringCreativeId(creative.id);
+    setError(null);
+    try {
+      await retryCreativeUpload(creative.id);
+      await load();
+      setError("Retried upload. Creative moved to Ready.");
+    } catch (retryError) {
+      setError(retryError instanceof Error ? retryError.message : String(retryError));
+    } finally {
+      setRestoringCreativeId(null);
+    }
+  }
+
+  async function handleBulkRetryUploads() {
+    if (!selectedCreatives.length) return;
+    setBulkAction("retry");
+    setError(null);
+    try {
+      for (const creative of selectedCreatives) {
+        await retryCreativeUpload(creative.id);
+      }
+      const retriedCount = selectedCreatives.length;
+      setSelectedCreativeIds(new Set());
+      await load();
+      setError(`Retried ${retriedCount} upload${retriedCount === 1 ? "" : "s"}. Ready creatives refreshed.`);
+    } catch (retryError) {
+      setError(retryError instanceof Error ? retryError.message : String(retryError));
+      await load();
+    } finally {
+      setBulkAction(null);
+    }
+  }
+
   async function saveCreativeDetails(creativeId: number, payload: CreativeUpdateRequest) {
     setSavingCreative(true);
     setError(null);
@@ -5664,7 +5750,7 @@ export function App() {
 
     return ["Workspace", "Creatives", viewConfig[creativeView].navLabel];
   }, [campaignRouteId, creativeView, route.area]);
-  const noticeIsSuccess = Boolean(error && (/^(Synced|Uploaded|Archived|Moved)/.test(error) || error.endsWith("saved.")));
+  const noticeIsSuccess = Boolean(error && (/^(Synced|Uploaded|Archived|Moved|Retried)/.test(error) || error.endsWith("saved.")));
 
   return (
     <div className="app">
@@ -5824,6 +5910,16 @@ export function App() {
                   onArchive={handleBulkArchive}
                 />
               ) : null}
+              {creativeView === "failed" && selectedCreativeIds.size ? (
+                <FailedUploadActionBar
+                  selectedCount={selectedCreativeIds.size}
+                  visibleCount={displayedCreatives.length}
+                  allVisibleSelected={allDisplayedSelected}
+                  busy={bulkAction === "retry"}
+                  onToggleAll={toggleAllDisplayed}
+                  onRetry={handleBulkRetryUploads}
+                />
+              ) : null}
 
               <section className="listPanel">
                 {loading ? (
@@ -5859,9 +5955,17 @@ export function App() {
                       creative={creative}
                       onEdit={undefined}
                       onLaunch={undefined}
-                      onRestore={creativeView === "archived" && !isEmptyCreativeSlot(creative) ? handleMoveCreativeToReady : undefined}
+                      onRestore={
+                        creativeView === "archived" && !isEmptyCreativeSlot(creative)
+                          ? handleMoveCreativeToReady
+                          : creativeView === "failed"
+                            ? handleRetryCreativeUpload
+                            : undefined
+                      }
+                      restoreLabel={creativeView === "failed" ? "Retry upload" : undefined}
+                      restoreIcon={creativeView === "failed" ? <RefreshCw size={16} /> : undefined}
                       restoreBusy={restoringCreativeId === creative.id}
-                      selectable={false}
+                      selectable={creativeView === "failed"}
                       selected={selectedCreativeIds.has(creative.id)}
                       onSelectChange={toggleCreativeSelection}
                       campaignNamesById={campaignNamesById}

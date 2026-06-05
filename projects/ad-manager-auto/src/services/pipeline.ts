@@ -531,6 +531,125 @@ export async function uploadCreativeFromNotion(fields: NotionCreativeFields, req
   }
 }
 
+export async function retryCreativeAssetUpload(id: number, requestId?: string): Promise<Creative> {
+  const existing = await getCreativeById(id);
+  if (!existing) {
+    throw new Error(`Creative ${id} not found`);
+  }
+  if (existing.status !== DB_STATUS.UPLOAD_FAILED) {
+    throw new Error(`Creative ${id} is not waiting for upload retry. Current status: ${existing.status}`);
+  }
+  if (!existing.source_file_id || existing.source_file_id.startsWith("slot:") || existing.source_file_id.startsWith("manual:")) {
+    throw new Error(`Creative ${id} does not have a retryable Google Drive source file`);
+  }
+
+  const file = await downloadDriveFile(existing.source_file_id, requestId);
+  const assetType = detectAssetType(file.fileName, file.mimeType);
+  const uploadFileName = normalizeAssetFileName(file.fileName);
+  const uploadFile = uploadFileName === file.fileName ? file : { ...file, fileName: uploadFileName };
+  const grouping = creativeGroupingForFileName(uploadFile.fileName);
+  const groupingIsManual = existing.grouping_status === "manual";
+  const baseInput = {
+    notionTaskId: existing.notion_task_id,
+    notionTaskUrl: existing.notion_task_url ?? undefined,
+    sourceFileId: file.fileId,
+    sourceFileName: file.fileName,
+    creativeGroupKey: groupingIsManual ? existing.creative_group_key : grouping.groupKey,
+    creativeGroupName: groupingIsManual ? existing.creative_group_name : grouping.groupName,
+    assetPlacement: groupingIsManual ? existing.asset_placement : grouping.placement,
+    groupingStatus: existing.grouping_status,
+    ctaLink: existing.cta_link ?? undefined,
+    projectType: existing.project_type ?? undefined,
+    googleDriveUrl: existing.google_drive_url ?? undefined,
+    adText: existing.ad_text ?? undefined,
+    headline: existing.headline ?? undefined,
+    headlineVariants: existing.headline_variants ?? undefined,
+    adTextVariants: existing.ad_text_variants ?? undefined,
+    ctaType: existing.cta_type ?? undefined,
+    ctaTypeVariants: existing.cta_type_variants ?? undefined,
+    campaignId: existing.campaign_id ?? undefined,
+    campaignName: existing.campaign_name ?? undefined,
+    adSetId: existing.adset_id ?? undefined,
+    adSetName: existing.adset_name ?? undefined
+  };
+
+  if (uploadFileName !== file.fileName) {
+    logger.info(
+      { requestId, creativeId: existing.id, notionTaskId: existing.notion_task_id, fileName: file.fileName, uploadFileName },
+      "Normalized creative asset filename for retry upload"
+    );
+  }
+
+  const namingError = validateAssetFileName(uploadFile.fileName, assetType);
+  if (namingError) {
+    const message =
+      uploadFileName === file.fileName
+        ? `${namingError}: ${file.fileName}`
+        : `${namingError}: ${file.fileName} (normalized to ${uploadFileName})`;
+    await recordEvent({
+      requestId,
+      creativeId: existing.id,
+      notionTaskId: existing.notion_task_id,
+      action: "retry_upload",
+      status: "failed",
+      error: message,
+      metadata: { fileName: file.fileName, uploadFileName }
+    });
+    throw new Error(message);
+  }
+
+  await upsertCreative({
+    ...baseInput,
+    status: DB_STATUS.UPLOADING,
+    assetType
+  });
+
+  try {
+    const uploaded = await uploadCreativeAsset(uploadFile, requestId);
+    const uploadedCreative = await upsertCreative({
+      ...baseInput,
+      status: DB_STATUS.READY_TO_LAUNCH,
+      assetId: uploaded.assetId,
+      assetType: uploaded.assetType,
+      previewUrl: uploaded.previewUrl,
+      uploadedAt: new Date()
+    });
+    const updatedCreative = await generateInitialCopyForCreative(uploadedCreative, baseInput, requestId);
+
+    await updateUploadSuccess(existing.notion_task_id, {
+      assetId: uploaded.assetId,
+      assetType: uploaded.assetType,
+      previewUrl: uploaded.previewUrl
+    });
+    await recordEvent({
+      requestId,
+      creativeId: updatedCreative.id,
+      notionTaskId: existing.notion_task_id,
+      action: "retry_upload",
+      status: "success",
+      metadata: { assetId: uploaded.assetId, assetType: uploaded.assetType, fileName: file.fileName, uploadFileName }
+    });
+    return updatedCreative;
+  } catch (error) {
+    const message = getErrorMessage(error);
+    await upsertCreative({
+      ...baseInput,
+      status: DB_STATUS.UPLOAD_FAILED,
+      assetType
+    });
+    await recordEvent({
+      requestId,
+      creativeId: existing.id,
+      notionTaskId: existing.notion_task_id,
+      action: "retry_upload",
+      status: "failed",
+      error: message,
+      metadata: { fileName: file.fileName, uploadFileName }
+    });
+    throw error;
+  }
+}
+
 export type LaunchPlacementInput = {
   campaignId?: string;
   campaignName?: string;

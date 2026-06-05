@@ -494,6 +494,14 @@ export async function moveCreativeToReady(id: number): Promise<Creative> {
   return response.creative;
 }
 
+export async function retryCreativeUpload(id: number): Promise<Creative> {
+  const response = await apiFetch<{ creative: Creative }>(`/api/creatives/${id}/retry-upload`, {
+    method: "POST",
+    body: JSON.stringify({})
+  });
+  return response.creative;
+}
+
 export async function updateCreative(id: number, payload: CreativeUpdateRequest): Promise<Creative> {
   const response = await apiFetch<{ creative: Creative }>(`/api/creatives/${id}`, {
     method: "PATCH",

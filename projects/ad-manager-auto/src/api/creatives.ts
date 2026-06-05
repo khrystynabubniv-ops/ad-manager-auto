@@ -19,6 +19,7 @@ import { cleanTextSequence, normalizeCtaType, normalizeCtaTypeSequence } from ".
 import { creativeGroupingForFileName } from "../utils/assetNaming.js";
 import { CreativeAssetPlacement } from "../types.js";
 import { AppError } from "../utils/errors.js";
+import { retryCreativeAssetUpload } from "../services/pipeline.js";
 
 export const creativesRouter = Router();
 
@@ -331,6 +332,20 @@ creativesRouter.post("/:id/ready", requireAuth, async (req, res, next) => {
     });
 
     const creative = await updateCreativeStatus(id, DB_STATUS.READY_TO_LAUNCH);
+    res.json({ creative });
+  } catch (error) {
+    next(error);
+  }
+});
+
+creativesRouter.post("/:id/retry-upload", requireAuth, async (req, res, next) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id)) {
+      throw new AppError("Invalid creative id", { statusCode: 400, code: "INVALID_CREATIVE_ID" });
+    }
+
+    const creative = await retryCreativeAssetUpload(id, req.id as string | undefined);
     res.json({ creative });
   } catch (error) {
     next(error);
